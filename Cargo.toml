@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+
+members = [
+    "gaise-core", "gaise-provider-vertexai", "gaise-provider-ollama", "gaise-provider-openai", "gaise-provider-bedrock", "gaise-chatbot", "gaise-api",
+]
+
+#[dependencies]
+#gaise-provider-vertexai   = { path = "./gaise-provider-vertexai",   optional = true }
+#gaise-provider-ollama     = { path = "./gaise-provider-ollama",     optional = true }
+#gaise-provider-openai     = { path = "./gaise-provider-openai",     optional = true }
+#gaise-provider-bedrock    = { path = "./gaise-provider-bedrock",    optional = true }
+
+#[features]
+#default = ["bedrock"]               # pick a sensible default, or none
+#bedrock = ["dep:gaise-provider-bedrock"]
+#vertexai = ["dep:gaise-provider-vertexai"]
+#ollama = ["dep:gaise-provider-ollama"]
+#openai = ["dep:gaise-provider-openai"]
+
+# If you want to support “compile all providers”
+#all = ["bedrock", "vertexai", "ollama", "openai"]
