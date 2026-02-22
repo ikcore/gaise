@@ -21,6 +21,8 @@ use gaise_provider_vertexai::vertexai_client::GaiseClientVertexAI;
 use gaise_provider_openai::openai_client::GaiseClientOpenAI;
 #[cfg(feature = "bedrock")]
 use gaise_provider_bedrock::bedrock_client::GaiseClientBedrock;
+#[cfg(feature = "anthropic")]
+use gaise_provider_anthropic::anthropic_client::GaiseClientAnthropic;
 #[cfg(feature = "vertexai")]
 pub use gaise_provider_vertexai::contracts::ServiceAccount;
 
@@ -46,6 +48,12 @@ pub struct GaiseClientConfig {
     /// AWS Region for Bedrock.
     #[cfg(feature = "bedrock")]
     pub bedrock_region: Option<String>,
+    /// API URL for Anthropic (e.g., "https://api.anthropic.com/v1").
+    #[cfg(feature = "anthropic")]
+    pub anthropic_api_url: Option<String>,
+    /// API key for Anthropic.
+    #[cfg(feature = "anthropic")]
+    pub anthropic_api_key: Option<String>,
     /// Optional logger for requests and responses.
     pub logger: Option<Arc<dyn IGaiseLogger>>,
 }
@@ -75,7 +83,7 @@ impl GaiseClientService {
 
     /// Retrieves an existing client for the specified provider or initializes a new one.
     ///
-    /// Supported providers: "ollama", "vertexai", "openai", "bedrock".
+    /// Supported providers: "ollama", "vertexai", "openai", "bedrock", "anthropic".
     pub async fn get_client(&self, provider: &str) -> Result<Arc<dyn GaiseClient>, Box<dyn std::error::Error + Send + Sync>> {
         {
             let clients = self.clients.read().await;
@@ -111,6 +119,12 @@ impl GaiseClientService {
                     }
                 }
                 Arc::new(GaiseClientBedrock::new().await)
+            }
+            #[cfg(feature = "anthropic")]
+            "anthropic" => {
+                let url = self.config.anthropic_api_url.as_deref().unwrap_or("https://api.anthropic.com/v1");
+                let key = self.config.anthropic_api_key.as_deref().ok_or("Anthropic API Key not configured")?;
+                Arc::new(GaiseClientAnthropic::new(url.to_string(), key.to_string()))
             }
             _ => return Err(format!("Unknown or disabled provider: {}", provider).into()),
         };
