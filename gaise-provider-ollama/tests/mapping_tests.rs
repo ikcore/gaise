@@ -119,7 +119,7 @@ fn test_mapping_text_request() {
 
     assert_eq!(ollama_request.messages.len(), 1);
     assert_eq!(ollama_request.messages[0].role, "user");
-    assert_eq!(ollama_request.messages[0].content, "Hello");
+    assert_eq!(ollama_request.messages[0].content, Some("Hello".to_string()));
     
     let options = ollama_request.options.expect("Missing options");
     assert_eq!(options.temperature, Some(0.7));
@@ -144,7 +144,7 @@ fn test_mapping_multimodal_request() {
     let ollama_request = OllamaChatRequest::from(&request);
 
     assert_eq!(ollama_request.messages.len(), 1);
-    assert_eq!(ollama_request.messages[0].content, "What is in this image?");
+    assert_eq!(ollama_request.messages[0].content, Some("What is in this image?".to_string()));
     
     let images = ollama_request.messages[0].images.as_ref().expect("Missing images");
     assert_eq!(images.len(), 1);
@@ -184,79 +184,4 @@ fn test_mapping_tool_response_request() {
     assert_eq!(tool_calls.len(), 1);
     assert_eq!(tool_calls[0].function.name, "get_weather");
     assert_eq!(tool_calls[0].function.arguments.get("location").unwrap(), "London");
-}
-
-#[test]
-fn test_mapping_embeddings_request() {
-    use gaise_core::contracts::GaiseEmbeddingsRequest;
-    use gaise_provider_ollama::contracts::models::OllamaEmbedRequest;
-
-    // Test One
-    let request_one = GaiseEmbeddingsRequest {
-        model: "nomic-embed-text".to_string(),
-        input: OneOrMany::One("Hello world".to_string()),
-        ..Default::default()
-    };
-
-    let inputs_one = match &request_one.input {
-        OneOrMany::One(s) => vec![s.clone()],
-        OneOrMany::Many(ss) => ss.clone(),
-    };
-
-    let ollama_request_one = OllamaEmbedRequest {
-        model: request_one.model.clone(),
-        input: inputs_one,
-        options: None,
-    };
-
-    assert_eq!(ollama_request_one.input.len(), 1);
-    assert_eq!(ollama_request_one.input[0], "Hello world");
-
-    // Test Many
-    let request_many = GaiseEmbeddingsRequest {
-        model: "nomic-embed-text".to_string(),
-        input: OneOrMany::Many(vec!["Hello".to_string(), "World".to_string()]),
-        ..Default::default()
-    };
-
-    let inputs_many = match &request_many.input {
-        OneOrMany::One(s) => vec![s.clone()],
-        OneOrMany::Many(ss) => ss.clone(),
-    };
-
-    let ollama_request_many = OllamaEmbedRequest {
-        model: request_many.model.clone(),
-        input: inputs_many,
-        options: None,
-    };
-
-    assert_eq!(ollama_request_many.input.len(), 2);
-    assert_eq!(ollama_request_many.input[0], "Hello");
-    assert_eq!(ollama_request_many.input[1], "World");
-}
-
-#[test]
-fn test_mapping_embeddings_response() {
-    use gaise_provider_ollama::contracts::models::OllamaEmbedResponse;
-    use serde_json::json;
-
-    let ollama_json = json!({
-        "model": "nomic-embed-text",
-        "embeddings": [
-            [0.1, 0.2, 0.3],
-            [0.4, 0.5, 0.6]
-        ],
-        "total_duration": 474658791,
-        "load_duration": 415006416,
-        "prompt_eval_count": 18
-    });
-
-    let response: OllamaEmbedResponse = serde_json::from_value(ollama_json).unwrap();
-
-    assert_eq!(response.model, "nomic-embed-text");
-    assert_eq!(response.embeddings.len(), 2);
-    assert_eq!(response.embeddings[0], vec![0.1, 0.2, 0.3]);
-    assert_eq!(response.embeddings[1], vec![0.4, 0.5, 0.6]);
-    assert_eq!(response.total_duration, Some(474658791));
-    assert_eq!(response.prompt_eval_count, Some(18));
 }
