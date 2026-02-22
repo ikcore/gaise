@@ -14,6 +14,8 @@ async fn main() {
     let openai_api_url = std::env::var("OPENAI_API_URL").ok();
     let openai_api_key = std::env::var("OPENAI_API_KEY").ok();
     let bedrock_region = std::env::var("BEDROCK_REGION").ok();
+    let anthropic_api_url = std::env::var("ANTHROPIC_API_URL").ok();
+    let anthropic_api_key = std::env::var("ANTHROPIC_API_KEY").ok();
 
     let vertexai_sa = vertexai_sa_path.and_then(|path| {
         let sa_json = std::fs::read_to_string(path).ok()?;
@@ -27,6 +29,8 @@ async fn main() {
         openai_api_url,
         openai_api_key,
         bedrock_region,
+        anthropic_api_url,
+        anthropic_api_key,
         logger: Some(Arc::new(ConsoleGaiseLogger::default())),
     };
 
