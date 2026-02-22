@@ -1,6 +1,6 @@
 # gaise-client
 
-`gaise-client` is a provider aggregator for the GAISe (Generative AI Service) project. It allows you to use multiple AI providers (OpenAI, VertexAI, Ollama) through a single interface, routing requests based on a model naming convention.
+`gaise-client` is a provider aggregator for the GAISe (Generative AI Service) project. It allows you to use multiple AI providers (OpenAI, VertexAI, Ollama, Bedrock, Anthropic) through a single interface, routing requests based on a model naming convention.
 
 ## Features
 
@@ -17,6 +17,8 @@
 - `openai`: Enables the OpenAI provider.
 - `vertexai`: Enables the Google VertexAI provider.
 - `ollama`: Enables the Ollama provider.
+- `bedrock`: Enables the AWS Bedrock provider.
+- `anthropic`: Enables the Anthropic Claude provider.
 
 To use only specific providers, disable default features in your `Cargo.toml`:
 
@@ -30,6 +32,8 @@ gaise-client = { version = "0.1.0", default-features = false, features = ["opena
 - `openai`
 - `vertexai`
 - `ollama`
+- `bedrock`
+- `anthropic`
 
 ## Usage
 

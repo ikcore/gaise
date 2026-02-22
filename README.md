@@ -37,6 +37,7 @@ Written by: Ian Knowles
 | **VertexAI** | `gaise-provider-vertexai` | Google Cloud's Generative AI platform. |
 | **OpenAI** | `gaise-provider-openai` | OpenAI's API integration. |
 | **Bedrock** | `gaise-provider-bedrock` | AWS Bedrock's Generative AI platform. |
+| **Anthropic** | `gaise-provider-anthropic` | Anthropic's Claude API integration. |
 
 ## Installation
 
@@ -46,10 +47,11 @@ Add the following to your `Cargo.toml`:
 [dependencies]
 gaise-core = { path = "./gaise-core" }
 gaise-provider-ollama = { path = "./gaise-provider-ollama" }
-# Or bedrock, vertexai, openai
+# Or bedrock, vertexai, openai, anthropic
 # gaise-provider-bedrock = { path = "./gaise-provider-bedrock" }
 # gaise-provider-vertexai = { path = "./gaise-provider-vertexai" }
 # gaise-provider-openai = { path = "./gaise-provider-openai" }
+# gaise-provider-anthropic = { path = "./gaise-provider-anthropic" }
 tokio = { version = "1", features = ["full"] }
 ```
 
@@ -161,13 +163,45 @@ use gaise_provider_bedrock::GaiseClientBedrock;
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Bedrock client uses default AWS configuration
     let client = GaiseClientBedrock::new().await;
-    
+
     let request = GaiseInstructRequest {
         model: "amazon.titan-text-express-v1".to_string(),
         input: OneOrMany::One(GaiseMessage {
             role: "user".to_string(),
             content: Some(OneOrMany::One(GaiseContent::Text {
                 text: "Hello from Bedrock!".to_string(),
+            })),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let response = client.instruct(&request).await?;
+    // ... handle response ...
+    Ok(())
+}
+```
+
+### Anthropic Claude Example
+
+```rust
+use gaise_core::GaiseClient;
+use gaise_core::contracts::{GaiseInstructRequest, OneOrMany, GaiseMessage, GaiseContent};
+use gaise_provider_anthropic::anthropic_client::GaiseClientAnthropic;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let client = GaiseClientAnthropic::new(
+        "https://api.anthropic.com/v1".to_string(),
+        "your-api-key".to_string(),
+    );
+
+    let request = GaiseInstructRequest {
+        model: "claude-3-5-sonnet-20241022".to_string(),
+        input: OneOrMany::One(GaiseMessage {
+            role: "user".to_string(),
+            content: Some(OneOrMany::One(GaiseContent::Text {
+                text: "Hello Claude!".to_string(),
             })),
             ..Default::default()
         }),
@@ -324,6 +358,7 @@ let request = GaiseInstructRequest {
 - `gaise-provider-vertexai`: VertexAI implementation of the `GaiseClient`.
 - `gaise-provider-openai`: OpenAI implementation of the `GaiseClient`.
 - `gaise-provider-bedrock`: AWS Bedrock implementation of the `GaiseClient`.
+- `gaise-provider-anthropic`: Anthropic Claude implementation of the `GaiseClient`.
 - `gaise-chatbot`: A sample CLI chatbot application using GAISe.
 
 ---
