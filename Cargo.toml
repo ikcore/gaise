@@ -2,7 +2,7 @@
 resolver = "2"
 
 members = [
-    "gaise-core", "gaise-provider-vertexai", "gaise-provider-ollama", "gaise-provider-openai", "gaise-provider-bedrock", "gaise-chatbot", "gaise-api",
+    "gaise-core", "gaise-provider-vertexai", "gaise-provider-ollama", "gaise-provider-openai", "gaise-provider-bedrock", "gaise-provider-anthropic", "gaise-chatbot", "gaise-api",
 ]
 
 #[dependencies]
