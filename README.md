@@ -5,7 +5,8 @@
 
 GAISe is a Rust-based abstraction service that standardizes requests and responses across multiple Generative AI service providers. It allows you to write your application once and easily switch between providers like OpenAI, VertexAI, and Ollama.
 
-Written by: Ian Knowles
+Written by: Ian Knowles<br>
+Project page: [BadAI Project Page](https://badai.company/open-source/gaise)
 
 ## Table of Contents
 - [Features](#features)
