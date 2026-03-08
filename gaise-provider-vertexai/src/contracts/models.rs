@@ -72,9 +72,9 @@ pub struct GooglePart {
     pub text: Option<String>,
     #[serde(rename = "inlineData", skip_serializing_if = "Option::is_none")]
     pub inline_data: Option<GoogleInlineData>,
-    #[serde(rename = "toolCall", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "functionCall", skip_serializing_if = "Option::is_none")]
     pub tool_call: Option<GoogleFunctionCall>,
-    #[serde(rename = "toolResponse", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "functionResponse", skip_serializing_if = "Option::is_none")]
     pub tool_response: Option<GoogleToolResponse>,
 }
 
@@ -87,7 +87,13 @@ pub struct GoogleFunctionCall {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct GoogleToolResponse {
     pub name: String,
-    pub response: serde_json::Value,
+    pub response: GoogleFunctionResponseData,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct GoogleFunctionResponseData {
+    pub name: String,
+    pub content: serde_json::Value,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -297,7 +303,10 @@ impl GoogleInstructRequest {
                         tool_call: None,
                         tool_response: Some(GoogleToolResponse {
                             name: tool_call_id.clone(),
-                            response: response_val,
+                            response: GoogleFunctionResponseData {
+                                name: tool_call_id.clone(),
+                                content: response_val,
+                            },
                         }),
                     });
                 }
@@ -527,8 +536,8 @@ pub fn to_gaise_role(input:&str) -> Option<String> {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct GoogleChatCompletionResponse {
     pub candidates: Vec<GoogleCandidate>,
-    #[serde(rename="usageMetadata")]
-    pub usage_metadata: GoogleUsageMetadata,
+    #[serde(rename="usageMetadata", default)]
+    pub usage_metadata: Option<GoogleUsageMetadata>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -543,28 +552,29 @@ impl GoogleChatCompletionResponse {
     pub fn to_stream_view(&self) -> Vec<GaiseInstructStreamResponse> {
         let mut responses = Vec::new();
 
-        let usage = &self.usage_metadata;
-        let mut input = std::collections::HashMap::new();
-        if let Some(v) = usage.prompt_token_count {
-            input.insert("prompt_tokens".to_string(), v);
-        }
+        if let Some(usage) = &self.usage_metadata {
+            let mut input = std::collections::HashMap::new();
+            if let Some(v) = usage.prompt_token_count {
+                input.insert("prompt_tokens".to_string(), v);
+            }
 
-        let mut output = std::collections::HashMap::new();
-        if let Some(v) = usage.candidates_token_count {
-            output.insert("candidates_tokens".to_string(), v);
-        }
-        if let Some(v) = usage.total_token_count {
-            output.insert("total_tokens".to_string(), v);
-        }
+            let mut output = std::collections::HashMap::new();
+            if let Some(v) = usage.candidates_token_count {
+                output.insert("candidates_tokens".to_string(), v);
+            }
+            if let Some(v) = usage.total_token_count {
+                output.insert("total_tokens".to_string(), v);
+            }
 
-        if !input.is_empty() || !output.is_empty() {
-            responses.push(GaiseInstructStreamResponse {
-                chunk: GaiseStreamChunk::Usage(GaiseUsage {
-                    input: if input.is_empty() { None } else { Some(input) },
-                    output: if output.is_empty() { None } else { Some(output) },
-                }),
-                external_id: None,
-            });
+            if !input.is_empty() || !output.is_empty() {
+                responses.push(GaiseInstructStreamResponse {
+                    chunk: GaiseStreamChunk::Usage(GaiseUsage {
+                        input: if input.is_empty() { None } else { Some(input) },
+                        output: if output.is_empty() { None } else { Some(output) },
+                    }),
+                    external_id: None,
+                });
+            }
         }
 
         for candidate in &self.candidates {
@@ -650,7 +660,7 @@ pub struct GoogleEmbeddingsResponse {
 impl GoogleEmbeddingsResponse {
     pub fn to_view(&self) -> GaiseEmbeddingsResponse {
         GaiseEmbeddingsResponse {
-            output: self.predictions.clone().into_iter().map(|x| x.embeddings.unwrap().values ).collect(),
+            output: self.predictions.iter().filter_map(|x| x.embeddings.as_ref().map(|e| e.values.clone())).collect(),
             external_id: None,
             usage: None,
         }

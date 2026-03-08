@@ -184,18 +184,19 @@ impl GaiseClient for GaiseClientVertexAI {
         }
         let client = reqwest::Client::builder()
             .danger_accept_invalid_certs(true)
-            .build().unwrap();
+            .build()?;
         let res = client.post(&url)
             .header("Authorization", "Bearer ".to_owned() + &token)
             .header("Content-type", "application/json")
             .body(json)
             .send()
             .await
-            .expect("failed to get response");
+            .map_err(|e| format!("embeddings request failed: {e}"))?;
 
-        let res_wrapper = res.text();
-        let res_json = res_wrapper.await.expect("failed to get payload");
-        let response:GoogleEmbeddingsResponse = serde_json::from_str(&res_json)?;
+        let res_json = res.text().await
+            .map_err(|e| format!("embeddings response body read failed: {e}"))?;
+        let response: GoogleEmbeddingsResponse = serde_json::from_str(&res_json)
+            .map_err(|e| format!("embeddings response parse failed: {e} — body: {}", &res_json[..res_json.len().min(500)]))?;
         let response_view = response.to_view();
 
         Ok(response_view)
