@@ -157,33 +157,73 @@ impl GaiseClient for GaiseClientVertexAI {
         }
 
         let stream = res.bytes_stream();
-        let event_stream = stream.map(|chunk_res| {
-            let chunk = chunk_res.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-            let text = String::from_utf8_lossy(&chunk);
-            
-            // Vertex AI SSE format: data: {...}
-            let mut results = Vec::new();
-            for line in text.lines() {
-                if let Some(json_str) = line.strip_prefix("data: ") {
-                    let response: GoogleChatCompletionResponse = serde_json::from_str(json_str)
-                        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
-                    
-                    for r in response.to_stream_view() {
-                        results.push(Ok(r));
+
+        // Buffer SSE data across TCP chunks — a single `data: {...}` line
+        // can be split across multiple chunks.
+        let buffered_stream = futures_util::stream::unfold(
+            (stream, String::new()),
+            |(mut stream, mut buf)| async move {
+                use futures_util::StreamExt as _;
+                loop {
+                    // Try to extract complete lines from the buffer
+                    let mut results = Vec::new();
+                    while let Some(newline_pos) = buf.find('\n') {
+                        let line = buf[..newline_pos].trim_end_matches('\r').to_string();
+                        buf = buf[newline_pos + 1..].to_string();
+
+                        if let Some(json_str) = line.strip_prefix("data: ") {
+                            match serde_json::from_str::<GoogleChatCompletionResponse>(json_str) {
+                                Ok(response) => {
+                                    for r in response.to_stream_view() {
+                                        results.push(Ok(r));
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("[vertexai-stream] parse failed: {e}; json preview: {}...", &json_str[..json_str.len().min(200)]);
+                                    results.push(Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>));
+                                }
+                            }
+                        }
+                    }
+
+                    if !results.is_empty() {
+                        return Some((futures_util::stream::iter(results), (stream, buf)));
+                    }
+
+                    // Need more data
+                    match stream.next().await {
+                        Some(Ok(chunk)) => {
+                            let text = String::from_utf8_lossy(&chunk);
+                            buf.push_str(&text);
+                        }
+                        Some(Err(e)) => {
+                            let err: Box<dyn std::error::Error + Send + Sync> = Box::new(e);
+                            return Some((
+                                futures_util::stream::iter(vec![Err(err)]),
+                                (stream, buf),
+                            ));
+                        }
+                        None => {
+                            // Stream ended — flush any remaining buffered data
+                            let trimmed = buf.trim();
+                            if let Some(json_str) = trimmed.strip_prefix("data: ") {
+                                if let Ok(response) = serde_json::from_str::<GoogleChatCompletionResponse>(json_str) {
+                                    let results: Vec<Result<GaiseInstructStreamResponse, Box<dyn std::error::Error + Send + Sync>>> =
+                                        response.to_stream_view().into_iter().map(Ok).collect();
+                                    if !results.is_empty() {
+                                        return Some((futures_util::stream::iter(results), (stream, String::new())));
+                                    }
+                                }
+                            }
+                            return None;
+                        }
                     }
                 }
-            }
-            Ok(futures_util::stream::iter(results))
-        });
+            },
+        )
+        .flatten();
 
-        let flattened_stream = event_stream
-            .map(|res| match res {
-                Ok(s) => s.left_stream(),
-                Err(e) => futures_util::stream::iter(vec![Err(e)]).right_stream(),
-            })
-            .flatten();
-
-        Ok(Box::pin(flattened_stream))
+        Ok(Box::pin(buffered_stream))
     }
 
     async fn instruct(&self, request:&GaiseInstructRequest) -> Result<GaiseInstructResponse, Box<dyn std::error::Error + Send + Sync>> {
@@ -226,8 +266,6 @@ impl GaiseClient for GaiseClientVertexAI {
             .await
             .map_err(|e| format!("no google access token: {e}"))?;
 
-        println!("{}\n{}", url, json);
-
         let client = reqwest::Client::builder()
             .danger_accept_invalid_certs(true)
             .build()?;
@@ -237,11 +275,12 @@ impl GaiseClient for GaiseClientVertexAI {
             .body(json)
             .send()
             .await
-            .expect("failed to get response");
+            .map_err(|e| format!("embeddings request failed: {e}"))?;
 
-        let res_wrapper = res.text();
-        let res_json = res_wrapper.await.expect("failed to get payload");
-        let response:GoogleEmbeddingsResponse = serde_json::from_str(&res_json)?;
+        let res_json = res.text().await
+            .map_err(|e| format!("embeddings response body read failed: {e}"))?;
+        let response: GoogleEmbeddingsResponse = serde_json::from_str(&res_json)
+            .map_err(|e| format!("embeddings response parse failed: {e} — body: {}", &res_json[..res_json.len().min(500)]))?;
         let response_view = response.to_view();
 
         Ok(response_view)
