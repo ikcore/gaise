@@ -1,15 +1,24 @@
 [package]
-name = "gaise-core"
-version = "0.1.0"
-edition = "2024"
+name = "gaise"
+description = "Core trait and contracts for GAISe — a unified GenAI provider abstraction"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lib]
+name = "gaise_core"
+path = "src/lib.rs"
 
 [dependencies]
-serde_json = "1.0.145"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_bytes = "0.11.19"
-async-trait = "0.1.89"
-mockall = "0.14.0"
-futures-util = "0.3.31"
+serde_json.workspace = true
+serde.workspace = true
+serde_bytes.workspace = true
+async-trait.workspace = true
+futures-util.workspace = true
+mockall = "0.14"
 
 [dev-dependencies]
-tokio = { version = "1.43.0", features = ["full"] }
+tokio.workspace = true

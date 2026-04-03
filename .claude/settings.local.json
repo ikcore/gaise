@@ -21,7 +21,8 @@
       "Bash(curl -s \"https://platform.openai.com/docs/guides/realtime\")",
       "Bash(curl -sL \"https://raw.githubusercontent.com/openai/openai-openapi/master/openapi.yaml\")",
       "WebFetch(domain:openai.com)",
-      "WebFetch(domain:crates.io)"
+      "WebFetch(domain:crates.io)",
+      "Bash(cargo publish:*)"
     ]
   }
 }

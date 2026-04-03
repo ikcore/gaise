@@ -1,22 +1,27 @@
 [package]
 name = "gaise-client"
-version = "0.1.0"
-edition = "2024"
+description = "Provider router for GAISe — routes 'provider::model' strings to the correct GenAI provider"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
-gaise-core = { path = "../gaise-core" }
-gaise-provider-ollama = { path = "../gaise-provider-ollama", optional = true }
-gaise-provider-vertexai = { path = "../gaise-provider-vertexai", optional = true }
-gaise-provider-openai = { path = "../gaise-provider-openai", optional = true }
-gaise-provider-bedrock = { path = "../gaise-provider-bedrock", optional = true }
-gaise-provider-anthropic = { path = "../gaise-provider-anthropic", optional = true }
-gaise-provider-gemini = { path = "../gaise-provider-gemini", optional = true }
+gaise-core.workspace = true
+gaise-provider-ollama = { workspace = true, optional = true }
+gaise-provider-vertexai = { workspace = true, optional = true }
+gaise-provider-openai = { workspace = true, optional = true }
+gaise-provider-bedrock = { workspace = true, optional = true }
+gaise-provider-anthropic = { workspace = true, optional = true }
+gaise-provider-gemini = { workspace = true, optional = true }
 
-async-trait = "0.1.89"
-tokio = { version = "1.32.0", features = ["full"] }
-futures-util = "0.3.31"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.145"
+async-trait.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [features]
 default = ["ollama", "vertexai", "openai", "bedrock", "anthropic", "gemini"]
