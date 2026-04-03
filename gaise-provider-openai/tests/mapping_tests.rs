@@ -127,7 +127,7 @@ fn test_mapping_text_request() {
     }
     
     assert_eq!(openai_request.temperature, Some(0.7));
-    assert_eq!(openai_request.max_tokens, Some(100));
+    assert_eq!(openai_request.max_completion_tokens, Some(100));
 }
 
 #[test]
@@ -231,4 +231,70 @@ fn test_mapping_tool_response_request() {
 
     assert_eq!(openai_request.messages[2].role, "tool");
     assert_eq!(openai_request.messages[2].tool_call_id, Some("call_123".to_string()));
+}
+
+#[test]
+fn test_mapping_reasoning_effort() {
+    let request = GaiseInstructRequest {
+        model: "o3".to_string(),
+        input: OneOrMany::One(GaiseMessage {
+            role: "user".to_string(),
+            content: Some(OneOrMany::One(GaiseContent::Text { text: "Prove √2 is irrational".to_string() })),
+            ..Default::default()
+        }),
+        generation_config: Some(GaiseGenerationConfig {
+            thinking_effort: Some("high".to_string()),
+            max_tokens: Some(32000),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let openai_request = OpenAIChatRequest::from(&request);
+
+    assert_eq!(openai_request.reasoning_effort, Some("high".to_string()));
+    assert_eq!(openai_request.max_completion_tokens, Some(32000));
+}
+
+#[test]
+fn test_mapping_no_reasoning() {
+    let request = GaiseInstructRequest {
+        model: "gpt-4o".to_string(),
+        input: OneOrMany::One(GaiseMessage {
+            role: "user".to_string(),
+            content: Some(OneOrMany::One(GaiseContent::Text { text: "Hello".to_string() })),
+            ..Default::default()
+        }),
+        generation_config: Some(GaiseGenerationConfig {
+            max_tokens: Some(1000),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let openai_request = OpenAIChatRequest::from(&request);
+
+    assert_eq!(openai_request.reasoning_effort, None);
+    assert_eq!(openai_request.max_completion_tokens, Some(1000));
+}
+
+#[test]
+fn test_mapping_reasoning_effort_low() {
+    let request = GaiseInstructRequest {
+        model: "o4-mini".to_string(),
+        input: OneOrMany::One(GaiseMessage {
+            role: "user".to_string(),
+            content: Some(OneOrMany::One(GaiseContent::Text { text: "Quick question".to_string() })),
+            ..Default::default()
+        }),
+        generation_config: Some(GaiseGenerationConfig {
+            thinking_effort: Some("low".to_string()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let openai_request = OpenAIChatRequest::from(&request);
+
+    assert_eq!(openai_request.reasoning_effort, Some("low".to_string()));
 }

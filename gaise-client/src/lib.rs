@@ -23,6 +23,8 @@ use gaise_provider_openai::openai_client::GaiseClientOpenAI;
 use gaise_provider_bedrock::bedrock_client::GaiseClientBedrock;
 #[cfg(feature = "anthropic")]
 use gaise_provider_anthropic::anthropic_client::GaiseClientAnthropic;
+#[cfg(feature = "gemini")]
+use gaise_provider_gemini::gemini_client::GaiseClientGemini;
 #[cfg(feature = "vertexai")]
 pub use gaise_provider_vertexai::contracts::ServiceAccount;
 
@@ -54,6 +56,12 @@ pub struct GaiseClientConfig {
     /// API key for Anthropic.
     #[cfg(feature = "anthropic")]
     pub anthropic_api_key: Option<String>,
+    /// API URL for Gemini (e.g., "https://generativelanguage.googleapis.com/v1beta").
+    #[cfg(feature = "gemini")]
+    pub gemini_api_url: Option<String>,
+    /// API key for Gemini.
+    #[cfg(feature = "gemini")]
+    pub gemini_api_key: Option<String>,
     /// Optional logger for requests and responses.
     pub logger: Option<Arc<dyn IGaiseLogger>>,
 }
@@ -125,6 +133,12 @@ impl GaiseClientService {
                 let url = self.config.anthropic_api_url.as_deref().unwrap_or("https://api.anthropic.com/v1");
                 let key = self.config.anthropic_api_key.as_deref().ok_or("Anthropic API Key not configured")?;
                 Arc::new(GaiseClientAnthropic::new(url.to_string(), key.to_string()))
+            }
+            #[cfg(feature = "gemini")]
+            "gemini" => {
+                let url = self.config.gemini_api_url.as_deref().unwrap_or("https://generativelanguage.googleapis.com/v1beta");
+                let key = self.config.gemini_api_key.as_deref().ok_or("Gemini API Key not configured")?;
+                Arc::new(GaiseClientGemini::new(url.to_string(), key.to_string()))
             }
             _ => return Err(format!("Unknown or disabled provider: {}", provider).into()),
         };

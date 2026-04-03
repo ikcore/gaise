@@ -15,7 +15,16 @@ pub struct AnthropicRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<AnthropicThinking>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AnthropicThinking {
+    pub r#type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget_tokens: Option<usize>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]

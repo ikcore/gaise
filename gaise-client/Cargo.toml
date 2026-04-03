@@ -10,6 +10,7 @@ gaise-provider-vertexai = { path = "../gaise-provider-vertexai", optional = true
 gaise-provider-openai = { path = "../gaise-provider-openai", optional = true }
 gaise-provider-bedrock = { path = "../gaise-provider-bedrock", optional = true }
 gaise-provider-anthropic = { path = "../gaise-provider-anthropic", optional = true }
+gaise-provider-gemini = { path = "../gaise-provider-gemini", optional = true }
 
 async-trait = "0.1.89"
 tokio = { version = "1.32.0", features = ["full"] }
@@ -18,9 +19,10 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 
 [features]
-default = ["ollama", "vertexai", "openai", "bedrock", "anthropic"]
+default = ["ollama", "vertexai", "openai", "bedrock", "anthropic", "gemini"]
 ollama = ["dep:gaise-provider-ollama"]
 vertexai = ["dep:gaise-provider-vertexai"]
 openai = ["dep:gaise-provider-openai"]
 bedrock = ["dep:gaise-provider-bedrock"]
 anthropic = ["dep:gaise-provider-anthropic"]
+gemini = ["dep:gaise-provider-gemini"]

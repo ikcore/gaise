@@ -12,7 +12,9 @@ pub struct OpenAIChatRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_tokens: Option<usize>,
+    pub max_completion_tokens: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_cache_key: Option<String>,
     pub stream: bool,

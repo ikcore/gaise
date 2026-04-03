@@ -179,3 +179,73 @@ fn test_mapping_multimodal_request() {
         panic!("Expected blocks content");
     }
 }
+
+#[test]
+fn test_mapping_thinking_effort() {
+    let request = GaiseInstructRequest {
+        model: "claude-sonnet-4-6".to_string(),
+        input: OneOrMany::One(GaiseMessage {
+            role: "user".to_string(),
+            content: Some(OneOrMany::One(GaiseContent::Text { text: "Prove √2 is irrational".to_string() })),
+            ..Default::default()
+        }),
+        generation_config: Some(GaiseGenerationConfig {
+            thinking_effort: Some("high".to_string()),
+            max_tokens: Some(16000),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let anthropic_request = AnthropicRequest::from(&request);
+
+    let thinking = anthropic_request.thinking.expect("Missing thinking");
+    assert_eq!(thinking.r#type, "enabled");
+    assert_eq!(anthropic_request.max_tokens, 16000);
+}
+
+#[test]
+fn test_mapping_thinking_with_budget() {
+    let request = GaiseInstructRequest {
+        model: "claude-sonnet-4-5-20250929".to_string(),
+        input: OneOrMany::One(GaiseMessage {
+            role: "user".to_string(),
+            content: Some(OneOrMany::One(GaiseContent::Text { text: "Complex reasoning task".to_string() })),
+            ..Default::default()
+        }),
+        generation_config: Some(GaiseGenerationConfig {
+            thinking_effort: Some("medium".to_string()),
+            thinking_tokens: Some(10000),
+            max_tokens: Some(16000),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let anthropic_request = AnthropicRequest::from(&request);
+
+    let thinking = anthropic_request.thinking.expect("Missing thinking");
+    assert_eq!(thinking.r#type, "enabled");
+    assert_eq!(thinking.budget_tokens, Some(10000));
+}
+
+#[test]
+fn test_mapping_no_thinking() {
+    let request = GaiseInstructRequest {
+        model: "claude-sonnet-4-6".to_string(),
+        input: OneOrMany::One(GaiseMessage {
+            role: "user".to_string(),
+            content: Some(OneOrMany::One(GaiseContent::Text { text: "Hello".to_string() })),
+            ..Default::default()
+        }),
+        generation_config: Some(GaiseGenerationConfig {
+            max_tokens: Some(1000),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let anthropic_request = AnthropicRequest::from(&request);
+
+    assert!(anthropic_request.thinking.is_none());
+}

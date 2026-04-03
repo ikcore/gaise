@@ -1,0 +1,480 @@
+# GAISe Model Compatibility Registry
+# Last audited: 2026-04-03 (full audit)
+#
+# This file is the source of truth for model capabilities across providers.
+# The model-audit agent checks this against live provider APIs and flags drift.
+#
+# Fields:
+#   provider          - GAISe provider key (openai, anthropic, gemini, vertexai, ollama, bedrock)
+#   model             - Model ID as passed to the provider API
+#   reasoning         - Whether the model supports reasoning/thinking
+#   reasoning_values  - Accepted reasoning_effort / thinking_effort values
+#   reasoning_default - Default reasoning level (if reasoning is enabled)
+#   max_output_field  - The provider-native field name for max output tokens
+#   embeddings        - Whether the model supports embeddings
+#   streaming         - Whether the model supports streaming
+#   tools             - Whether the model supports function calling / tools
+#   status            - "ga" (generally available), "preview", "deprecated", "shutdown"
+#   shutdown_date     - ISO date when the model shuts down (if known)
+#   notes             - Anything non-obvious about this model
+
+# ──────────────────────────────────────────────────────────────────────
+# OpenAI
+# ──────────────────────────────────────────────────────────────────────
+
+[[models]]
+provider = "openai"
+model = "o3-mini"
+reasoning = true
+reasoning_values = ["low", "medium", "high"]
+reasoning_default = "medium"
+max_output_field = "max_completion_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+
+[[models]]
+provider = "openai"
+model = "o3"
+reasoning = true
+reasoning_values = ["low", "medium", "high"]
+reasoning_default = "medium"
+max_output_field = "max_completion_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+
+[[models]]
+provider = "openai"
+model = "o4-mini"
+reasoning = true
+reasoning_values = ["low", "medium", "high"]
+reasoning_default = "medium"
+max_output_field = "max_completion_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+
+[[models]]
+provider = "openai"
+model = "gpt-5"
+reasoning = true
+reasoning_values = ["minimal", "low", "medium", "high"]
+reasoning_default = "medium"
+max_output_field = "max_completion_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+
+[[models]]
+provider = "openai"
+model = "gpt-5-mini"
+reasoning = true
+reasoning_values = ["minimal", "low", "medium", "high"]
+reasoning_default = "medium"
+max_output_field = "max_completion_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+
+[[models]]
+provider = "openai"
+model = "gpt-5-nano"
+reasoning = true
+reasoning_values = ["minimal", "low", "medium", "high"]
+reasoning_default = "medium"
+max_output_field = "max_completion_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+
+[[models]]
+provider = "openai"
+model = "gpt-5.2"
+reasoning = true
+reasoning_values = ["none", "low", "medium", "high", "xhigh"]
+reasoning_default = "none"
+max_output_field = "max_completion_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+
+[[models]]
+provider = "openai"
+model = "gpt-5.4"
+reasoning = true
+reasoning_values = ["none", "low", "medium", "high", "xhigh"]
+reasoning_default = "none"
+max_output_field = "max_completion_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+
+[[models]]
+provider = "openai"
+model = "gpt-5.4-mini"
+reasoning = true
+reasoning_values = ["none", "low", "medium", "high"]
+reasoning_default = "none"
+max_output_field = "max_completion_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+
+[[models]]
+provider = "openai"
+model = "gpt-5.4-nano"
+reasoning = true
+reasoning_values = ["none", "low", "medium", "high"]
+reasoning_default = "none"
+max_output_field = "max_completion_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+
+[[models]]
+provider = "openai"
+model = "gpt-5.4-pro"
+reasoning = true
+reasoning_values = ["medium", "high", "xhigh"]
+reasoning_default = "medium"
+max_output_field = "max_completion_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+notes = "Responses API only. Not compatible with Chat Completions endpoint."
+
+[[models]]
+provider = "openai"
+model = "gpt-5.2-pro"
+reasoning = true
+reasoning_values = ["medium", "high", "xhigh"]
+reasoning_default = "medium"
+max_output_field = "max_completion_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+notes = "Responses API only."
+
+[[models]]
+provider = "openai"
+model = "gpt-5-pro"
+reasoning = true
+reasoning_values = ["high"]
+reasoning_default = "high"
+max_output_field = "max_completion_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+notes = "Responses API only. Only supports high effort."
+
+[[models]]
+provider = "openai"
+model = "o3-pro"
+reasoning = true
+reasoning_values = ["low", "medium", "high"]
+reasoning_default = "medium"
+max_output_field = "max_completion_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+notes = "Responses API only."
+
+[[models]]
+provider = "openai"
+model = "gpt-4o"
+reasoning = false
+max_output_field = "max_completion_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+notes = "reasoning_effort must NOT be sent — returns 400. Retired from ChatGPT Feb 13, 2026."
+
+[[models]]
+provider = "openai"
+model = "gpt-4o-mini"
+reasoning = false
+max_output_field = "max_completion_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+notes = "reasoning_effort must NOT be sent — returns 400. Retired from ChatGPT Feb 13, 2026."
+
+[[models]]
+provider = "openai"
+model = "gpt-4.1"
+reasoning = false
+max_output_field = "max_completion_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+notes = "Smartest non-reasoning model. reasoning_effort returns 400. Retired from ChatGPT Feb 13, 2026."
+
+[[models]]
+provider = "openai"
+model = "gpt-4.1-mini"
+reasoning = false
+max_output_field = "max_completion_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+
+[[models]]
+provider = "openai"
+model = "gpt-4.1-nano"
+reasoning = false
+max_output_field = "max_completion_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+
+[[models]]
+provider = "openai"
+model = "text-embedding-3-large"
+reasoning = false
+embeddings = true
+streaming = false
+tools = false
+status = "ga"
+
+[[models]]
+provider = "openai"
+model = "text-embedding-3-small"
+reasoning = false
+embeddings = true
+streaming = false
+tools = false
+status = "ga"
+
+# ──────────────────────────────────────────────────────────────────────
+# Anthropic
+# ──────────────────────────────────────────────────────────────────────
+
+[[models]]
+provider = "anthropic"
+model = "claude-opus-4-6"
+reasoning = true
+reasoning_values = ["low", "medium", "high", "max"]
+reasoning_default = "adaptive"
+max_output_field = "max_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+notes = "Prefers thinking.type=adaptive. 'max' effort is Opus 4.6 only. Budget optional."
+
+[[models]]
+provider = "anthropic"
+model = "claude-sonnet-4-6"
+reasoning = true
+reasoning_values = ["low", "medium", "high"]
+reasoning_default = "adaptive"
+max_output_field = "max_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+notes = "Prefers thinking.type=adaptive. Budget optional."
+
+[[models]]
+provider = "anthropic"
+model = "claude-sonnet-4-5-20250929"
+reasoning = true
+reasoning_values = ["low", "medium", "high"]
+max_output_field = "max_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+notes = "Uses thinking.type=enabled with budget_tokens required."
+
+[[models]]
+provider = "anthropic"
+model = "claude-haiku-4-5-20251001"
+reasoning = true
+max_output_field = "max_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+notes = "No adaptive thinking. Uses thinking.type=enabled with budget_tokens required only. No effort parameter support."
+
+[[models]]
+provider = "anthropic"
+model = "claude-sonnet-4-20250514"
+reasoning = true
+reasoning_values = ["low", "medium", "high"]
+max_output_field = "max_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+shutdown_date = "2026-05-14"
+notes = "Uses thinking.type=enabled with budget_tokens required."
+
+[[models]]
+provider = "anthropic"
+model = "claude-opus-4-5-20251101"
+reasoning = true
+reasoning_values = ["low", "medium", "high"]
+max_output_field = "max_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+shutdown_date = "2026-11-24"
+notes = "Uses thinking.type=enabled with budget_tokens required."
+
+[[models]]
+provider = "anthropic"
+model = "claude-opus-4-1-20250805"
+reasoning = true
+reasoning_values = ["low", "medium", "high"]
+max_output_field = "max_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+shutdown_date = "2026-08-05"
+notes = "Uses thinking.type=enabled with budget_tokens required."
+
+[[models]]
+provider = "anthropic"
+model = "claude-opus-4-20250514"
+reasoning = true
+reasoning_values = ["low", "medium", "high"]
+max_output_field = "max_tokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+shutdown_date = "2026-05-14"
+notes = "Uses thinking.type=enabled with budget_tokens required. Retiring in 41 days."
+
+# ──────────────────────────────────────────────────────────────────────
+# Gemini (via generativelanguage.googleapis.com/v1beta)
+# ──────────────────────────────────────────────────────────────────────
+
+[[models]]
+provider = "gemini"
+model = "gemini-3.1-pro-preview"
+reasoning = true
+reasoning_values = ["LOW", "MEDIUM", "HIGH"]
+reasoning_default = "HIGH"
+max_output_field = "maxOutputTokens"
+embeddings = false
+streaming = true
+tools = true
+status = "preview"
+notes = "v1beta only. Uses thinkingConfig.thinkingLevel. Cannot disable thinking."
+
+[[models]]
+provider = "gemini"
+model = "gemini-3-flash-preview"
+reasoning = true
+reasoning_values = ["MINIMAL", "LOW", "MEDIUM", "HIGH"]
+max_output_field = "maxOutputTokens"
+embeddings = false
+streaming = true
+tools = true
+status = "preview"
+notes = "v1beta only. Uses thinkingConfig.thinkingLevel."
+
+[[models]]
+provider = "gemini"
+model = "gemini-3.1-flash-lite-preview"
+reasoning = true
+reasoning_values = ["MINIMAL", "LOW", "MEDIUM", "HIGH"]
+max_output_field = "maxOutputTokens"
+embeddings = false
+streaming = true
+tools = true
+status = "preview"
+
+[[models]]
+provider = "gemini"
+model = "gemini-2.5-pro"
+reasoning = true
+reasoning_values = ["low", "medium", "high"]
+max_output_field = "maxOutputTokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+shutdown_date = "2026-06-17"
+notes = "Uses thinkingConfig.thinkingBudget (128-32768). Cannot disable."
+
+[[models]]
+provider = "gemini"
+model = "gemini-2.5-flash"
+reasoning = true
+reasoning_values = ["low", "medium", "high"]
+max_output_field = "maxOutputTokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+shutdown_date = "2026-06-17"
+notes = "Uses thinkingConfig.thinkingBudget (0-24576). 0 disables."
+
+[[models]]
+provider = "gemini"
+model = "gemini-2.5-flash-lite"
+reasoning = true
+reasoning_values = ["low", "medium", "high"]
+max_output_field = "maxOutputTokens"
+embeddings = false
+streaming = true
+tools = true
+status = "ga"
+shutdown_date = "2026-07-22"
+
+[[models]]
+provider = "gemini"
+model = "gemini-2.0-flash"
+reasoning = false
+max_output_field = "maxOutputTokens"
+embeddings = false
+streaming = true
+tools = true
+status = "deprecated"
+shutdown_date = "2026-06-01"
+
+[[models]]
+provider = "gemini"
+model = "gemini-embedding-001"
+reasoning = false
+embeddings = true
+streaming = false
+tools = false
+status = "ga"
+shutdown_date = "2026-07-14"
+
+[[models]]
+provider = "gemini"
+model = "gemini-embedding-2-preview"
+reasoning = false
+embeddings = true
+streaming = false
+tools = false
+status = "preview"
+notes = "Multimodal embeddings: text, image, video, audio, PDF."

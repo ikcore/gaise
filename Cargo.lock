@@ -1010,6 +1010,7 @@ dependencies = [
  "gaise-core",
  "gaise-provider-anthropic",
  "gaise-provider-bedrock",
+ "gaise-provider-gemini",
  "gaise-provider-ollama",
  "gaise-provider-openai",
  "gaise-provider-vertexai",
@@ -1057,6 +1058,20 @@ dependencies = [
  "bytes",
  "futures-util",
  "gaise-core",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "gaise-provider-gemini"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64",
+ "futures-util",
+ "gaise-core",
+ "reqwest 0.12.26",
  "serde",
  "serde_json",
  "tokio",

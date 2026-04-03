@@ -194,3 +194,36 @@ fn test_mapping_system_instruction() {
     assert_eq!(google_request.contents[0].role, "user");
     assert_eq!(google_request.contents[0].parts[0].text, Some("Hi".to_string()));
 }
+
+#[test]
+fn test_mapping_thinking_fields_ignored() {
+    // VertexAI currently passes through generation_config without thinking support.
+    // Verify thinking_effort/thinking_tokens don't break the mapping.
+    let request = GaiseInstructRequest {
+        model: "gemini-2.5-flash".to_string(),
+        input: OneOrMany::One(GaiseMessage {
+            role: "user".to_string(),
+            content: Some(OneOrMany::One(GaiseContent::Text { text: "Hello".to_string() })),
+            ..Default::default()
+        }),
+        generation_config: Some(GaiseGenerationConfig {
+            thinking_effort: Some("high".to_string()),
+            thinking_tokens: Some(10000),
+            max_tokens: Some(16000),
+            temperature: Some(0.5),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let google_request = GoogleInstructRequest::from(&request);
+
+    // Standard fields should still map correctly
+    let gen_config = google_request.generation_config.expect("Missing generation config");
+    assert_eq!(gen_config.max_output_tokens, Some(16000));
+    assert_eq!(gen_config.temperature, Some(0.5));
+
+    // Content should be present
+    assert_eq!(google_request.contents.len(), 1);
+    assert_eq!(google_request.contents[0].parts[0].text, Some("Hello".to_string()));
+}

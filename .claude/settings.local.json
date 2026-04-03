@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo clippy:*)",
+      "WebSearch",
+      "WebFetch(domain:ai.google.dev)",
+      "WebFetch(domain:firebase.google.com)",
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:platform.openai.com)",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:developers.openai.com)",
+      "WebFetch(domain:docs.cloud.google.com)",
+      "WebFetch(domain:community.openai.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(xargs grep:*)",
+      "Skill(schedule)",
+      "Bash(curl -s \"https://platform.openai.com/docs/api-reference/realtime\")",
+      "Bash(curl -s \"https://platform.openai.com/docs/guides/realtime\")",
+      "Bash(curl -sL \"https://raw.githubusercontent.com/openai/openai-openapi/master/openapi.yaml\")",
+      "WebFetch(domain:openai.com)",
+      "WebFetch(domain:crates.io)"
+    ]
+  }
+}

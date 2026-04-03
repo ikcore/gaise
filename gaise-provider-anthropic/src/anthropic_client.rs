@@ -159,6 +159,19 @@ impl From<&GaiseInstructRequest> for AnthropicRequest {
             });
         }
 
+        let thinking = request.generation_config.as_ref().and_then(|gc| {
+            gc.thinking_effort.as_ref().map(|effort| {
+                let thinking_type = match effort.as_str() {
+                    "low" | "medium" | "high" => "enabled".to_string(),
+                    other => other.to_string(),
+                };
+                AnthropicThinking {
+                    r#type: thinking_type,
+                    budget_tokens: gc.thinking_tokens,
+                }
+            })
+        });
+
         AnthropicRequest {
             model: request.model.clone(),
             messages: anthropic_messages,
@@ -168,6 +181,7 @@ impl From<&GaiseInstructRequest> for AnthropicRequest {
             system: system_prompt,
             temperature: request.generation_config.as_ref().and_then(|c| c.temperature),
             top_p: request.generation_config.as_ref().and_then(|c| c.top_p),
+            thinking,
             tools: request.tools.as_ref().map(|ts| ts.iter().map(|t| AnthropicTool::from(t.clone())).collect()),
             stream: Some(false),
         }

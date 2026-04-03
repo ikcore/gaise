@@ -185,3 +185,34 @@ fn test_mapping_tool_response_request() {
     assert_eq!(tool_calls[0].function.name, "get_weather");
     assert_eq!(tool_calls[0].function.arguments.get("location").unwrap(), "London");
 }
+
+#[test]
+fn test_mapping_thinking_fields_ignored() {
+    // Ollama doesn't support reasoning — verify thinking fields are gracefully ignored.
+    let request = GaiseInstructRequest {
+        model: "llama3.1".to_string(),
+        input: OneOrMany::One(GaiseMessage {
+            role: "user".to_string(),
+            content: Some(OneOrMany::One(GaiseContent::Text { text: "Hello".to_string() })),
+            ..Default::default()
+        }),
+        generation_config: Some(GaiseGenerationConfig {
+            thinking_effort: Some("high".to_string()),
+            thinking_tokens: Some(10000),
+            max_tokens: Some(100),
+            temperature: Some(0.7),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let ollama_request = OllamaChatRequest::from(&request);
+
+    // Standard fields should still map correctly
+    let options = ollama_request.options.expect("Missing options");
+    assert_eq!(options.num_predict, Some(100));
+    assert_eq!(options.temperature, Some(0.7));
+
+    // Content should be present
+    assert_eq!(ollama_request.messages[0].content, Some("Hello".to_string()));
+}

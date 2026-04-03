@@ -128,11 +128,8 @@ impl From<&GaiseInstructRequest> for OpenAIChatRequest {
             stream: false,
             temperature: request.generation_config.as_ref().and_then(|c| c.temperature),
             top_p: request.generation_config.as_ref().and_then(|c| c.top_p),
-            max_tokens: if request.model.starts_with("gpt-5") {
-                None
-            } else {
-                request.generation_config.as_ref().and_then(|c| c.max_tokens)
-            },
+            max_completion_tokens: request.generation_config.as_ref().and_then(|c| c.max_tokens),
+            reasoning_effort: request.generation_config.as_ref().and_then(|c| c.thinking_effort.clone()),
             prompt_cache_key: request.generation_config.as_ref().and_then(|c| c.cache_key.clone()),
             tools: request.tools.as_ref().map(|ts| ts.iter().map(|t| OpenAITool::from(t.clone())).collect()),
         }
