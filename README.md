@@ -1,77 +1,73 @@
 # GAISe (Generative AI Service)
 
+[![crates.io](https://img.shields.io/crates/v/gaise.svg)](https://crates.io/crates/gaise)
+[![docs.rs](https://docs.rs/gaise/badge.svg)](https://docs.rs/gaise)
 [![Rust](https://img.shields.io/badge/rust-1.91%2B-orange.svg)](https://www.rust-lang.org)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
-GAISe is a Rust-based abstraction service that standardizes requests and responses across multiple Generative AI service providers. It allows you to write your application once and easily switch between providers like OpenAI, VertexAI, and Ollama.
+GAISe is a Rust-based abstraction service that standardizes requests and responses across multiple Generative AI service providers. Write your application once and switch between OpenAI, Anthropic, Gemini, Vertex AI, Bedrock, and Ollama with a single model string change.
 
 Written by: Ian Knowles<br>
 Project page: [BadAI Project Page](https://badai.company/open-source/gaise)
 
-## Table of Contents
-- [Features](#features)
-- [Supported Providers](#supported-providers)
-- [Installation](#installation)
-- [Usage Examples](#usage-examples)
-  - [Basic Instruct Request](#basic-instruct-request)
-  - [Streaming Responses](#streaming-responses)
-  - [Embeddings](#embeddings)
-  - [Multi-modality (Images, Audio, Files)](#multi-modality-images-audio-files)
-  - [Tool Calling](#tool-calling)
-  - [Structured Responses (JSON Schema)](#structured-responses-json-schema)
-- [Logging and Correlation ID](#logging-and-correlation-id)
-- [Project Structure](#project-structure)
-
 ## Features
 
-- **Standardized API**: Unified models for Instruct, Streaming, and Embeddings.
-- **Provider Agnostic**: Switch between cloud (VertexAI) and local (Ollama) providers with minimal code changes.
+- **Standardized API**: Unified `GaiseClient` trait with `instruct`, `instruct_stream`, and `embeddings`.
+- **Provider Agnostic**: Switch between cloud and local providers by changing `"provider::model"` string.
+- **Reasoning / Thinking**: Unified `thinking_effort` and `thinking_tokens` mapped to each provider's native API.
 - **Multi-modal Support**: Handle Text, Images, Audio, and Files seamlessly.
-- **Tool Calling**: Support for function calling and tool integration.
-- **Async First**: Built on top of `tokio` and `async-trait`.
+- **Tool Calling**: Function calling / tool use across all providers that support it.
+- **Streaming**: SSE-based streaming with `GaiseStreamAccumulator` for chunk collection.
+- **Async First**: Built on `tokio` and `async-trait`.
 
 ## Supported Providers
 
-| Provider | Crate | Description |
-|----------|-------|-------------|
-| **Ollama** | `gaise-provider-ollama` | Local LLM execution. |
-| **VertexAI** | `gaise-provider-vertexai` | Google Cloud's Generative AI platform. |
-| **OpenAI** | `gaise-provider-openai` | OpenAI's API integration. |
-| **Bedrock** | `gaise-provider-bedrock` | AWS Bedrock's Generative AI platform. |
-| **Anthropic** | `gaise-provider-anthropic` | Anthropic's Claude API integration. |
+| Provider | Crate | Models |
+|----------|-------|--------|
+| **OpenAI** | [`gaise-provider-openai`](https://crates.io/crates/gaise-provider-openai) | GPT-5.x, GPT-4.x, o3, o4-mini |
+| **Anthropic** | [`gaise-provider-anthropic`](https://crates.io/crates/gaise-provider-anthropic) | Claude Opus/Sonnet/Haiku 4.x (extended thinking) |
+| **Gemini** | [`gaise-provider-gemini`](https://crates.io/crates/gaise-provider-gemini) | Gemini 3.x, 2.5 (thinking, tools, embeddings) |
+| **Vertex AI** | [`gaise-provider-vertexai`](https://crates.io/crates/gaise-provider-vertexai) | Gemini models via Google Cloud |
+| **Bedrock** | [`gaise-provider-bedrock`](https://crates.io/crates/gaise-provider-bedrock) | Claude, Titan via AWS |
+| **Ollama** | [`gaise-provider-ollama`](https://crates.io/crates/gaise-provider-ollama) | Llama, Mistral, Qwen (local) |
 
 ## Installation
 
-Add the following to your `Cargo.toml`:
-
 ```toml
 [dependencies]
-gaise-core = { path = "./gaise-core" }
-gaise-provider-ollama = { path = "./gaise-provider-ollama" }
-# Or bedrock, vertexai, openai, anthropic
-# gaise-provider-bedrock = { path = "./gaise-provider-bedrock" }
-# gaise-provider-vertexai = { path = "./gaise-provider-vertexai" }
-# gaise-provider-openai = { path = "./gaise-provider-openai" }
-# gaise-provider-anthropic = { path = "./gaise-provider-anthropic" }
+gaise = "0.1"                        # Core trait and contracts
+gaise-client = "0.1"                 # Router with all providers (or pick individual ones below)
+# gaise-provider-openai = "0.1"      # OpenAI only
+# gaise-provider-anthropic = "0.1"   # Anthropic only
+# gaise-provider-gemini = "0.1"      # Google Gemini only
+# gaise-provider-ollama = "0.1"      # Ollama (local) only
+# gaise-provider-vertexai = "0.1"    # Google Vertex AI only
+# gaise-provider-bedrock = "0.1"     # AWS Bedrock only
 tokio = { version = "1", features = ["full"] }
 ```
 
-## Usage Examples
+## Quick Start — Provider Router
 
-### Basic Instruct Request
+The simplest way to use GAISe is with `gaise-client`, which routes requests by model string:
 
 ```rust
+use std::sync::Arc;
+use gaise_client::{GaiseClientService, GaiseClientConfig};
 use gaise_core::GaiseClient;
-use gaise_core::contracts::{GaiseInstructRequest, OneOrMany, GaiseMessage, GaiseContent};
-use gaise_provider_ollama::ollama_client::GaiseClientOllama;
+use gaise_core::contracts::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let client = GaiseClientOllama::new("http://localhost:11434".to_string());
-    
+    let config = GaiseClientConfig {
+        openai_api_key: Some("sk-...".to_string()),
+        gemini_api_key: Some("AIza...".to_string()),
+        ..Default::default()
+    };
+
+    let service = GaiseClientService::new(config);
+
     let request = GaiseInstructRequest {
-        model: "llama3".to_string(),
-        correlation_id: Some("unique-id".to_string()),
+        model: "openai::gpt-4o".to_string(),  // or "gemini::gemini-2.5-flash", "anthropic::claude-sonnet-4-6", etc.
         input: OneOrMany::One(GaiseMessage {
             role: "user".to_string(),
             content: Some(OneOrMany::One(GaiseContent::Text {
@@ -82,164 +78,130 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         ..Default::default()
     };
 
-    let response = client.instruct(&request).await?;
-    if let OneOrMany::One(message) = response.output {
-        if let Some(OneOrMany::One(GaiseContent::Text { text })) = message.content {
-            println!("Response: {}", text);
-        }
-    }
-    
+    let response = service.instruct(&request).await?;
+    println!("{:?}", response.output);
     Ok(())
 }
 ```
 
-### Streaming Responses
+## Usage Examples
+
+### Direct Provider — Gemini
 
 ```rust
 use gaise_core::GaiseClient;
-use gaise_core::contracts::{GaiseInstructRequest, OneOrMany, GaiseMessage, GaiseContent, GaiseStreamChunk};
-use gaise_provider_ollama::ollama_client::GaiseClientOllama;
+use gaise_core::contracts::*;
+use gaise_provider_gemini::gemini_client::GaiseClientGemini;
+
+let client = GaiseClientGemini::new(
+    "https://generativelanguage.googleapis.com/v1beta".to_string(),
+    "your-gemini-api-key".to_string(),
+);
+
+let request = GaiseInstructRequest {
+    model: "gemini-2.5-flash".to_string(),
+    input: OneOrMany::One(GaiseMessage {
+        role: "user".to_string(),
+        content: Some(OneOrMany::One(GaiseContent::Text {
+            text: "Hello from Gemini!".to_string(),
+        })),
+        ..Default::default()
+    }),
+    ..Default::default()
+};
+
+let response = client.instruct(&request).await?;
+```
+
+### Direct Provider — OpenAI
+
+```rust
+use gaise_provider_openai::openai_client::GaiseClientOpenAI;
+
+let client = GaiseClientOpenAI::new(
+    "https://api.openai.com/v1".to_string(),
+    "sk-your-api-key".to_string(),
+);
+```
+
+### Direct Provider — Anthropic Claude
+
+```rust
+use gaise_provider_anthropic::anthropic_client::GaiseClientAnthropic;
+
+let client = GaiseClientAnthropic::new(
+    "https://api.anthropic.com/v1".to_string(),
+    "sk-ant-your-api-key".to_string(),
+);
+```
+
+### Streaming
+
+```rust
 use futures_util::StreamExt;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let client = GaiseClientOllama::new("http://localhost:11434".to_string());
-    
-    let request = GaiseInstructRequest {
-        model: "llama3".to_string(),
-        input: OneOrMany::One(GaiseMessage {
-            role: "user".to_string(),
-            content: Some(OneOrMany::One(GaiseContent::Text {
-                text: "Write a poem about Rust.".to_string(),
-            })),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-
-    let mut stream = client.instruct_stream(&request).await?;
-    while let Some(chunk_res) = stream.next().await {
-        let response = chunk_res?;
-        if let GaiseStreamChunk::Text(text) = response.chunk {
-            print!("{}", text);
-        }
+let mut stream = client.instruct_stream(&request).await?;
+while let Some(chunk_res) = stream.next().await {
+    let response = chunk_res?;
+    if let GaiseStreamChunk::Text(text) = response.chunk {
+        print!("{}", text);
     }
-    
-    Ok(())
 }
 ```
+
+### Reasoning / Thinking
+
+Works identically across providers — just change the model string:
+
+```rust
+let request = GaiseInstructRequest {
+    model: "openai::o3".to_string(),  // or "anthropic::claude-sonnet-4-6", "gemini::gemini-3-flash-preview"
+    generation_config: Some(GaiseGenerationConfig {
+        thinking_effort: Some("high".to_string()),
+        max_tokens: Some(32000),
+        ..Default::default()
+    }),
+    input: OneOrMany::One(GaiseMessage {
+        role: "user".to_string(),
+        content: Some(OneOrMany::One(GaiseContent::Text {
+            text: "Prove that the square root of 2 is irrational.".to_string(),
+        })),
+        ..Default::default()
+    }),
+    ..Default::default()
+};
+```
+
+| GAISe field | OpenAI | Anthropic | Gemini |
+|---|---|---|---|
+| `thinking_effort` | `reasoning_effort` | `thinking.type` | `thinkingConfig.thinkingLevel` |
+| `thinking_tokens` | N/A | `thinking.budget_tokens` | `thinkingConfig.thinkingBudget` |
+| `max_tokens` | `max_completion_tokens` | `max_tokens` | `maxOutputTokens` |
 
 ### Embeddings
 
 ```rust
-use gaise_core::GaiseClient;
-use gaise_core::contracts::{GaiseEmbeddingsRequest, OneOrMany};
-use gaise_provider_ollama::ollama_client::GaiseClientOllama;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let client = GaiseClientOllama::new("http://localhost:11434".to_string());
-    
-    let request = GaiseEmbeddingsRequest {
-        model: "all-minilm".to_string(),
-        correlation_id: Some("embedding-request-123".to_string()),
-        input: OneOrMany::One("Generative AI is amazing.".to_string()),
-    };
-
-    let response = client.embeddings(&request).await?;
-    println!("Embedding size: {}", response.embeddings.len());
-    
-    Ok(())
-}
-```
-
-### AWS Bedrock Example
-
-```rust
-use gaise_core::GaiseClient;
-use gaise_core::contracts::{GaiseInstructRequest, OneOrMany, GaiseMessage, GaiseContent};
-use gaise_provider_bedrock::GaiseClientBedrock;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Bedrock client uses default AWS configuration
-    let client = GaiseClientBedrock::new().await;
-
-    let request = GaiseInstructRequest {
-        model: "amazon.titan-text-express-v1".to_string(),
-        input: OneOrMany::One(GaiseMessage {
-            role: "user".to_string(),
-            content: Some(OneOrMany::One(GaiseContent::Text {
-                text: "Hello from Bedrock!".to_string(),
-            })),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-
-    let response = client.instruct(&request).await?;
-    // ... handle response ...
-    Ok(())
-}
-```
-
-### Anthropic Claude Example
-
-```rust
-use gaise_core::GaiseClient;
-use gaise_core::contracts::{GaiseInstructRequest, OneOrMany, GaiseMessage, GaiseContent};
-use gaise_provider_anthropic::anthropic_client::GaiseClientAnthropic;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let client = GaiseClientAnthropic::new(
-        "https://api.anthropic.com/v1".to_string(),
-        "your-api-key".to_string(),
-    );
-
-    let request = GaiseInstructRequest {
-        model: "claude-3-5-sonnet-20241022".to_string(),
-        input: OneOrMany::One(GaiseMessage {
-            role: "user".to_string(),
-            content: Some(OneOrMany::One(GaiseContent::Text {
-                text: "Hello Claude!".to_string(),
-            })),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-
-    let response = client.instruct(&request).await?;
-    // ... handle response ...
-    Ok(())
-}
-```
-
-### Multi-modality (Images, Audio, Files)
-
-GAISe supports sending binary data for images, audio, and files.
-
-```rust
-use gaise_core::contracts::{GaiseContent, GaiseMessage, OneOrMany};
-
-// Example of an image content
-let image_content = GaiseContent::Image {
-    data: std::fs::read("image.png")?,
-    format: Some("image/png".to_string()),
+let request = GaiseEmbeddingsRequest {
+    model: "gemini::gemini-embedding-001".to_string(),  // or "openai::text-embedding-3-small"
+    input: OneOrMany::One("Text to embed".to_string()),
+    ..Default::default()
 };
 
-// Example of audio content
-let audio_content = GaiseContent::Audio {
-    data: std::fs::read("audio.mp3")?,
-    format: Some("audio/mp3".to_string()),
-};
+let response = service.embeddings(&request).await?;
+println!("Dimensions: {}", response.output[0].len());
+```
 
+### Multi-modality
+
+```rust
 let message = GaiseMessage {
     role: "user".to_string(),
     content: Some(OneOrMany::Many(vec![
-        GaiseContent::Text { text: "Describe this image and audio.".to_string() },
-        image_content,
-        audio_content,
+        GaiseContent::Text { text: "Describe this image.".to_string() },
+        GaiseContent::Image {
+            data: std::fs::read("photo.png")?,
+            format: Some("image/png".to_string()),
+        },
     ])),
     ..Default::default()
 };
@@ -247,123 +209,79 @@ let message = GaiseMessage {
 
 ### Tool Calling
 
-Define tools and pass them in the instruct request.
-
 ```rust
-use gaise_core::contracts::{GaiseTool, GaiseToolParameter};
 use std::collections::HashMap;
 
 let mut properties = HashMap::new();
 properties.insert("location".to_string(), GaiseToolParameter {
     r#type: Some("string".to_string()),
-    description: Some("The city and state, e.g. San Francisco, CA".to_string()),
-    ..Default::default()
-});
-
-let weather_tool = GaiseTool {
-    name: "get_current_weather".to_string(),
-    description: Some("Get the current weather in a given location".to_string()),
-    parameters: Some(GaiseToolParameter {
-        r#type: Some("object".to_string()),
-        properties: Some(properties),
-        required: Some(vec!["location".to_string()]),
-    }),
-};
-
-let request = GaiseInstructRequest {
-    model: "llama3".to_string(),
-    tools: Some(vec![weather_tool]),
-    // ... input ...
-    ..Default::default()
-};
-```
-
-### Structured Responses (JSON Schema)
-
-You can force the model to respond with a specific JSON structure by providing a JSON schema in the `generation_config`.
-
-```rust
-use gaise_core::contracts::{GaiseInstructRequest, GaiseGenerationConfig, GaiseToolParameter, OneOrMany, GaiseMessage, GaiseContent};
-use std::collections::HashMap;
-
-let mut properties = HashMap::new();
-properties.insert("num_of_people".to_string(), GaiseToolParameter {
-    r#type: Some("string".to_string()),
-    description: Some("The number of people in the image".to_string()),
+    description: Some("City and state, e.g. San Francisco, CA".to_string()),
     ..Default::default()
 });
 
 let request = GaiseInstructRequest {
-    model: "openai::gpt-4o".to_string(),
+    model: "gemini::gemini-2.5-flash".to_string(),
+    tools: Some(vec![GaiseTool {
+        name: "get_weather".to_string(),
+        description: Some("Get current weather".to_string()),
+        parameters: Some(GaiseToolParameter {
+            r#type: Some("object".to_string()),
+            properties: Some(properties),
+            required: Some(vec!["location".to_string()]),
+            ..Default::default()
+        }),
+    }]),
     input: OneOrMany::One(GaiseMessage {
         role: "user".to_string(),
         content: Some(OneOrMany::One(GaiseContent::Text {
-            text: "How many people are in this image?".to_string(),
+            text: "What's the weather in London?".to_string(),
         })),
         ..Default::default()
     }),
-    generation_config: Some(GaiseGenerationConfig {
-        response_format: Some(GaiseToolParameter {
-            r#type: Some("object".to_string()),
-            properties: Some(properties),
-            required: Some(vec!["num_of_people".to_string()]),
-            ..Default::default()
-        }),
-        ..Default::default()
-    }),
     ..Default::default()
 };
 ```
 
-### Logging and Correlation ID
+### HTTP Server (gaise-api)
 
-GAISe provides a logging infrastructure to track requests and responses. You can use the built-in `ConsoleGaiseLogger` or implement the `IGaiseLogger` trait for custom logging.
-
-The `correlation_id` is an optional field in `GaiseInstructRequest` and `GaiseEmbeddingsRequest` that helps link logs together across different services or request stages.
-
-#### Configuring the Logger
-
-When using `GaiseClientService`, you can provide a logger in the configuration:
-
-```rust
-use std::sync::Arc;
-use gaise_client::{GaiseClientService, GaiseClientConfig};
-use gaise_core::logging::ConsoleGaiseLogger;
-
-let config = GaiseClientConfig {
-    // ... other provider configurations ...
-    logger: Some(Arc::new(ConsoleGaiseLogger::default())),
-    ..Default::default()
-};
-
-let service = GaiseClientService::new(config);
+```bash
+export OPENAI_API_KEY="sk-..." GEMINI_API_KEY="AIza..." ANTHROPIC_API_KEY="sk-ant-..."
+cargo run -p gaise-api  # Listening on 0.0.0.0:3000
 ```
 
-#### Using Correlation ID
-
-```rust
-use gaise_core::contracts::GaiseInstructRequest;
-
-let request = GaiseInstructRequest {
-    model: "openai::gpt-4o".to_string(),
-    correlation_id: Some("my-unique-correlation-id".to_string()),
-    // ... other fields ...
-    ..Default::default()
-};
+```bash
+curl -X POST http://localhost:3000/v1/instruct \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gemini::gemini-2.5-flash","input":{"role":"user","content":{"type":"text","text":"Hello!"}}}'
 ```
 
 ## Project Structure
 
-- `gaise-core`: The core library containing traits and standardized models.
-- `gaise-provider-ollama`: Ollama implementation of the `GaiseClient`.
-- `gaise-provider-vertexai`: VertexAI implementation of the `GaiseClient`.
-- `gaise-provider-openai`: OpenAI implementation of the `GaiseClient`.
-- `gaise-provider-bedrock`: AWS Bedrock implementation of the `GaiseClient`.
-- `gaise-provider-anthropic`: Anthropic Claude implementation of the `GaiseClient`.
-- `gaise-chatbot`: A sample CLI chatbot application using GAISe.
+| Crate | Description |
+|-------|-------------|
+| [`gaise`](https://crates.io/crates/gaise) | Core `GaiseClient` trait and all shared contracts |
+| [`gaise-client`](https://crates.io/crates/gaise-client) | Provider router — `"provider::model"` string routing |
+| [`gaise-provider-openai`](https://crates.io/crates/gaise-provider-openai) | OpenAI Chat Completions + Embeddings |
+| [`gaise-provider-anthropic`](https://crates.io/crates/gaise-provider-anthropic) | Anthropic Messages API + extended thinking |
+| [`gaise-provider-gemini`](https://crates.io/crates/gaise-provider-gemini) | Google Gemini v1beta API |
+| [`gaise-provider-vertexai`](https://crates.io/crates/gaise-provider-vertexai) | Google Vertex AI with service account auth |
+| [`gaise-provider-bedrock`](https://crates.io/crates/gaise-provider-bedrock) | AWS Bedrock Runtime |
+| [`gaise-provider-ollama`](https://crates.io/crates/gaise-provider-ollama) | Ollama local inference |
+| [`gaise-api`](https://crates.io/crates/gaise-api) | Axum HTTP server with SSE streaming |
+| `gaise-chatbot` | Sample CLI chatbot |
 
----
-Developed with GAISe - Standardizing Generative AI across providers.
+## Environment Variables
+
+| Variable | Provider |
+|----------|----------|
+| `OPENAI_API_KEY` / `OPENAI_API_URL` | OpenAI |
+| `ANTHROPIC_API_KEY` / `ANTHROPIC_API_URL` | Anthropic |
+| `GEMINI_API_KEY` / `GEMINI_API_URL` | Gemini |
+| `VERTEXAI_SA_PATH` / `VERTEXAI_API_URL` | Vertex AI |
+| `BEDROCK_REGION` | Bedrock |
+| `OLLAMA_URL` | Ollama |
+| `GAISE_PORT` | API server (default: 3000) |
 
 ## License
+
 AGPLv3
