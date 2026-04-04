@@ -20,6 +20,11 @@ muse!(gaise_tool_config, {GaiseToolConfig});
 muse!(gaise_tool_call, {GaiseToolCall, GaiseFunctionCall});
 muse!(gaise_tool_parameter, {GaiseToolParameter, GaiseTool});
 
+muse!(gaise_live_config, {GaiseLiveConfig, GaiseLiveModality, GaiseVadConfig, GaiseTranscriptionConfig});
+muse!(gaise_live_event, {GaiseLiveEvent});
+muse!(gaise_live_input, {GaiseLiveInput});
+muse!(gaise_live_session, {GaiseLiveSession, GaiseLiveEventStream});
+
 use serde::{Serialize,Deserialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

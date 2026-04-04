@@ -16,6 +16,7 @@ Google Gemini provider for [GAISe](https://crates.io/crates/gaise) — implement
 - Thinking config (`thinkingLevel` for 3.x, `thinkingBudget` for 2.5)
 - `thoughtSignature` preservation for multi-turn tool conversations
 - Safety settings (all categories default to OFF)
+- **Live / Realtime sessions** (feature = `live`) — bidirectional WebSocket audio + text via the Gemini Live API
 
 ## Usage
 
@@ -70,6 +71,37 @@ let request = GaiseEmbeddingsRequest {
 };
 
 let response = client.embeddings(&request).await?;
+```
+
+### Live / Realtime (feature = "live")
+
+Enable the `live` feature to use the Gemini Live API for bidirectional audio and text streaming:
+
+```toml
+[dependencies]
+gaise-provider-gemini = { version = "0.1", features = ["live"] }
+```
+
+```rust
+use gaise_core::GaiseLiveClient;
+use gaise_core::contracts::*;
+use gaise_provider_gemini::gemini_live_client::GaiseClientGeminiLive;
+
+let client = GaiseClientGeminiLive::new(
+    "https://generativelanguage.googleapis.com/v1beta".to_string(),
+    "your-gemini-api-key".to_string(),
+);
+
+let config = GaiseLiveConfig {
+    model: "gemini-2.0-flash-live-001".to_string(),
+    voice: Some("Puck".to_string()),
+    modalities: vec![GaiseLiveModality::Audio],
+    ..Default::default()
+};
+
+let session = client.live_connect(&config).await?;
+// session.tx — send audio/text/tool responses
+// session.rx — receive audio/text/transcripts/tool calls
 ```
 
 ## API Endpoints

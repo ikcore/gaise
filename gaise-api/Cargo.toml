@@ -9,6 +9,10 @@ keywords.workspace = true
 categories.workspace = true
 readme = "README.md"
 
+[features]
+default = []
+live = ["gaise-client/live"]
+
 [dependencies]
 gaise-core.workspace = true
 gaise-client.workspace = true
@@ -17,7 +21,7 @@ serde.workspace = true
 serde_json.workspace = true
 futures-util.workspace = true
 tokio.workspace = true
-axum = { version = "0.7", features = ["macros"] }
+axum = { version = "0.7", features = ["macros", "ws"] }
 tower-http = { version = "0.6", features = ["cors"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

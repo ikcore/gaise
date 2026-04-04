@@ -1,6 +1,6 @@
 # gaise-client
 
-`gaise-client` is a provider aggregator for the GAISe (Generative AI Service) project. It allows you to use multiple AI providers (OpenAI, VertexAI, Ollama, Bedrock, Anthropic) through a single interface, routing requests based on a model naming convention.
+`gaise-client` is a provider aggregator for the GAISe (Generative AI Service) project. It allows you to use multiple AI providers (OpenAI, Anthropic, Gemini, VertexAI, Ollama, Bedrock) through a single interface, routing requests based on a model naming convention.
 
 ## Features
 
@@ -19,12 +19,21 @@
 - `ollama`: Enables the Ollama provider.
 - `bedrock`: Enables the AWS Bedrock provider.
 - `anthropic`: Enables the Anthropic Claude provider.
+- `gemini`: Enables the Google Gemini provider.
+- `live`: Enables real-time WebSocket sessions via `GaiseLiveClient` (currently supports `openai` and `gemini`).
 
 To use only specific providers, disable default features in your `Cargo.toml`:
 
 ```toml
 [dependencies]
 gaise-client = { version = "0.1.0", default-features = false, features = ["openai"] }
+```
+
+To enable live/realtime sessions:
+
+```toml
+[dependencies]
+gaise-client = { version = "0.1.0", features = ["live"] }
 ```
 
 ## Supported Providers
@@ -34,6 +43,7 @@ gaise-client = { version = "0.1.0", default-features = false, features = ["opena
 - `ollama`
 - `bedrock`
 - `anthropic`
+- `gemini`
 
 ## Usage
 
@@ -90,6 +100,37 @@ The `GaiseClientService` parses the `model` string to identify the provider.
 If you request `ollama::llama3`, the service will:
 1. Initialize (or retrieve) the Ollama client.
 2. Call the Ollama client with `model: "llama3"`.
+
+### Live / Realtime Sessions (feature = "live")
+
+With the `live` feature enabled, `GaiseClientService` also implements `GaiseLiveClient` for real-time bidirectional WebSocket sessions (audio + text streaming). Currently supported by `openai` and `gemini`.
+
+```rust
+use gaise_core::GaiseLiveClient;
+use gaise_core::contracts::*;
+use futures_util::StreamExt;
+
+let config = GaiseLiveConfig {
+    model: "gemini::gemini-2.0-flash-live-001".to_string(),
+    voice: Some("Puck".to_string()),
+    modalities: vec![GaiseLiveModality::Audio, GaiseLiveModality::Text],
+    ..Default::default()
+};
+
+let session = service.live_connect(&config).await?;
+
+// Send inputs via session.tx (audio, text, tool responses)
+// Receive events via session.rx (audio, text, transcripts, tool calls, etc.)
+while let Some(event) = session.rx.next().await {
+    match event? {
+        GaiseLiveEvent::Audio { data, sample_rate } => { /* play audio */ }
+        GaiseLiveEvent::Text { text } => { /* display text */ }
+        GaiseLiveEvent::ToolCall { id, function } => { /* handle tool call */ }
+        GaiseLiveEvent::TurnComplete => { /* model finished responding */ }
+        _ => {}
+    }
+}
+```
 
 ### Example with Anthropic
 

@@ -18,6 +18,7 @@ Project page: [BadAI Project Page](https://badai.company/open-source/gaise)
 - **Multi-modal Support**: Handle Text, Images, Audio, and Files seamlessly.
 - **Tool Calling**: Function calling / tool use across all providers that support it.
 - **Streaming**: SSE-based streaming with `GaiseStreamAccumulator` for chunk collection.
+- **Live / Realtime**: WebSocket-based bidirectional audio + text sessions (OpenAI Realtime, Gemini Live).
 - **Async First**: Built on `tokio` and `async-trait`.
 
 ## Supported Providers
@@ -267,7 +268,7 @@ curl -X POST http://localhost:3000/v1/instruct \
 | [`gaise-provider-vertexai`](https://crates.io/crates/gaise-provider-vertexai) | Google Vertex AI with service account auth |
 | [`gaise-provider-bedrock`](https://crates.io/crates/gaise-provider-bedrock) | AWS Bedrock Runtime |
 | [`gaise-provider-ollama`](https://crates.io/crates/gaise-provider-ollama) | Ollama local inference |
-| [`gaise-api`](https://crates.io/crates/gaise-api) | Axum HTTP server with SSE streaming |
+| [`gaise-api`](https://crates.io/crates/gaise-api) | Axum HTTP server with SSE streaming + WebSocket live |
 | `gaise-chatbot` | Sample CLI chatbot |
 
 ## Environment Variables

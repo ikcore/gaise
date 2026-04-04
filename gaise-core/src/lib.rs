@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use crate::contracts::{GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse};
+use crate::contracts::{GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse, GaiseLiveConfig, GaiseLiveSession};
 pub mod contracts;
 pub mod logging;
 
@@ -25,3 +25,10 @@ pub trait GaiseClient : Send + Sync {
     async fn embeddings(&self, request:&GaiseEmbeddingsRequest) -> Result<GaiseEmbeddingsResponse, Box<dyn std::error::Error + Send + Sync>>;
 }
 
+#[async_trait]
+pub trait GaiseLiveClient : Send + Sync {
+    async fn live_connect(
+        &self,
+        config: &GaiseLiveConfig,
+    ) -> Result<GaiseLiveSession, Box<dyn std::error::Error + Send + Sync>>;
+}

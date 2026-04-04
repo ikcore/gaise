@@ -13,6 +13,11 @@ use gaise_core::{
     },
     logging::IGaiseLogger,
 };
+#[cfg(feature = "live")]
+use gaise_core::{
+    GaiseLiveClient,
+    contracts::{GaiseLiveConfig, GaiseLiveSession},
+};
 #[cfg(feature = "ollama")]
 use gaise_provider_ollama::ollama_client::GaiseClientOllama;
 #[cfg(feature = "vertexai")]
@@ -25,6 +30,10 @@ use gaise_provider_bedrock::bedrock_client::GaiseClientBedrock;
 use gaise_provider_anthropic::anthropic_client::GaiseClientAnthropic;
 #[cfg(feature = "gemini")]
 use gaise_provider_gemini::gemini_client::GaiseClientGemini;
+#[cfg(all(feature = "gemini", feature = "live"))]
+use gaise_provider_gemini::gemini_live_client::GaiseClientGeminiLive;
+#[cfg(all(feature = "openai", feature = "live"))]
+use gaise_provider_openai::openai_live_client::GaiseClientOpenAILive;
 #[cfg(feature = "vertexai")]
 pub use gaise_provider_vertexai::contracts::ServiceAccount;
 
@@ -75,6 +84,8 @@ pub struct GaiseClientService {
     #[allow(dead_code)]
     config: GaiseClientConfig,
     clients: RwLock<HashMap<String, Arc<dyn GaiseClient>>>,
+    #[cfg(feature = "live")]
+    live_clients: RwLock<HashMap<String, Arc<dyn GaiseLiveClient>>>,
     logger: Option<Arc<dyn IGaiseLogger>>,
 }
 
@@ -85,6 +96,8 @@ impl GaiseClientService {
         Self {
             config,
             clients: RwLock::new(HashMap::new()),
+            #[cfg(feature = "live")]
+            live_clients: RwLock::new(HashMap::new()),
             logger,
         }
     }
@@ -291,5 +304,77 @@ impl GaiseClient for GaiseClientService {
         }
 
         Ok(response)
+    }
+}
+
+#[cfg(feature = "live")]
+impl GaiseClientService {
+    /// Retrieves or initializes a live client for the specified provider.
+    pub async fn get_live_client(
+        &self,
+        provider: &str,
+    ) -> Result<Arc<dyn GaiseLiveClient>, Box<dyn std::error::Error + Send + Sync>> {
+        {
+            let clients = self.live_clients.read().await;
+            if let Some(client) = clients.get(provider) {
+                return Ok(client.clone());
+            }
+        }
+
+        #[allow(unused_variables)]
+        let client: Arc<dyn GaiseLiveClient> = match provider {
+            #[cfg(feature = "gemini")]
+            "gemini" => {
+                let url = self
+                    .config
+                    .gemini_api_url
+                    .as_deref()
+                    .unwrap_or("https://generativelanguage.googleapis.com/v1beta");
+                let key = self
+                    .config
+                    .gemini_api_key
+                    .as_deref()
+                    .ok_or("Gemini API Key not configured")?;
+                Arc::new(GaiseClientGeminiLive::new(url.to_string(), key.to_string()))
+            }
+            #[cfg(feature = "openai")]
+            "openai" => {
+                let url = self
+                    .config
+                    .openai_api_url
+                    .as_deref()
+                    .unwrap_or("https://api.openai.com");
+                let key = self
+                    .config
+                    .openai_api_key
+                    .as_deref()
+                    .ok_or("OpenAI API Key not configured")?;
+                Arc::new(GaiseClientOpenAILive::new(url.to_string(), key.to_string()))
+            }
+            _ => return Err(format!("No live provider available for: {}", provider).into()),
+        };
+
+        #[allow(unreachable_code)]
+        {
+            let mut clients = self.live_clients.write().await;
+            clients.insert(provider.to_string(), client.clone());
+            Ok(client)
+        }
+    }
+}
+
+#[cfg(feature = "live")]
+#[async_trait]
+impl GaiseLiveClient for GaiseClientService {
+    async fn live_connect(
+        &self,
+        config: &GaiseLiveConfig,
+    ) -> Result<GaiseLiveSession, Box<dyn std::error::Error + Send + Sync>> {
+        let (provider, actual_model) = Self::parse_model(&config.model)?;
+        let client = self.get_live_client(provider).await?;
+
+        let mut cfg = config.clone();
+        cfg.model = actual_model.to_string();
+        client.live_connect(&cfg).await
     }
 }

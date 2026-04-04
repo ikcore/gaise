@@ -22,7 +22,18 @@
       "Bash(curl -sL \"https://raw.githubusercontent.com/openai/openai-openapi/master/openapi.yaml\")",
       "WebFetch(domain:openai.com)",
       "WebFetch(domain:crates.io)",
-      "Bash(cargo publish:*)"
+      "Bash(cargo publish:*)",
+      "Bash(git -C \"D:\\\\Projects\\\\Codex\\\\gaise\" branch -a)",
+      "Bash(git -C \"D:\\\\Projects\\\\Clients\\\\SumVivas\\\\rethink\\\\thalamus\" branch -a)",
+      "Bash(git:*)",
+      "Bash(find \"D:\\\\Projects\\\\Codex\\\\gaise\" -type f \\\\\\( -name \"*.rs\" -o -name \"*.toml\" \\\\\\) -exec grep -l \"live.*model\\\\|streaming.*api\\\\|websocket\\\\|realtime\" {} \\\\;)",
+      "Bash(find D:\\\\Projects\\\\Codex\\\\gaise:*)",
+      "Bash(find \"D:\\\\Projects\\\\Clients\\\\SumVivas\\\\rethink\\\\thalamus\" -type f -name \"*.md\" -exec grep -l \"live\\\\|realtime\\\\|websocket\\\\|stream\" {} \\\\;)",
+      "Bash(grep -E \"\\\\.cs$\")",
+      "Bash(grep -E \"\\\\.md$\")",
+      "WebFetch(domain:inworld.ai)",
+      "Bash(grep -E \"\\\\.\\(cs|txt\\)$\")",
+      "Bash(grep -r \"TODO\\\\|FIXME\\\\|unimplemented\\\\|todo!\\\\|panic!\" --include=\"*.rs\" gaise-core/src/contracts/gaise_live* gaise-provider-gemini/src/gemini_live* gaise-provider-openai/src/openai_live*)"
     ]
   }
 }

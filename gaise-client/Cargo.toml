@@ -13,10 +13,10 @@ readme = "README.md"
 gaise-core.workspace = true
 gaise-provider-ollama = { workspace = true, optional = true }
 gaise-provider-vertexai = { workspace = true, optional = true }
-gaise-provider-openai = { workspace = true, optional = true }
+gaise-provider-openai = { workspace = true, optional = true, features = [] }
 gaise-provider-bedrock = { workspace = true, optional = true }
 gaise-provider-anthropic = { workspace = true, optional = true }
-gaise-provider-gemini = { workspace = true, optional = true }
+gaise-provider-gemini = { workspace = true, optional = true, features = [] }
 
 async-trait.workspace = true
 tokio.workspace = true
@@ -32,3 +32,4 @@ openai = ["dep:gaise-provider-openai"]
 bedrock = ["dep:gaise-provider-bedrock"]
 anthropic = ["dep:gaise-provider-anthropic"]
 gemini = ["dep:gaise-provider-gemini"]
+live = ["gaise-provider-gemini?/live", "gaise-provider-openai?/live"]

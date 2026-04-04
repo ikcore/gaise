@@ -15,6 +15,7 @@ OpenAI provider for [GAISe](https://crates.io/crates/gaise) — implements the `
 - Reasoning (`reasoning_effort` for o3, o4-mini, GPT-5 family)
 - `max_completion_tokens` (replaces deprecated `max_tokens`)
 - Prompt caching (`prompt_cache_key`)
+- **Live / Realtime sessions** (feature = `live`) — bidirectional WebSocket audio + text via the OpenAI Realtime API
 
 ## Usage
 
@@ -58,6 +59,37 @@ let request = GaiseInstructRequest {
 ```
 
 Maps `thinking_effort` to `reasoning_effort` and `max_tokens` to `max_completion_tokens`.
+
+### Live / Realtime (feature = "live")
+
+Enable the `live` feature to use the OpenAI Realtime API for bidirectional audio and text streaming:
+
+```toml
+[dependencies]
+gaise-provider-openai = { version = "0.1", features = ["live"] }
+```
+
+```rust
+use gaise_core::GaiseLiveClient;
+use gaise_core::contracts::*;
+use gaise_provider_openai::openai_live_client::GaiseClientOpenAILive;
+
+let client = GaiseClientOpenAILive::new(
+    "https://api.openai.com".to_string(),
+    "sk-your-api-key".to_string(),
+);
+
+let config = GaiseLiveConfig {
+    model: "gpt-4o-realtime-preview".to_string(),
+    voice: Some("alloy".to_string()),
+    modalities: vec![GaiseLiveModality::Audio, GaiseLiveModality::Text],
+    ..Default::default()
+};
+
+let session = client.live_connect(&config).await?;
+// session.tx — send audio/text/tool responses
+// session.rx — receive audio/text/transcripts/tool calls
+```
 
 ## Environment Variables
 

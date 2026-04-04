@@ -19,7 +19,8 @@ serde.workspace = true
 serde_bytes.workspace = true
 async-trait.workspace = true
 futures-util.workspace = true
+tokio = { workspace = true, features = ["sync"] }
 mockall = "0.14"
 
 [dev-dependencies]
-tokio.workspace = true
+tokio = { workspace = true, features = ["full"] }

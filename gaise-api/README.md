@@ -13,6 +13,7 @@ Axum HTTP server for [GAISe](https://crates.io/crates/gaise) — exposes all Gen
 | `POST` | `/v1/instruct` | Non-streaming instruct request |
 | `POST` | `/v1/instruct/stream` | Server-Sent Events streaming |
 | `POST` | `/v1/embeddings` | Generate embedding vectors |
+| `GET` | `/v1/live` | WebSocket for real-time audio/text sessions (feature = `live`) |
 
 ## Quick Start
 
@@ -41,6 +42,16 @@ curl -X POST http://localhost:3000/v1/instruct \
 ```
 
 Change `"model"` to `"anthropic::claude-sonnet-4-6"` or `"gemini::gemini-2.5-flash"` — same endpoint, same format.
+
+### Live / Realtime (feature = "live")
+
+Enable with `cargo run -p gaise-api --features live`. The `/v1/live` endpoint upgrades to a WebSocket for bidirectional audio + text streaming.
+
+**Protocol:**
+1. Client sends a JSON `GaiseLiveConfig` as the first message (model, voice, modalities, tools, etc.)
+2. Server connects to the provider and begins forwarding:
+   - **Client -> Server:** JSON text frames (`GaiseLiveInput`) or binary frames (raw PCM16 audio at 16kHz)
+   - **Server -> Client:** JSON text frames (`GaiseLiveEvent`) or binary frames (PCM audio with 4-byte LE sample rate header)
 
 ## Environment Variables
 
