@@ -8,11 +8,13 @@ Ollama provider for [GAISe](https://crates.io/crates/gaise) — implements the `
 
 ## Supported Features
 
-- Text and multimodal (image) instruct requests
-- Streaming responses
+- Text, image, and UTF-8 file instruct requests
+- Streaming text, reasoning, tool calls, and usage
 - Embeddings (`/api/embed`)
 - Function calling / tool use (model-dependent)
-- Generation config (temperature, top_k, top_p, num_predict)
+- Model-dependent thinking controls
+- Generation config (temperature, top_k, top_p, stop, num_predict)
+- Prompt/completion/total usage (Ollama does not report modality-specific token splits)
 
 ## Usage
 
@@ -24,7 +26,7 @@ use gaise_provider_ollama::ollama_client::GaiseClientOllama;
 let client = GaiseClientOllama::new("http://localhost:11434".to_string());
 
 let request = GaiseInstructRequest {
-    model: "llama3.1".to_string(),
+    model: "qwen3".to_string(),
     input: OneOrMany::One(GaiseMessage {
         role: "user".to_string(),
         content: Some(OneOrMany::One(GaiseContent::Text {
@@ -46,9 +48,7 @@ let response = client.instruct(&request).await?;
 
 ## Note
 
-Ollama does not support reasoning/thinking parameters. `thinking_effort` and `thinking_tokens` are silently ignored.
-
-Tool calling support depends on the model — compatible models include llama3.1, llama3.2, qwen2.5-coder, mistral-nemo, and hermes3.
+Thinking, vision, and tool support depend on the locally installed model tag. GAISe forwards supported thinking settings and returns Ollama's reasoning stream separately from answer text.
 
 ## Part of [GAISe](https://github.com/ikcore/gaise)
 

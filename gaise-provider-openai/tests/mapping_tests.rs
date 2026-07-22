@@ -1,14 +1,15 @@
 use gaise_core::contracts::{
-    GaiseContent, GaiseGenerationConfig, GaiseInstructRequest,
-    GaiseMessage, GaiseTool, GaiseToolParameter, OneOrMany,
-    GaiseToolCall, GaiseFunctionCall
+    GaiseContent, GaiseFunctionCall, GaiseGenerationConfig, GaiseInstructRequest, GaiseMessage,
+    GaiseTool, GaiseToolCall, GaiseToolParameter, OneOrMany,
 };
-use gaise_provider_openai::contracts::models::{OpenAIChatRequest, OpenAIContent, OpenAIContentPart};
-use std::collections::HashMap;
+use gaise_provider_openai::contracts::models::{
+    OpenAIChatRequest, OpenAIContent, OpenAIContentPart,
+};
+use std::collections::BTreeMap;
 
 #[test]
 fn test_mapping_tool_request() {
-    let mut properties = HashMap::new();
+    let mut properties = BTreeMap::new();
     properties.insert(
         "location".to_string(),
         GaiseToolParameter {
@@ -32,7 +33,9 @@ fn test_mapping_tool_request() {
         }]),
         input: OneOrMany::One(GaiseMessage {
             role: "user".to_string(),
-            content: Some(OneOrMany::One(GaiseContent::Text { text: "What's the weather like in Boston?".to_string() })),
+            content: Some(OneOrMany::One(GaiseContent::Text {
+                text: "What's the weather like in Boston?".to_string(),
+            })),
             ..Default::default()
         }),
         ..Default::default()
@@ -43,19 +46,19 @@ fn test_mapping_tool_request() {
     let tools = openai_request.tools.expect("Missing tools");
     assert_eq!(tools.len(), 1);
     assert_eq!(tools[0].function.name, "get_current_weather");
-    assert_eq!(
-        tools[0].function.parameters.r#type,
-        "object"
+    assert_eq!(tools[0].function.parameters.r#type, "object");
+    assert!(
+        tools[0]
+            .function
+            .parameters
+            .properties
+            .contains_key("location")
     );
-    assert!(tools[0].function
-        .parameters
-        .properties
-        .contains_key("location"));
 }
 
 #[test]
 fn test_mapping_array_tool_request() {
-    let mut properties = HashMap::new();
+    let mut properties = BTreeMap::new();
     properties.insert(
         "tasks".to_string(),
         GaiseToolParameter {
@@ -83,7 +86,9 @@ fn test_mapping_array_tool_request() {
         }]),
         input: OneOrMany::One(GaiseMessage {
             role: "user".to_string(),
-            content: Some(OneOrMany::One(GaiseContent::Text { text: "Add some tasks".to_string() })),
+            content: Some(OneOrMany::One(GaiseContent::Text {
+                text: "Add some tasks".to_string(),
+            })),
             ..Default::default()
         }),
         ..Default::default()
@@ -92,9 +97,17 @@ fn test_mapping_array_tool_request() {
     let openai_request = OpenAIChatRequest::from(&request);
 
     let tools = openai_request.tools.expect("Missing tools");
-    let prop = tools[0].function.parameters.properties.get("tasks").expect("Missing tasks property");
+    let prop = tools[0]
+        .function
+        .parameters
+        .properties
+        .get("tasks")
+        .expect("Missing tasks property");
     assert_eq!(prop.r#type, "array");
-    let items = prop.items.as_ref().expect("Missing items in array property");
+    let items = prop
+        .items
+        .as_ref()
+        .expect("Missing items in array property");
     assert_eq!(items.r#type, "string");
 }
 
@@ -104,7 +117,9 @@ fn test_mapping_text_request() {
         model: "gpt-4o".to_string(),
         input: OneOrMany::One(GaiseMessage {
             role: "user".to_string(),
-            content: Some(OneOrMany::One(GaiseContent::Text { text: "Hello".to_string() })),
+            content: Some(OneOrMany::One(GaiseContent::Text {
+                text: "Hello".to_string(),
+            })),
             ..Default::default()
         }),
         generation_config: Some(GaiseGenerationConfig {
@@ -119,13 +134,13 @@ fn test_mapping_text_request() {
 
     assert_eq!(openai_request.messages.len(), 1);
     assert_eq!(openai_request.messages[0].role, "user");
-    
+
     if let Some(OpenAIContent::Text(text)) = &openai_request.messages[0].content {
         assert_eq!(text, "Hello");
     } else {
         panic!("Expected text content");
     }
-    
+
     assert_eq!(openai_request.temperature, Some(0.7));
     assert_eq!(openai_request.max_completion_tokens, Some(100));
 }
@@ -136,7 +151,9 @@ fn test_mapping_cache_key() {
         model: "gpt-4o".to_string(),
         input: OneOrMany::One(GaiseMessage {
             role: "user".to_string(),
-            content: Some(OneOrMany::One(GaiseContent::Text { text: "Hello".to_string() })),
+            content: Some(OneOrMany::One(GaiseContent::Text {
+                text: "Hello".to_string(),
+            })),
             ..Default::default()
         }),
         generation_config: Some(GaiseGenerationConfig {
@@ -148,7 +165,10 @@ fn test_mapping_cache_key() {
 
     let openai_request = OpenAIChatRequest::from(&request);
 
-    assert_eq!(openai_request.prompt_cache_key, Some("test-cache-key".to_string()));
+    assert_eq!(
+        openai_request.prompt_cache_key,
+        Some("test-cache-key".to_string())
+    );
 }
 
 #[test]
@@ -158,8 +178,13 @@ fn test_mapping_multimodal_request() {
         input: OneOrMany::One(GaiseMessage {
             role: "user".to_string(),
             content: Some(OneOrMany::Many(vec![
-                GaiseContent::Text { text: "What is in this image?".to_string() },
-                GaiseContent::Image { data: vec![1, 2, 3], format: Some("image/png".to_string()) },
+                GaiseContent::Text {
+                    text: "What is in this image?".to_string(),
+                },
+                GaiseContent::Image {
+                    data: vec![1, 2, 3],
+                    format: Some("image/png".to_string()),
+                },
             ])),
             ..Default::default()
         }),
@@ -169,7 +194,7 @@ fn test_mapping_multimodal_request() {
     let openai_request = OpenAIChatRequest::from(&request);
 
     assert_eq!(openai_request.messages.len(), 1);
-    
+
     if let Some(OpenAIContent::Parts(parts)) = &openai_request.messages[0].content {
         assert_eq!(parts.len(), 2);
         match &parts[0] {
@@ -180,11 +205,67 @@ fn test_mapping_multimodal_request() {
             OpenAIContentPart::ImageUrl { image_url } => {
                 assert!(image_url.url.contains("data:image/png;base64,"));
                 assert!(image_url.url.contains("AQID"));
-            },
+            }
             _ => panic!("Expected image part"),
         }
     } else {
         panic!("Expected parts content");
+    }
+}
+
+#[test]
+fn test_mapping_binary_file_explains_chat_completions_limitation_without_http() {
+    let request = GaiseInstructRequest {
+        model: "gpt-5.4".to_string(),
+        input: OneOrMany::One(GaiseMessage {
+            role: "user".to_string(),
+            content: Some(OneOrMany::One(GaiseContent::Parts {
+                parts: vec![
+                    GaiseContent::Text {
+                        text: "Summarize this".to_string(),
+                    },
+                    GaiseContent::File {
+                        data: vec![0xff, 0xfe, 0xfd],
+                        name: Some("report.pdf".to_string()),
+                    },
+                ],
+            })),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let mapped = OpenAIChatRequest::from(&request);
+    let json = serde_json::to_value(mapped).unwrap();
+    assert_eq!(json["messages"][0]["content"][0]["type"], "text");
+    assert_eq!(json["messages"][0]["content"][1]["type"], "text");
+    let fallback = json["messages"][0]["content"][1]["text"].as_str().unwrap();
+    assert!(fallback.contains("report.pdf"));
+    assert!(fallback.contains("Responses API input_file"));
+}
+
+#[test]
+fn test_mapping_utf8_file_inlines_document_text_without_http() {
+    let request = GaiseInstructRequest {
+        model: "gpt-5.4".to_string(),
+        input: OneOrMany::One(GaiseMessage {
+            role: "user".to_string(),
+            content: Some(OneOrMany::One(GaiseContent::File {
+                data: b"Quarterly revenue increased.".to_vec(),
+                name: Some("report.txt".to_string()),
+            })),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    let mapped = OpenAIChatRequest::from(&request);
+    match mapped.messages[0].content.as_ref().unwrap() {
+        OpenAIContent::Text(text) => {
+            assert!(text.contains("report.txt"));
+            assert!(text.contains("Quarterly revenue increased."));
+        }
+        OpenAIContent::Parts(_) => panic!("Expected a single text content value"),
     }
 }
 
@@ -195,7 +276,9 @@ fn test_mapping_tool_response_request() {
         input: OneOrMany::Many(vec![
             GaiseMessage {
                 role: "user".to_string(),
-                content: Some(OneOrMany::One(GaiseContent::Text { text: "What's the weather?".to_string() })),
+                content: Some(OneOrMany::One(GaiseContent::Text {
+                    text: "What's the weather?".to_string(),
+                })),
                 ..Default::default()
             },
             GaiseMessage {
@@ -207,15 +290,18 @@ fn test_mapping_tool_response_request() {
                         name: "get_weather".to_string(),
                         arguments: Some("{\"location\": \"London\"}".to_string()),
                     },
+                    thought_signature: None,
                 }]),
                 ..Default::default()
             },
             GaiseMessage {
                 role: "tool".to_string(),
-                content: Some(OneOrMany::One(GaiseContent::Text { text: "{\"temp\": 15}".to_string() })),
+                content: Some(OneOrMany::One(GaiseContent::Text {
+                    text: "{\"temp\": 15}".to_string(),
+                })),
                 tool_call_id: Some("call_123".to_string()),
                 ..Default::default()
-            }
+            },
         ]),
         ..Default::default()
     };
@@ -223,14 +309,23 @@ fn test_mapping_tool_response_request() {
     let openai_request = OpenAIChatRequest::from(&request);
     assert_eq!(openai_request.messages.len(), 3);
     assert_eq!(openai_request.messages[1].role, "assistant");
-    let tool_calls = openai_request.messages[1].tool_calls.as_ref().expect("Missing tool_calls");
+    let tool_calls = openai_request.messages[1]
+        .tool_calls
+        .as_ref()
+        .expect("Missing tool_calls");
     assert_eq!(tool_calls.len(), 1);
     assert_eq!(tool_calls[0].id, "call_123");
     assert_eq!(tool_calls[0].function.name, "get_weather");
-    assert_eq!(tool_calls[0].function.arguments, "{\"location\": \"London\"}");
+    assert_eq!(
+        tool_calls[0].function.arguments,
+        "{\"location\": \"London\"}"
+    );
 
     assert_eq!(openai_request.messages[2].role, "tool");
-    assert_eq!(openai_request.messages[2].tool_call_id, Some("call_123".to_string()));
+    assert_eq!(
+        openai_request.messages[2].tool_call_id,
+        Some("call_123".to_string())
+    );
 }
 
 #[test]
@@ -239,7 +334,9 @@ fn test_mapping_reasoning_effort() {
         model: "o3".to_string(),
         input: OneOrMany::One(GaiseMessage {
             role: "user".to_string(),
-            content: Some(OneOrMany::One(GaiseContent::Text { text: "Prove √2 is irrational".to_string() })),
+            content: Some(OneOrMany::One(GaiseContent::Text {
+                text: "Prove √2 is irrational".to_string(),
+            })),
             ..Default::default()
         }),
         generation_config: Some(GaiseGenerationConfig {
@@ -262,7 +359,9 @@ fn test_mapping_no_reasoning() {
         model: "gpt-4o".to_string(),
         input: OneOrMany::One(GaiseMessage {
             role: "user".to_string(),
-            content: Some(OneOrMany::One(GaiseContent::Text { text: "Hello".to_string() })),
+            content: Some(OneOrMany::One(GaiseContent::Text {
+                text: "Hello".to_string(),
+            })),
             ..Default::default()
         }),
         generation_config: Some(GaiseGenerationConfig {
@@ -284,7 +383,9 @@ fn test_mapping_reasoning_effort_low() {
         model: "o4-mini".to_string(),
         input: OneOrMany::One(GaiseMessage {
             role: "user".to_string(),
-            content: Some(OneOrMany::One(GaiseContent::Text { text: "Quick question".to_string() })),
+            content: Some(OneOrMany::One(GaiseContent::Text {
+                text: "Quick question".to_string(),
+            })),
             ..Default::default()
         }),
         generation_config: Some(GaiseGenerationConfig {
@@ -297,4 +398,28 @@ fn test_mapping_reasoning_effort_low() {
     let openai_request = OpenAIChatRequest::from(&request);
 
     assert_eq!(openai_request.reasoning_effort, Some("low".to_string()));
+}
+
+#[test]
+fn test_mapping_all_supported_reasoning_effort_values_without_http() {
+    for effort in ["low", "medium", "high", "xhigh"] {
+        let request = GaiseInstructRequest {
+            model: "gpt-5.4".to_string(),
+            input: OneOrMany::One(GaiseMessage {
+                role: "user".to_string(),
+                content: Some(OneOrMany::One(GaiseContent::Text {
+                    text: "reason locally".to_string(),
+                })),
+                ..Default::default()
+            }),
+            generation_config: Some(GaiseGenerationConfig {
+                thinking_effort: Some(effort.to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let mapped = OpenAIChatRequest::from(&request);
+        assert_eq!(mapped.reasoning_effort.as_deref(), Some(effort));
+    }
 }

@@ -5,73 +5,71 @@
 [![Rust](https://img.shields.io/badge/rust-1.91%2B-orange.svg)](https://www.rust-lang.org)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 
-GAISe is a Rust-based abstraction service that standardizes requests and responses across multiple Generative AI service providers. Write your application once and switch between OpenAI, Anthropic, Gemini, Vertex AI, Bedrock, and Ollama with a single model string change.
+GAISe is a Rust abstraction over OpenAI, Anthropic, Google Gemini, Vertex AI, Amazon Bedrock, and Ollama. It provides one request/response contract for text, reasoning, tools, images, audio, files, embeddings, and streaming.
 
-Written by: Ian Knowles<br>
-Project page: [BadAI Project Page](https://badai.company/open-source/gaise)
+Written by Ian Knowles. Project page: [BadAI](https://badai.company/open-source/gaise).
 
-## Features
+## What is included
 
-- **Standardized API**: Unified `GaiseClient` trait with `instruct`, `instruct_stream`, and `embeddings`.
-- **Provider Agnostic**: Switch between cloud and local providers by changing `"provider::model"` string.
-- **Reasoning / Thinking**: Unified `thinking_effort` and `thinking_tokens` mapped to each provider's native API.
-- **Multi-modal Support**: Handle Text, Images, Audio, and Files seamlessly.
-- **Tool Calling**: Function calling / tool use across all providers that support it.
-- **Streaming**: SSE-based streaming with `GaiseStreamAccumulator` for chunk collection.
-- **Async First**: Built on `tokio` and `async-trait`.
+- A shared `GaiseClient` trait with `instruct`, `instruct_stream`, and `embeddings`.
+- Router-style model names such as `gemini::gemini-3.6-flash`.
+- Ordered multimodal content: text, reasoning summaries, images, audio, files, and nested parts.
+- Tool calling with nested JSON schemas and provider thought-signature round trips.
+- Model-aware reasoning controls, prompt caching, retry handling, modality-aware input/output/total usage reporting, and robust stream framing.
+- Generated-image output for Gemini, Vertex AI, and supported Bedrock response shapes.
+- Bidirectional OpenAI Realtime and Gemini Live transports.
+- Hermetic mapping and parser tests; live or credentialed checks are opt-in and ignored by default.
 
-## Supported Providers
+## Provider coverage
 
-| Provider | Crate | Models |
-|----------|-------|--------|
-| **OpenAI** | [`gaise-provider-openai`](https://crates.io/crates/gaise-provider-openai) | GPT-5.x, GPT-4.x, o3, o4-mini |
-| **Anthropic** | [`gaise-provider-anthropic`](https://crates.io/crates/gaise-provider-anthropic) | Claude Opus/Sonnet/Haiku 4.x (extended thinking) |
-| **Gemini** | [`gaise-provider-gemini`](https://crates.io/crates/gaise-provider-gemini) | Gemini 3.x, 2.5 (thinking, tools, embeddings) |
-| **Vertex AI** | [`gaise-provider-vertexai`](https://crates.io/crates/gaise-provider-vertexai) | Gemini models via Google Cloud |
-| **Bedrock** | [`gaise-provider-bedrock`](https://crates.io/crates/gaise-provider-bedrock) | Claude, Titan via AWS |
-| **Ollama** | [`gaise-provider-ollama`](https://crates.io/crates/gaise-provider-ollama) | Llama, Mistral, Qwen (local) |
+| Provider | Main API surface | Current model examples |
+|---|---|---|
+| OpenAI | Chat Completions, Embeddings, Realtime | GPT-5.6 family, GPT-5.5/5.4, text-embedding-3, Realtime 2.1 |
+| Anthropic | Messages | Claude Fable 5, Opus 4.8, Sonnet 5, Haiku 4.5 |
+| Gemini | generateContent, Embeddings, Live | Gemini 3.6 Flash, 3.5 Flash/Lite, 3.1 Pro/image, 3.1 Flash Live |
+| Vertex AI | generateContent, Embeddings | Google Cloud Gemini catalog, including image-output models |
+| Bedrock | Converse, ConverseStream, InvokeModel | Claude, Amazon Nova, Titan and Cohere embeddings |
+| Ollama | Chat and Embeddings | Any installed compatible tag; vision, thinking, and tools are model-dependent |
+
+Model availability changes quickly. [`model-registry.toml`](model-registry.toml) records the 2026-07-22 audit, including provider-specific retirement dates. [`audit-report.md`](audit-report.md) explains the source comparison and implementation boundaries. The [`developer/wiki`](developer/wiki/README.md) contains the complete developer guide, request examples, provider matrix, and flow diagrams.
 
 ## Installation
 
 ```toml
 [dependencies]
-gaise = "0.1"                        # Core trait and contracts
-gaise-client = "0.1"                 # Router with all providers (or pick individual ones below)
-# gaise-provider-openai = "0.1"      # OpenAI only
-# gaise-provider-anthropic = "0.1"   # Anthropic only
-# gaise-provider-gemini = "0.1"      # Google Gemini only
-# gaise-provider-ollama = "0.1"      # Ollama (local) only
-# gaise-provider-vertexai = "0.1"    # Google Vertex AI only
-# gaise-provider-bedrock = "0.1"     # AWS Bedrock only
+gaise = "0.1"
+gaise-client = "0.1"
 tokio = { version = "1", features = ["full"] }
+
+# Or depend on individual adapters:
+# gaise-provider-openai = "0.1"
+# gaise-provider-anthropic = "0.1"
+# gaise-provider-gemini = "0.1"
+# gaise-provider-vertexai = "0.1"
+# gaise-provider-bedrock = "0.1"
+# gaise-provider-ollama = "0.1"
 ```
 
-## Quick Start — Provider Router
-
-The simplest way to use GAISe is with `gaise-client`, which routes requests by model string:
+## Router quick start
 
 ```rust
-use std::sync::Arc;
-use gaise_client::{GaiseClientService, GaiseClientConfig};
-use gaise_core::GaiseClient;
+use gaise_client::{GaiseClientConfig, GaiseClientService};
 use gaise_core::contracts::*;
+use gaise_core::GaiseClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let config = GaiseClientConfig {
-        openai_api_key: Some("sk-...".to_string()),
-        gemini_api_key: Some("AIza...".to_string()),
+    let service = GaiseClientService::new(GaiseClientConfig {
+        gemini_api_key: Some(std::env::var("GEMINI_API_KEY")?),
         ..Default::default()
-    };
-
-    let service = GaiseClientService::new(config);
+    });
 
     let request = GaiseInstructRequest {
-        model: "openai::gpt-4o".to_string(),  // or "gemini::gemini-2.5-flash", "anthropic::claude-sonnet-4-6", etc.
+        model: "gemini::gemini-3.6-flash".to_string(),
         input: OneOrMany::One(GaiseMessage {
             role: "user".to_string(),
             content: Some(OneOrMany::One(GaiseContent::Text {
-                text: "What is the capital of France?".to_string(),
+                text: "Explain why the sky appears blue.".to_string(),
             })),
             ..Default::default()
         }),
@@ -84,157 +82,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 ```
 
-## Usage Examples
+The router strips the provider prefix before calling the adapter. Direct provider clients therefore receive `gemini-3.6-flash`, while `GaiseClientService` receives `gemini::gemini-3.6-flash`.
 
-### Direct Provider — Gemini
+## Multimodal input
 
-```rust
-use gaise_core::GaiseClient;
-use gaise_core::contracts::*;
-use gaise_provider_gemini::gemini_client::GaiseClientGemini;
-
-let client = GaiseClientGemini::new(
-    "https://generativelanguage.googleapis.com/v1beta".to_string(),
-    "your-gemini-api-key".to_string(),
-);
-
-let request = GaiseInstructRequest {
-    model: "gemini-2.5-flash".to_string(),
-    input: OneOrMany::One(GaiseMessage {
-        role: "user".to_string(),
-        content: Some(OneOrMany::One(GaiseContent::Text {
-            text: "Hello from Gemini!".to_string(),
-        })),
-        ..Default::default()
-    }),
-    ..Default::default()
-};
-
-let response = client.instruct(&request).await?;
-```
-
-### Direct Provider — OpenAI
-
-```rust
-use gaise_provider_openai::openai_client::GaiseClientOpenAI;
-
-let client = GaiseClientOpenAI::new(
-    "https://api.openai.com/v1".to_string(),
-    "sk-your-api-key".to_string(),
-);
-```
-
-### Direct Provider — Anthropic Claude
-
-```rust
-use gaise_provider_anthropic::anthropic_client::GaiseClientAnthropic;
-
-let client = GaiseClientAnthropic::new(
-    "https://api.anthropic.com/v1".to_string(),
-    "sk-ant-your-api-key".to_string(),
-);
-```
-
-### Streaming
-
-```rust
-use futures_util::StreamExt;
-
-let mut stream = client.instruct_stream(&request).await?;
-while let Some(chunk_res) = stream.next().await {
-    let response = chunk_res?;
-    if let GaiseStreamChunk::Text(text) = response.chunk {
-        print!("{}", text);
-    }
-}
-```
-
-### Reasoning / Thinking
-
-Works identically across providers — just change the model string:
-
-```rust
-let request = GaiseInstructRequest {
-    model: "openai::o3".to_string(),  // or "anthropic::claude-sonnet-4-6", "gemini::gemini-3-flash-preview"
-    generation_config: Some(GaiseGenerationConfig {
-        thinking_effort: Some("high".to_string()),
-        max_tokens: Some(32000),
-        ..Default::default()
-    }),
-    input: OneOrMany::One(GaiseMessage {
-        role: "user".to_string(),
-        content: Some(OneOrMany::One(GaiseContent::Text {
-            text: "Prove that the square root of 2 is irrational.".to_string(),
-        })),
-        ..Default::default()
-    }),
-    ..Default::default()
-};
-```
-
-| GAISe field | OpenAI | Anthropic | Gemini |
-|---|---|---|---|
-| `thinking_effort` | `reasoning_effort` | `thinking.type` | `thinkingConfig.thinkingLevel` |
-| `thinking_tokens` | N/A | `thinking.budget_tokens` | `thinkingConfig.thinkingBudget` |
-| `max_tokens` | `max_completion_tokens` | `max_tokens` | `maxOutputTokens` |
-
-### Embeddings
-
-```rust
-let request = GaiseEmbeddingsRequest {
-    model: "gemini::gemini-embedding-001".to_string(),  // or "openai::text-embedding-3-small"
-    input: OneOrMany::One("Text to embed".to_string()),
-    ..Default::default()
-};
-
-let response = service.embeddings(&request).await?;
-println!("Dimensions: {}", response.output[0].len());
-```
-
-### Multi-modality
+`GaiseContent::Parts` can be nested; adapters flatten it while preserving order. Image and audio `format` values accept a MIME type or common shorthand such as `png`, `jpeg`, `wav`, or `mp3`.
 
 ```rust
 let message = GaiseMessage {
     role: "user".to_string(),
     content: Some(OneOrMany::Many(vec![
-        GaiseContent::Text { text: "Describe this image.".to_string() },
+        GaiseContent::Text {
+            text: "Compare this image with the attached report.".to_string(),
+        },
         GaiseContent::Image {
             data: std::fs::read("photo.png")?,
             format: Some("image/png".to_string()),
+        },
+        GaiseContent::File {
+            data: std::fs::read("report.pdf")?,
+            name: Some("report.pdf".to_string()),
         },
     ])),
     ..Default::default()
 };
 ```
 
-### Tool Calling
+Document support is provider-specific. Anthropic, Gemini, Vertex AI, and Bedrock can receive supported document blocks. Ollama falls back to UTF-8 text. The current OpenAI adapter targets Chat Completions, whose message content does not support Responses-style `input_file`; UTF-8 files are tagged as text and binary files become an explicit unsupported-document marker instead of an invalid wire block.
+
+## Image generation and image editing
+
+Gemini and Vertex image-output models use the common response modality and image controls:
 
 ```rust
-use std::collections::HashMap;
-
-let mut properties = HashMap::new();
-properties.insert("location".to_string(), GaiseToolParameter {
-    r#type: Some("string".to_string()),
-    description: Some("City and state, e.g. San Francisco, CA".to_string()),
-    ..Default::default()
-});
-
 let request = GaiseInstructRequest {
-    model: "gemini::gemini-2.5-flash".to_string(),
-    tools: Some(vec![GaiseTool {
-        name: "get_weather".to_string(),
-        description: Some("Get current weather".to_string()),
-        parameters: Some(GaiseToolParameter {
-            r#type: Some("object".to_string()),
-            properties: Some(properties),
-            required: Some(vec!["location".to_string()]),
-            ..Default::default()
+    model: "gemini::gemini-3.1-flash-image".to_string(),
+    generation_config: Some(GaiseGenerationConfig {
+        response_modalities: Some(vec!["TEXT".to_string(), "IMAGE".to_string()]),
+        image_config: Some(GaiseImageConfig {
+            aspect_ratio: Some("16:9".to_string()),
+            image_size: Some("2K".to_string()),
         }),
-    }]),
+        ..Default::default()
+    }),
     input: OneOrMany::One(GaiseMessage {
         role: "user".to_string(),
         content: Some(OneOrMany::One(GaiseContent::Text {
-            text: "What's the weather in London?".to_string(),
+            text: "Create a watercolor landscape.".to_string(),
         })),
         ..Default::default()
     }),
@@ -242,45 +136,152 @@ let request = GaiseInstructRequest {
 };
 ```
 
-### HTTP Server (gaise-api)
+Returned media appears as `GaiseContent::Image`, `Audio`, or `File` in the normal response. During streaming it arrives as `GaiseStreamChunk::Content`. OpenAI image generation requires its Images API or the Responses image-generation tool and is not represented by the current OpenAI Chat Completions adapter.
 
-```bash
-export OPENAI_API_KEY="sk-..." GEMINI_API_KEY="AIza..." ANTHROPIC_API_KEY="sk-ant-..."
-cargo run -p gaise-api  # Listening on 0.0.0.0:3000
+For OpenAI image input, set `input_image_detail` to `low`, `high`, `auto`, or (on models that support it) `original`.
+
+## Reasoning and thought summaries
+
+```rust
+let config = GaiseGenerationConfig {
+    thinking_effort: Some("high".to_string()),
+    thinking_tokens: Some(8_192),
+    include_thoughts: Some(true),
+    max_tokens: Some(32_000),
+    ..Default::default()
+};
 ```
 
-```bash
-curl -X POST http://localhost:3000/v1/instruct \
-  -H "Content-Type: application/json" \
-  -d '{"model":"gemini::gemini-2.5-flash","input":{"role":"user","content":{"type":"text","text":"Hello!"}}}'
+| Common field | OpenAI | Anthropic | Gemini / Vertex | Bedrock | Ollama |
+|---|---|---|---|---|---|
+| `thinking_effort` | `reasoning_effort` | `output_config.effort` plus model-aware thinking | Gemini 3 thinking level | Claude effort or Nova reasoning config | Boolean thinking or GPT-OSS level |
+| `thinking_tokens` | Included in completion budget | Manual `budget_tokens` where supported | Gemini 2.5 thinking budget; mapped to a level on 3.x | Provider-specific reasoning budget | Enables thinking where supported |
+| `include_thoughts` | Reasoning summary where exposed | `thinking.display` | `includeThoughts` | Returned reasoning content where exposed | Returned `thinking` field |
+| `max_tokens` | `max_completion_tokens` | `max_tokens` | `maxOutputTokens` | `maxTokens` | `num_predict` |
+
+Providers may return only a summary or opaque signature, not private chain-of-thought. GAISe represents returned summaries as `GaiseContent::Reasoning { text, signature }`; signatures should be preserved when replaying tool calls. Safety-redacted Anthropic/Bedrock reasoning is represented as `GaiseContent::RedactedReasoning { data }` and must be replayed byte-for-byte rather than displayed.
+
+## Streaming
+
+```rust
+use futures_util::StreamExt;
+
+let mut stream = service.instruct_stream(&request).await?;
+while let Some(item) = stream.next().await {
+    match item?.chunk {
+        GaiseStreamChunk::Text(text) => print!("{text}"),
+        GaiseStreamChunk::Content(content) => println!("media/reasoning: {content:?}"),
+        GaiseStreamChunk::ToolCall { name, arguments, .. } => {
+            println!("tool: {name:?} {arguments:?}")
+        }
+        GaiseStreamChunk::Usage(usage) => println!("usage: {usage:?}"),
+    }
+}
 ```
 
-## Project Structure
+`GaiseStreamAccumulator` converts a stream into one ordered `GaiseMessage`, coalescing adjacent text/reasoning deltas while preserving generated media and tool calls.
 
-| Crate | Description |
-|-------|-------------|
-| [`gaise`](https://crates.io/crates/gaise) | Core `GaiseClient` trait and all shared contracts |
-| [`gaise-client`](https://crates.io/crates/gaise-client) | Provider router — `"provider::model"` string routing |
-| [`gaise-provider-openai`](https://crates.io/crates/gaise-provider-openai) | OpenAI Chat Completions + Embeddings |
-| [`gaise-provider-anthropic`](https://crates.io/crates/gaise-provider-anthropic) | Anthropic Messages API + extended thinking |
-| [`gaise-provider-gemini`](https://crates.io/crates/gaise-provider-gemini) | Google Gemini v1beta API |
-| [`gaise-provider-vertexai`](https://crates.io/crates/gaise-provider-vertexai) | Google Vertex AI with service account auth |
-| [`gaise-provider-bedrock`](https://crates.io/crates/gaise-provider-bedrock) | AWS Bedrock Runtime |
-| [`gaise-provider-ollama`](https://crates.io/crates/gaise-provider-ollama) | Ollama local inference |
-| [`gaise-api`](https://crates.io/crates/gaise-api) | Axum HTTP server with SSE streaming |
-| `gaise-chatbot` | Sample CLI chatbot |
+## Usage reporting
 
-## Environment Variables
+`GaiseUsage` separates `input`, `output`, and request-wide `total` counters. Where a provider supplies modality details, the corresponding map includes `text_tokens`, `image_tokens`, `audio_tokens`, and `reasoning_tokens`; cache and tool counters are retained as well. OpenAI Chat, Anthropic, Bedrock, and Ollama do not expose every modality split, so GAISe returns their honest aggregate and available details rather than guessing.
 
-| Variable | Provider |
-|----------|----------|
-| `OPENAI_API_KEY` / `OPENAI_API_URL` | OpenAI |
-| `ANTHROPIC_API_KEY` / `ANTHROPIC_API_URL` | Anthropic |
-| `GEMINI_API_KEY` / `GEMINI_API_URL` | Gemini |
-| `VERTEXAI_SA_PATH` / `VERTEXAI_API_URL` | Vertex AI |
-| `BEDROCK_REGION` | Bedrock |
+Counters in a map can overlap: for example, an aggregate prompt count includes its modality and cache subsets. Do not sum every value. Stream usage events are cumulative snapshots; `GaiseStreamAccumulator` replaces repeated counters so repeated final metadata is not double-counted.
+
+## Embeddings
+
+```rust
+let request = GaiseEmbeddingsRequest {
+    model: "gemini::gemini-embedding-2".to_string(),
+    input: OneOrMany::One("Text to embed".to_string()),
+    ..Default::default()
+};
+
+let response = service.embeddings(&request).await?;
+println!("dimensions: {}", response.output[0].len());
+```
+
+OpenAI text-embedding-3, Gemini/Vertex embeddings, Bedrock Titan/Cohere, and Ollama embeddings are supported. The common embedding request is currently text-oriented even where a provider offers multimodal embeddings.
+
+## Tool calling
+
+Tool parameters support nested `object` and `array` schemas through recursive `properties` and `items`. A returned tool call contains its provider ID, function name, JSON arguments, and an optional thought signature. When returning a result, set both `tool_call_id` and `tool_name`; the name is optional for providers that only require an ID but is required by current Gemini and Vertex function responses.
+
+```rust
+use std::collections::BTreeMap;
+
+let mut properties = BTreeMap::new();
+properties.insert(
+    "location".to_string(),
+    GaiseToolParameter {
+        r#type: Some("string".to_string()),
+        description: Some("City and country".to_string()),
+        ..Default::default()
+    },
+);
+
+let tool = GaiseTool {
+    name: "get_weather".to_string(),
+    description: Some("Get current weather".to_string()),
+    parameters: Some(GaiseToolParameter {
+        r#type: Some("object".to_string()),
+        properties: Some(properties),
+        required: Some(vec!["location".to_string()]),
+        ..Default::default()
+    }),
+};
+```
+
+## HTTP server
+
+```powershell
+$env:GEMINI_API_KEY = "..."
+cargo run -p gaise-api
+```
+
+The Axum service exposes:
+
+- `POST /v1/instruct`
+- `POST /v1/instruct/stream` (SSE)
+- `POST /v1/embeddings`
+
+See [`API_DOCUMENTATION.md`](API_DOCUMENTATION.md) for the wire format.
+
+## Development and tests
+
+```powershell
+cargo fmt --all -- --check
+cargo test --workspace --all-targets
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+The default suite does not call provider APIs. Tests requiring credentials, a running Ollama daemon, or external provider initialization are marked `#[ignore]`; do not use `--ignored` unless you intentionally want integration traffic.
+
+## Workspace crates
+
+| Crate | Purpose |
+|---|---|
+| `gaise` (`gaise-core/`) | Shared trait, contracts, stream accumulator, logging |
+| `gaise-client` | Feature-gated provider router |
+| `gaise-provider-openai` | OpenAI Chat Completions, Embeddings, Realtime |
+| `gaise-provider-anthropic` | Anthropic Messages |
+| `gaise-provider-gemini` | Gemini API and Gemini Live |
+| `gaise-provider-vertexai` | Vertex AI with service-account authentication |
+| `gaise-provider-bedrock` | Bedrock Converse/Invoke and embeddings |
+| `gaise-provider-ollama` | Local Ollama chat and embeddings |
+| `gaise-api` | Axum JSON/SSE/WebSocket server |
+| `gaise-chatbot` | Example CLI chatbot |
+
+## Environment variables
+
+| Variable | Consumer |
+|---|---|
+| `OPENAI_API_KEY`, `OPENAI_API_URL` | OpenAI |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_API_URL` | Anthropic |
+| `GEMINI_API_KEY`, `GEMINI_API_URL` | Gemini |
+| `VERTEXAI_SA_PATH`, `VERTEXAI_API_URL` | Vertex AI |
+| `BEDROCK_REGION` and normal AWS credential variables | Bedrock |
 | `OLLAMA_URL` | Ollama |
-| `GAISE_PORT` | API server (default: 3000) |
+| `GAISE_PORT` | API server; defaults to 3000 |
 
 ## License
 

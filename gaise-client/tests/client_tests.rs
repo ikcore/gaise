@@ -1,4 +1,4 @@
-use gaise_client::{GaiseClientService, GaiseClientConfig};
+use gaise_client::{GaiseClientConfig, GaiseClientService};
 use gaise_core::GaiseClient;
 use gaise_core::contracts::GaiseInstructRequest;
 
@@ -39,10 +39,15 @@ async fn test_instruct_delegation_parsing() {
         model: "vertexai::gemini-pro".to_string(),
         ..request.clone()
     };
-    
+
     let result = service.instruct(&request_vertex).await;
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("VertexAI Service Account not configured"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("VertexAI Service Account not configured")
+    );
 }
 
 #[tokio::test]
@@ -57,11 +62,17 @@ async fn test_embeddings_delegation_parsing() {
 
     let result = service.embeddings(&request).await;
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("OpenAI API Key not configured"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("OpenAI API Key not configured")
+    );
 }
 
 #[tokio::test]
 #[cfg(feature = "bedrock")]
+#[ignore = "initializes AWS credential providers; external-provider checks are opt-in"]
 async fn test_bedrock_resolution() {
     let config = GaiseClientConfig {
         bedrock_region: Some("us-east-1".to_string()),
@@ -69,10 +80,8 @@ async fn test_bedrock_resolution() {
     };
     let service = GaiseClientService::new(config);
 
-    // Test resolving bedrock
-    // Note: This actually calls BedrockClient::new() which might try to load credentials
-    // but at least we can check if it initializes without error in this environment
-    // or if it fails gracefully.
+    // This is opt-in because SDK initialization may inspect the host credential
+    // environment. It never invokes a model or sends an inference request.
     let client = service.get_client("bedrock").await;
     assert!(client.is_ok());
 }

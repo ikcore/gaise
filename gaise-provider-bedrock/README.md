@@ -8,9 +8,13 @@ AWS Bedrock provider for [GAISe](https://crates.io/crates/gaise) — implements 
 
 ## Supported Features
 
-- Text instruct requests via `ConverseStream` / `Converse`
-- Streaming responses
-- Generation config (temperature, top_p, max_tokens)
+- Text, image, audio, and document inputs via `ConverseStream` / `Converse`
+- Streaming text, reasoning, tool calls, returned media, and usage
+- Nested function tools and multimodal tool results
+- Claude and Nova reasoning configuration
+- Titan and Cohere text embeddings via `InvokeModel`
+- Generation config (temperature, top_p, and max_tokens)
+- Usage with input/output/request totals and cache read/write/TTL counters
 - AWS credential chain authentication (environment, profile, IAM role, etc.)
 
 ## Usage
@@ -24,7 +28,7 @@ use gaise_provider_bedrock::bedrock_client::GaiseClientBedrock;
 let client = GaiseClientBedrock::new().await;
 
 let request = GaiseInstructRequest {
-    model: "anthropic.claude-3-5-sonnet-20241022-v2:0".to_string(),
+    model: "anthropic.claude-fable-5".to_string(),
     input: OneOrMany::One(GaiseMessage {
         role: "user".to_string(),
         content: Some(OneOrMany::One(GaiseContent::Text {

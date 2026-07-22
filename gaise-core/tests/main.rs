@@ -6,7 +6,6 @@ mod tests {
 
     #[test]
     fn test_add() {
-
         let jdata = json!({
             "model": "id",
             "input": [
@@ -26,5 +25,4 @@ mod tests {
         println!("{:?}", dx);
         println!("{:?}", serde_json::to_string_pretty(&dx));
     }
-
 }

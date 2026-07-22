@@ -1,112 +1,190 @@
-# GAISe API Documentation
+# GAISe HTTP API
 
-GAISe (Generative AI Service) is an abstraction service that provides a standardized API for multiple Generative AI providers (OpenAI, VertexAI, Ollama, Bedrock, Anthropic).
+The `gaise-api` crate exposes the common GAISe contracts as JSON, Server-Sent Events (SSE), and an optional live WebSocket. The default local address is `http://localhost:3000`.
 
-## Base URL
+## Model routing
 
-The default base URL for the API is `http://localhost:3000`.
+HTTP requests use `provider::model-id`:
 
-## Model Naming Convention
+- `openai::gpt-5.6`
+- `anthropic::claude-sonnet-5`
+- `gemini::gemini-3.6-flash`
+- `vertexai::gemini-3.5-flash`
+- `bedrock::us.anthropic.claude-sonnet-5`
+- `ollama::qwen3:8b`
 
-All requests require a `model` field. The format for the model name is:
-`provider::model_name`
+The router removes the provider prefix before forwarding the request. GAISe does not restrict IDs to a hard-coded allowlist; consult [`model-registry.toml`](model-registry.toml) and the provider catalog for current availability.
 
-Examples:
-- `ollama::llama3`
-- `vertexai::gemini-1.5-flash`
-- `openai::gpt-4o`
-- `anthropic::claude-3-5-sonnet-20241022`
-- `bedrock::amazon.titan-text-express-v1`
+## `POST /v1/instruct`
 
-## Endpoints
+Generates one or more assistant messages.
 
-### 1. Instruct (Non-Streaming)
-
-Generates a completion for a given prompt.
-
-- **URL:** `/v1/instruct`
-- **Method:** `POST`
-- **Content-Type:** `application/json`
-
-#### Simple Instruct Example
-
-**Request:**
 ```json
 {
-  "model": "ollama::llama3",
+  "model": "gemini::gemini-3.6-flash",
+  "correlation_id": "request-123",
+  "generation_config": {
+    "max_tokens": 4096,
+    "thinking_effort": "medium",
+    "include_thoughts": true
+  },
   "input": {
     "role": "user",
     "content": {
       "type": "text",
-      "text": "Why is the sky blue?"
+      "text": "Explain Rayleigh scattering."
     }
   }
 }
 ```
 
-**Response:**
+Typical response:
+
 ```json
 {
-  "output": {
-    "role": "assistant",
-    "content": {
-      "type": "text",
-      "text": "The sky appears blue due to a phenomenon called Rayleigh scattering..."
-    }
-  },
-  "external_id": "...",
-  "usage": {
-    "input": { "prompt_tokens": 10 },
-    "output": { "completion_tokens": 50 }
-  }
-}
-```
-
-#### Multi-Turn Conversation Example
-
-**Request:**
-```json
-{
-  "model": "ollama::llama3",
-  "input": [
-    {
-      "role": "user",
-      "content": { "type": "text", "text": "Hello!" }
-    },
+  "output": [
     {
       "role": "assistant",
-      "content": { "type": "text", "text": "Hi there! How can I help you today?" }
-    },
-    {
-      "role": "user",
-      "content": { "type": "text", "text": "Tell me a joke." }
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "I should explain the wavelength dependence clearly.",
+          "signature": "provider-opaque-signature"
+        },
+        {
+          "type": "text",
+          "text": "Shorter wavelengths are scattered more strongly..."
+        }
+      ]
     }
+  ],
+  "external_id": "provider-response-id",
+  "usage": {
+    "input": { "prompt_tokens": 12, "text_tokens": 12 },
+    "output": { "candidates_tokens": 87, "text_tokens": 70, "reasoning_tokens": 17 },
+    "total": { "total_tokens": 99 }
+  }
+}
+```
+
+`input`, message `content`, and response `output` use `OneOrMany<T>` and therefore accept either one object or an array.
+
+Usage has independent `input`, `output`, and request-wide `total` maps. Counters in one map can overlap: an aggregate such as `prompt_tokens` includes its `text_tokens`, `image_tokens`, `audio_tokens`, and cached subsets. Do not sum every map value. GAISe returns a modality counter only when the provider reports it; it does not label an undifferentiated prompt as text or infer an image/audio split. See [`developer/wiki/common-contracts.md`](developer/wiki/common-contracts.md#usage) for provider-specific fields.
+
+### Generation configuration
+
+All fields are optional:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `temperature` | number | Sampling temperature when the selected model permits it |
+| `top_k` | unsigned integer | Provider sampling control |
+| `top_p` | number | Nucleus sampling control |
+| `max_tokens` | unsigned integer | Maximum provider output budget |
+| `thinking_tokens` | unsigned integer | Manual reasoning budget where supported |
+| `thinking_effort` | string | `low`, `medium`, `high`, `xhigh`, `max`, or a provider-specific value |
+| `include_thoughts` | boolean | Request returned thought/reasoning summaries where supported |
+| `response_modalities` | string array | For example, `["TEXT", "IMAGE"]` |
+| `image_config.aspect_ratio` | string | Provider-native value such as `16:9` |
+| `image_config.image_size` | string | Provider-native value such as `1K`, `2K`, or `4K` |
+| `input_image_detail` | string | OpenAI image detail: `low`, `high`, `auto`, or `original` |
+| `input_media_resolution` | string | Gemini/Vertex input image, video, or PDF resolution such as `low`, `medium`, `high`, or the full `MEDIA_RESOLUTION_*` value |
+| `cache_key` | string | Stable prompt-cache identifier/hint where supported |
+
+Unsupported controls are omitted or handled according to the provider adapter. Some newer models reject sampling parameters entirely; the model-aware mappers suppress those fields.
+
+### Content objects
+
+JSON byte data is an array of integers from 0 through 255.
+
+```json
+{ "type": "text", "text": "hello" }
+```
+
+```json
+{ "type": "image", "data": [137, 80, 78, 71], "format": "image/png" }
+```
+
+```json
+{ "type": "audio", "data": [82, 73, 70, 70], "format": "audio/wav" }
+```
+
+```json
+{ "type": "file", "data": [37, 80, 68, 70], "name": "report.pdf" }
+```
+
+```json
+{
+  "type": "reasoning",
+  "text": "A provider-returned summary",
+  "signature": "opaque-value-to-preserve"
+}
+```
+
+```json
+{
+  "type": "redacted_reasoning",
+  "data": [111, 112, 97, 113, 117, 101]
+}
+```
+
+`redacted_reasoning` is opaque provider data. Preserve and replay it byte-for-byte; do not display or alter it.
+
+```json
+{
+  "type": "parts",
+  "parts": [
+    { "type": "text", "text": "Describe this:" },
+    { "type": "image", "data": [1, 2, 3], "format": "png" }
   ]
 }
 ```
 
-#### Tool Handling Example
+Nested parts are flattened by provider adapters while retaining their order. Actual media and document support depends on the chosen model. In particular, binary OpenAI file input requires the Responses API and is not available through the current Chat Completions adapter.
 
-You can define tools (functions) that the model can choose to call.
+### Image-output request
 
-**Request:**
 ```json
 {
-  "model": "ollama::llama3",
+  "model": "gemini::gemini-3.1-flash-image",
+  "generation_config": {
+    "response_modalities": ["TEXT", "IMAGE"],
+    "image_config": {
+      "aspect_ratio": "16:9",
+      "image_size": "2K"
+    }
+  },
+  "input": {
+    "role": "user",
+    "content": { "type": "text", "text": "Create a watercolor landscape." }
+  }
+}
+```
+
+Generated bytes are returned as normal `image`, `audio`, or `file` content objects.
+
+### Tool calling
+
+```json
+{
+  "model": "anthropic::claude-sonnet-5",
+  "tool_config": { "mode": "auto" },
   "tools": [
     {
       "name": "get_weather",
-      "description": "Get the current weather in a given location",
+      "description": "Get current weather",
       "parameters": {
         "type": "object",
         "properties": {
           "location": {
             "type": "string",
-            "description": "The city and state, e.g. San Francisco, CA"
+            "description": "City and country"
           },
-          "unit": {
-            "type": "string",
-            "enum": ["celsius", "fahrenheit"]
+          "options": {
+            "type": "object",
+            "properties": {
+              "units": { "type": "string" }
+            }
           }
         },
         "required": ["location"]
@@ -115,145 +193,109 @@ You can define tools (functions) that the model can choose to call.
   ],
   "input": {
     "role": "user",
-    "content": { "type": "text", "text": "What's the weather like in London?" }
+    "content": { "type": "text", "text": "Weather in London?" }
   }
 }
 ```
 
-**Response (Model calling a tool):**
+A tool call has this shape:
+
 ```json
 {
-  "output": {
-    "role": "assistant",
-    "content": null,
-    "tool_calls": [
-      {
-        "id": "call_123",
-        "type": "function",
-        "function": {
-          "name": "get_weather",
-          "arguments": "{\"location\": \"London\"}"
-        }
-      }
-    ]
+  "id": "call-123",
+  "type": "function",
+  "function": {
+    "name": "get_weather",
+    "arguments": "{\"location\":\"London\"}"
   },
-  "external_id": "...",
-  "usage": { "input": { "prompt_tokens": 10 }, "output": { "completion_tokens": 5 } }
+  "thought_signature": "optional-provider-signature"
 }
 ```
 
----
+Return tool output as a new message with `tool_call_id`, `tool_name`, and result `content`:
 
-### 2. Instruct (Streaming)
+```json
+{
+  "role": "tool",
+  "tool_call_id": "call-123",
+  "tool_name": "get_weather",
+  "content": { "type": "text", "text": "{\"temperature\":18}" }
+}
+```
 
-Streams the response using Server-Sent Events (SSE).
+`tool_name` is optional for OpenAI, Anthropic, and Bedrock, but current Gemini and Vertex function responses require the name in addition to the optional provider call ID. Supplying both is portable.
 
-- **URL:** `/v1/instruct/stream`
-- **Method:** `POST`
-- **Content-Type:** `application/json`
+## `POST /v1/instruct/stream`
 
-**Request:**
-Same as the Instruct endpoint.
+Accepts the same request as `/v1/instruct` and returns SSE. Each `data:` value is a `GaiseInstructStreamResponse`.
 
-**Response (SSE Stream):**
 ```text
-data: {"chunk": {"text": "The"}, "external_id": "..."}
+data: {"chunk":{"text":"The"},"external_id":"response-1"}
 
-data: {"chunk": {"text": " sky"}, "external_id": "..."}
+data: {"chunk":{"content":{"type":"image","data":[1,2,3],"format":"image/png"}}}
 
-data: {"chunk": {"text": " is"}, "external_id": "..."}
+data: {"chunk":{"tool_call":{"index":0,"id":"call-1","name":"get_weather","arguments":"{","thought_signature":null}}}
 
-...
-
-data: {"chunk": {"usage": {"input": {"prompt_tokens": 10}, "output": {"completion_tokens": 5}}}, "external_id": "..."}
+data: {"chunk":{"usage":{"input":{"prompt_tokens":10},"output":{"completion_tokens":5},"total":{"total_tokens":15}}}}
 ```
 
-Each data packet is a `GaiseInstructStreamResponse` JSON object.
+Chunk variants are:
 
----
+- `text`: a text delta.
+- `content`: a complete reasoning or media part.
+- `tool_call`: an indexed tool-call delta.
+- `usage`: provider usage counters.
 
-### 3. Embeddings
+The Rust `GaiseStreamAccumulator` can collect these chunks into a complete ordered message.
 
-Generates vector embeddings for the provided input text.
+## `POST /v1/embeddings`
 
-- **URL:** `/v1/embeddings`
-- **Method:** `POST`
-- **Content-Type:** `application/json`
-
-#### Single Embedding Example
-
-**Request:**
 ```json
 {
-  "model": "ollama::all-minilm",
-  "input": "The quick brown fox jumps over the lazy dog."
+  "model": "openai::text-embedding-3-small",
+  "correlation_id": "embed-123",
+  "input": ["First document", "Second document"]
 }
 ```
 
-**Response:**
 ```json
 {
   "output": [
-    [0.0123, -0.456, 0.789]
+    [0.0123, -0.0456, 0.0789],
+    [0.0987, -0.0654, 0.0321]
   ],
-  "external_id": "...",
-  "usage": { "input": { "prompt_tokens": 9 }, "output": { "completion_tokens": 0 } }
+  "external_id": "provider-response-id",
+  "usage": {
+    "input": { "prompt_tokens": 4 },
+    "total": { "total_tokens": 4 }
+  }
 }
 ```
 
-#### Multi Embedding Example
+The common embeddings contract currently accepts text even where the provider offers multimodal embedding models. Usage is present only when that embedding endpoint reports it; Gemini `batchEmbedContents` and Bedrock Cohere responses currently leave it absent rather than estimating tokens.
 
-**Request:**
-```json
-{
-  "model": "ollama::all-minilm",
-  "input": [
-    "First sentence to embed.",
-    "Second sentence to embed."
-  ]
-}
-```
+## `GET /v1/live`
 
-**Response:**
-```json
-{
-  "output": [
-    [0.1, 0.2, 0.3],
-    [0.4, 0.5, 0.6]
-  ],
-  "external_id": "...",
-  "usage": { "input": { "prompt_tokens": 10 }, "output": { "completion_tokens": 0 } }
-}
-```
+When the API is built with live-provider features, this WebSocket route proxies the common live protocol to OpenAI Realtime or Gemini Live. Live sessions are provider- and model-specific and require credentials. They are not exercised by the default test suite.
+
+Client-to-server input variants are `text`, `audio`, `image`, `tool_response`, `activity_start`, `activity_end`, `audio_stream_end`, `clear_audio`, `cancel_response`, and `close`. Server-to-client event variants are `session_started`, `text`, `audio`, `transcript`, `reasoning`, `tool_call`, `tool_call_cancelled`, `turn_complete`, `interrupted`, `usage`, `error`, and `session_ended`.
+
+OpenAI Realtime accepts 24 kHz PCM audio in the common audio path and PNG/JPEG still images. Gemini Live accepts audio and image/video frames through its realtime streams. Manual activity, clear, and cancel operations remain provider-specific; unsupported operations produce an explicit error event rather than a fabricated success.
+
+The full live protocol, wire examples, and provider differences are documented in [`developer/wiki/request-examples.md`](developer/wiki/request-examples.md#live--realtime) and [`developer/wiki/flows.md`](developer/wiki/flows.md#live-session).
 
 ## Configuration
 
-The API server is configured via environment variables:
-
 | Variable | Description | Default |
-|----------|-------------|---------|
-| `OLLAMA_URL` | The URL of the Ollama service | `http://localhost:11434` |
-| `VERTEXAI_API_URL` | The URL of the Vertex AI API | (empty) |
-| `VERTEXAI_SA_PATH` | Path to the Google Cloud Service Account JSON file | (none) |
-| `OPENAI_API_KEY` | OpenAI API key | (none) |
-| `OPENAI_API_URL` | OpenAI API URL | `https://api.openai.com/v1` |
-| `ANTHROPIC_API_KEY` | Anthropic API key | (none) |
-| `ANTHROPIC_API_URL` | Anthropic API URL | `https://api.anthropic.com/v1` |
-
----
-
-## Technical Details
-
-### Content Types
-The `content` field in messages supports multiple modalities:
-- `text`: `{ "type": "text", "text": "..." }`
-- `image`: `{ "type": "image", "data": [bytes], "format": "image/png" }`
-- `audio`: `{ "type": "audio", "data": [bytes], "format": "audio/wav" }`
-- `file`: `{ "type": "file", "data": [bytes], "name": "filename.pdf" }`
-
-### OneOrMany
-Many fields use a `OneOrMany<T>` pattern, meaning you can provide either a single item or an array of items.
-- `input` in `GaiseEmbeddingsRequest` (string or array of strings)
-- `input` in `GaiseInstructRequest` (message or array of messages)
-- `content` in `GaiseMessage` (content object or array of content objects)
-- `output` in `GaiseInstructResponse` (message or array of messages)
+|---|---|---|
+| `OPENAI_API_KEY` | OpenAI credential | none |
+| `OPENAI_API_URL` | OpenAI base URL | `https://api.openai.com/v1` |
+| `ANTHROPIC_API_KEY` | Anthropic credential | none |
+| `ANTHROPIC_API_URL` | Anthropic base URL | `https://api.anthropic.com/v1` |
+| `GEMINI_API_KEY` | Gemini credential | none |
+| `GEMINI_API_URL` | Gemini base URL | provider default |
+| `VERTEXAI_SA_PATH` | Google service-account JSON | none |
+| `VERTEXAI_API_URL` | Vertex endpoint override | none |
+| `BEDROCK_REGION` | AWS region | AWS SDK resolution |
+| `OLLAMA_URL` | Ollama endpoint | `http://localhost:11434` |
+| `GAISE_PORT` | HTTP listen port | `3000` |

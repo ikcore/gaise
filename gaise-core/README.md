@@ -26,6 +26,18 @@ pub trait GaiseClient: Send + Sync {
 
 Every provider crate implements this trait. Your application depends on `gaise` for the contracts and picks whichever provider crates it needs.
 
+### `GaiseLiveClient` Trait (real-time sessions)
+
+```rust
+#[async_trait]
+pub trait GaiseLiveClient: Send + Sync {
+    async fn live_connect(&self, config: &GaiseLiveConfig)
+        -> Result<GaiseLiveSession, Box<dyn Error + Send + Sync>>;
+}
+```
+
+Returns a `GaiseLiveSession` with a `tx` channel (send audio/text/tool responses) and an `rx` stream (receive audio/text/transcripts/tool calls). Implemented by `gaise-provider-openai` and `gaise-provider-gemini` when their `live` feature is enabled.
+
 ## Key Types
 
 | Type | Purpose |
@@ -40,6 +52,10 @@ Every provider crate implements this trait. Your application depends on `gaise` 
 | `GaiseTool` | Function calling definition with JSON Schema params |
 | `OneOrMany<T>` | Flexible single-or-array wrapper |
 | `GaiseStreamAccumulator` | Collects stream chunks into a complete message |
+| `GaiseLiveConfig` | Live session config: model, voice, modalities, VAD, transcription, tools |
+| `GaiseLiveSession` | Active session: `tx` (send inputs) + `rx` (receive events) |
+| `GaiseLiveEvent` | Server event: `Audio`, `Text`, `Transcript`, `ToolCall`, `TurnComplete`, etc. |
+| `GaiseLiveInput` | Client input: `Audio`, `Text`, `ToolResponse`, `Close` |
 
 ## Quick Start
 

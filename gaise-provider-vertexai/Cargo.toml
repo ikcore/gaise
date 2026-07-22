@@ -3,6 +3,7 @@ name = "gaise-provider-vertexai"
 description = "Google Vertex AI provider for GAISe — Gemini models via Vertex AI endpoints"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 keywords.workspace = true

@@ -3,6 +3,7 @@ name = "gaise"
 description = "Core trait and contracts for GAISe — a unified GenAI provider abstraction"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 keywords.workspace = true
@@ -19,7 +20,8 @@ serde.workspace = true
 serde_bytes.workspace = true
 async-trait.workspace = true
 futures-util.workspace = true
+tokio = { workspace = true, features = ["sync"] }
 mockall = "0.14"
 
 [dev-dependencies]
-tokio.workspace = true
+tokio = { workspace = true, features = ["full"] }

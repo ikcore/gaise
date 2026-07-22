@@ -1,8 +1,8 @@
+use gaise_api::{AppState, create_app};
+use gaise_client::{GaiseClientConfig, GaiseClientService};
+use gaise_core::logging::ConsoleGaiseLogger;
 use std::sync::Arc;
 use tracing::info;
-use gaise_api::{create_app, AppState};
-use gaise_client::{GaiseClientService, GaiseClientConfig};
-use gaise_core::logging::ConsoleGaiseLogger;
 
 #[tokio::main]
 async fn main() {
@@ -35,7 +35,7 @@ async fn main() {
         anthropic_api_key,
         gemini_api_url,
         gemini_api_key,
-        logger: Some(Arc::new(ConsoleGaiseLogger::default())),
+        logger: Some(Arc::new(ConsoleGaiseLogger)),
     };
 
     let state = Arc::new(AppState {

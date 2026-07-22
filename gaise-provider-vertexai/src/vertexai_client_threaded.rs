@@ -89,7 +89,8 @@ impl GaiseClientVertexAI {
         // Make the POST request
         //let client = reqwest::Client::new();
         let client = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(120))
             .build()?;
 
         let res = client.post("https://oauth2.googleapis.com/token")
@@ -151,17 +152,17 @@ impl GaiseClient for GaiseClientVertexAI {
         }
 
         let client = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
-            .build().unwrap();
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(120))
+            .build()?;
         let res = client.post(&url)
             .header("Authorization", "Bearer ".to_owned() + &token)
             .header("Content-type", "application/json")
             .body(json)
             .send()
-            .await
-            .expect("failed to get response");
+            .await?;
 
-        let res_json = res.text().await.expect("failed to get payload");
+        let res_json = res.text().await?;
         let response:GoogleChatCompletionResponse = serde_json::from_str(&res_json)?;
         let response_view = response.to_view();
 
@@ -183,7 +184,8 @@ impl GaiseClient for GaiseClientVertexAI {
             return Err("no google access token!".to_owned().into());
         }
         let client = reqwest::Client::builder()
-            .danger_accept_invalid_certs(true)
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(120))
             .build()?;
         let res = client.post(&url)
             .header("Authorization", "Bearer ".to_owned() + &token)
@@ -202,4 +204,3 @@ impl GaiseClient for GaiseClientVertexAI {
         Ok(response_view)
     }
 }
-
