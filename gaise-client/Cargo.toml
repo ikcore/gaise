@@ -3,6 +3,7 @@ name = "gaise-client"
 description = "Provider router for GAISe — routes 'provider::model' strings to the correct GenAI provider"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 keywords.workspace = true

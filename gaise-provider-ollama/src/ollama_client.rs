@@ -1,15 +1,15 @@
+use crate::contracts::*;
 use async_trait::async_trait;
+use base64::Engine;
+use futures_util::{Stream, StreamExt};
 use gaise_core::GaiseClient;
 use gaise_core::contracts::{
-    GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseInstructRequest,
-    GaiseInstructResponse, GaiseInstructStreamResponse, GaiseMessage, GaiseStreamChunk,
-    GaiseUsage, OneOrMany, GaiseToolCall, GaiseFunctionCall, GaiseTool
+    GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseFunctionCall,
+    GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse, GaiseMessage,
+    GaiseStreamChunk, GaiseTool, GaiseToolCall, GaiseUsage, OneOrMany,
 };
-use crate::contracts::*;
-use futures_util::{Stream, StreamExt};
 use std::collections::HashMap;
 use std::pin::Pin;
-use base64::Engine;
 
 pub struct GaiseClientOllama {
     api_url: String,
@@ -27,6 +27,13 @@ impl From<GaiseTool> for OllamaTool {
                 r#type: prop_type,
                 description: p.description.clone().unwrap_or_default(),
                 items: p.items.as_ref().map(|i| Box::new(map_param(i))),
+                properties: p.properties.as_ref().map(|properties| {
+                    properties
+                        .iter()
+                        .map(|(name, property)| (name.clone(), map_param(property)))
+                        .collect()
+                }),
+                required: p.required.clone(),
             }
         }
 
@@ -37,15 +44,66 @@ impl From<GaiseTool> for OllamaTool {
                 description: t.description.unwrap_or_default(),
                 parameters: OllamaParameters {
                     r#type: "object".to_string(),
-                    properties: t.parameters.as_ref().and_then(|p| p.properties.as_ref()).map(|props| {
-                        props.iter().map(|(k, v)| {
-                            (k.clone(), map_param(v))
-                        }).collect()
-                    }).unwrap_or_default(),
-                    required: t.parameters.as_ref().and_then(|p| p.required.clone()).unwrap_or_default(),
-                }
+                    properties: t
+                        .parameters
+                        .as_ref()
+                        .and_then(|p| p.properties.as_ref())
+                        .map(|props| {
+                            props
+                                .iter()
+                                .map(|(k, v)| (k.clone(), map_param(v)))
+                                .collect()
+                        })
+                        .unwrap_or_default(),
+                    required: t
+                        .parameters
+                        .as_ref()
+                        .and_then(|p| p.required.clone())
+                        .unwrap_or_default(),
+                },
+            },
+        }
+    }
+}
+
+fn append_content(
+    content: &mut String,
+    thinking: &mut String,
+    images: &mut Vec<String>,
+    item: GaiseContent,
+) {
+    match item {
+        GaiseContent::Text { text } => content.push_str(&text),
+        GaiseContent::Image { data, .. } => {
+            images.push(base64::prelude::BASE64_STANDARD.encode(data));
+        }
+        GaiseContent::File { data, name } => {
+            let name = name.unwrap_or_else(|| "document".to_string());
+            if let Ok(text) = String::from_utf8(data) {
+                content.push_str(&format!(
+                    "\n<attached_document name=\"{name}\">\n{text}\n</attached_document>"
+                ));
+            } else {
+                // Ollama's chat schema has no binary-document field. Keep the
+                // limitation explicit rather than silently dropping the block.
+                content.push_str(&format!(
+                    "\n[Unsupported binary document for Ollama chat API: {name}]"
+                ));
             }
         }
+        GaiseContent::Parts { parts } => {
+            for item in parts {
+                append_content(content, thinking, images, item);
+            }
+        }
+        GaiseContent::Reasoning { text, .. } => thinking.push_str(&text),
+        GaiseContent::RedactedReasoning { .. } => {
+            content.push_str("[Encrypted reasoning retained only on its source provider]")
+        }
+        GaiseContent::Audio { format, .. } => content.push_str(&format!(
+            "[Unsupported audio input for Ollama chat API: {}]",
+            format.unwrap_or_else(|| "unknown".to_string())
+        )),
     }
 }
 
@@ -56,62 +114,66 @@ impl From<&GaiseInstructRequest> for OllamaChatRequest {
             OneOrMany::Many(ms) => ms.clone(),
         };
 
-        let ollama_messages = messages.into_iter().map(|m| {
-            let mut content = String::new();
-            let mut images = Vec::new();
+        let ollama_messages = messages
+            .into_iter()
+            .map(|m| {
+                let mut content = String::new();
+                let mut thinking = String::new();
+                let mut images = Vec::new();
 
-            if let Some(c) = m.content {
-                let contents = match c {
-                    OneOrMany::One(item) => vec![item],
-                    OneOrMany::Many(items) => items,
-                };
+                if let Some(c) = m.content {
+                    let contents = match c {
+                        OneOrMany::One(item) => vec![item],
+                        OneOrMany::Many(items) => items,
+                    };
 
-                for item in contents {
-                    match item {
-                        GaiseContent::Text { text } => content.push_str(&text),
-                        GaiseContent::Image { data, .. } => {
-                            images.push(base64::prelude::BASE64_STANDARD.encode(data));
-                        }
-                        GaiseContent::Parts { parts } => {
-                            for part in parts {
-                                if let GaiseContent::Text { text } = part {
-                                    content.push_str(&text);
-                                }
-                            }
-                        }
-                        _ => {}
+                    for item in contents {
+                        append_content(&mut content, &mut thinking, &mut images, item);
                     }
                 }
-            }
 
-            let tool_calls = m.tool_calls.map(|tcs| {
-                tcs.into_iter().map(|tc| {
-                    let arguments: HashMap<String, serde_json::Value> = tc.function.arguments
-                        .and_then(|args| {
-                            if args.trim().starts_with('{') {
-                                serde_json::from_str(&args).ok()
-                            } else {
-                                // If it's not a JSON object, maybe it's just a string or empty
-                                None
+                let tool_calls = m.tool_calls.map(|tcs| {
+                    tcs.into_iter()
+                        .map(|tc| {
+                            let arguments: HashMap<String, serde_json::Value> = tc
+                                .function
+                                .arguments
+                                .and_then(|args| {
+                                    if args.trim().starts_with('{') {
+                                        serde_json::from_str(&args).ok()
+                                    } else {
+                                        // If it's not a JSON object, maybe it's just a string or empty
+                                        None
+                                    }
+                                })
+                                .unwrap_or_default();
+                            OllamaToolCall {
+                                function: OllamaFunctionCall {
+                                    name: tc.function.name,
+                                    arguments,
+                                },
                             }
                         })
-                        .unwrap_or_default();
-                    OllamaToolCall {
-                        function: OllamaFunctionCall {
-                            name: tc.function.name,
-                            arguments,
-                        }
-                    }
-                }).collect()
-            });
+                        .collect()
+                });
 
-            OllamaMessage {
-                role: m.role,
-                content: if content.is_empty() { None } else { Some(content) },
-                images: if images.is_empty() { None } else { Some(images) },
-                tool_calls,
-            }
-        }).collect();
+                OllamaMessage {
+                    role: m.role,
+                    content: if content.is_empty() {
+                        None
+                    } else {
+                        Some(content)
+                    },
+                    images: if images.is_empty() {
+                        None
+                    } else {
+                        Some(images)
+                    },
+                    tool_calls,
+                    thinking: (!thinking.is_empty()).then_some(thinking),
+                }
+            })
+            .collect();
 
         OllamaChatRequest {
             model: request.model.clone(),
@@ -123,8 +185,49 @@ impl From<&GaiseInstructRequest> for OllamaChatRequest {
                 top_p: c.top_p,
                 num_predict: c.max_tokens,
             }),
-            tools: request.tools.as_ref().map(|ts| ts.iter().map(|t| OllamaTool::from(t.clone())).collect()),
+            tools: request
+                .tools
+                .as_ref()
+                .map(|ts| ts.iter().map(|t| OllamaTool::from(t.clone())).collect()),
             format: None,
+            think: request.generation_config.as_ref().and_then(|config| {
+                if request.model.to_ascii_lowercase().contains("gpt-oss") {
+                    config
+                        .thinking_effort
+                        .as_ref()
+                        .map(|effort| match effort.to_ascii_lowercase().as_str() {
+                            "false" | "none" | "off" | "disabled" | "0" => {
+                                OllamaThink::Enabled(false)
+                            }
+                            effort => OllamaThink::Level(effort.to_string()),
+                        })
+                        .or_else(|| {
+                            config.thinking_tokens.map(|tokens| {
+                                if tokens == 0 {
+                                    OllamaThink::Enabled(false)
+                                } else {
+                                    OllamaThink::Level("medium".into())
+                                }
+                            })
+                        })
+                } else {
+                    config
+                        .thinking_effort
+                        .as_ref()
+                        .map(|effort| {
+                            let enabled = !matches!(
+                                effort.to_ascii_lowercase().as_str(),
+                                "false" | "none" | "off" | "disabled" | "0"
+                            );
+                            OllamaThink::Enabled(enabled)
+                        })
+                        .or_else(|| {
+                            config
+                                .thinking_tokens
+                                .map(|tokens| OllamaThink::Enabled(tokens > 0))
+                        })
+                }
+            }),
         }
     }
 }
@@ -134,13 +237,96 @@ fn format_ollama_error(err_text: &str) -> String {
         format!(
             "Ollama failed to parse the model's tool call output. \
             This usually means the model does not support tool calling. \
-            Try switching to a compatible model such as: llama3.1, llama3.2, qwen2.5-coder, mistral-nemo, or hermes3.\n\
+            Choose an installed tag that advertises tool support in Ollama's model metadata.\n\
             Raw error: {}",
             err_text
         )
     } else {
         format!("Ollama API error: {}", err_text)
     }
+}
+
+fn map_ollama_chat_usage(
+    prompt_tokens: Option<usize>,
+    completion_tokens: Option<usize>,
+) -> Option<GaiseUsage> {
+    let input = prompt_tokens.map(|tokens| HashMap::from([("prompt_tokens".to_string(), tokens)]));
+    let output =
+        completion_tokens.map(|tokens| HashMap::from([("completion_tokens".to_string(), tokens)]));
+    let total = prompt_tokens
+        .zip(completion_tokens)
+        .and_then(|(prompt, completion)| prompt.checked_add(completion))
+        .map(|tokens| HashMap::from([("total_tokens".to_string(), tokens)]));
+
+    (input.is_some() || output.is_some()).then_some(GaiseUsage {
+        input,
+        output,
+        total,
+    })
+}
+
+fn map_ollama_embedding_usage(prompt_tokens: Option<usize>) -> Option<GaiseUsage> {
+    prompt_tokens.map(|tokens| GaiseUsage {
+        input: Some(HashMap::from([("prompt_tokens".to_string(), tokens)])),
+        output: None,
+        total: Some(HashMap::from([("total_tokens".to_string(), tokens)])),
+    })
+}
+
+fn map_stream_response(chunk: OllamaChatResponse) -> Vec<GaiseInstructStreamResponse> {
+    let mut events = Vec::new();
+
+    if let Some(thinking) = chunk.message.thinking.filter(|value| !value.is_empty()) {
+        events.push(GaiseInstructStreamResponse {
+            chunk: GaiseStreamChunk::Content(GaiseContent::Reasoning {
+                text: thinking,
+                signature: None,
+            }),
+            external_id: None,
+        });
+    }
+    if let Some(text) = chunk.message.content.filter(|value| !value.is_empty()) {
+        events.push(GaiseInstructStreamResponse {
+            chunk: GaiseStreamChunk::Text(text),
+            external_id: None,
+        });
+    }
+    if let Some(images) = chunk.message.images {
+        for image in images {
+            if let Ok(data) = base64::prelude::BASE64_STANDARD.decode(image) {
+                events.push(GaiseInstructStreamResponse {
+                    chunk: GaiseStreamChunk::Content(GaiseContent::Image { data, format: None }),
+                    external_id: None,
+                });
+            }
+        }
+    }
+    if let Some(tool_calls) = chunk.message.tool_calls {
+        for (index, tool_call) in tool_calls.into_iter().enumerate() {
+            events.push(GaiseInstructStreamResponse {
+                chunk: GaiseStreamChunk::ToolCall {
+                    index,
+                    id: None,
+                    name: Some(tool_call.function.name),
+                    arguments: Some(
+                        serde_json::to_string(&tool_call.function.arguments).unwrap_or_default(),
+                    ),
+                    thought_signature: None,
+                },
+                external_id: None,
+            });
+        }
+    }
+    if chunk.done
+        && let Some(usage) = map_ollama_chat_usage(chunk.prompt_eval_count, chunk.eval_count)
+    {
+        events.push(GaiseInstructStreamResponse {
+            chunk: GaiseStreamChunk::Usage(usage),
+            external_id: None,
+        });
+    }
+
+    events
 }
 
 impl GaiseClientOllama {
@@ -153,23 +339,51 @@ impl GaiseClientOllama {
 
     fn map_from_ollama_message(&self, msg: OllamaMessage) -> GaiseMessage {
         let tool_calls = msg.tool_calls.map(|tcs| {
-            tcs.into_iter().map(|tc| {
-                GaiseToolCall {
-                    id: String::new(), // Ollama doesn't seem to provide IDs for tool calls in this format
-                    r#type: "function".to_string(),
-                    function: GaiseFunctionCall {
-                        name: tc.function.name,
-                        arguments: Some(serde_json::to_string(&tc.function.arguments).unwrap_or_default()),
+            tcs.into_iter()
+                .map(|tc| {
+                    GaiseToolCall {
+                        id: String::new(), // Ollama doesn't seem to provide IDs for tool calls in this format
+                        r#type: "function".to_string(),
+                        function: GaiseFunctionCall {
+                            name: tc.function.name,
+                            arguments: Some(
+                                serde_json::to_string(&tc.function.arguments).unwrap_or_default(),
+                            ),
+                        },
+                        thought_signature: None,
                     }
-                }
-            }).collect()
+                })
+                .collect()
         });
+
+        let mut content = Vec::new();
+        if let Some(thinking) = msg.thinking.filter(|value| !value.is_empty()) {
+            content.push(GaiseContent::Reasoning {
+                text: thinking,
+                signature: None,
+            });
+        }
+        if let Some(text) = msg.content.filter(|value| !value.is_empty()) {
+            content.push(GaiseContent::Text { text });
+        }
+        if let Some(images) = msg.images {
+            for image in images {
+                if let Ok(data) = base64::prelude::BASE64_STANDARD.decode(image) {
+                    content.push(GaiseContent::Image { data, format: None });
+                }
+            }
+        }
 
         GaiseMessage {
             role: msg.role,
-            content: msg.content.filter(|s| !s.is_empty()).map(|text| OneOrMany::One(GaiseContent::Text { text })),
+            content: match content.len() {
+                0 => None,
+                1 => Some(OneOrMany::One(content.remove(0))),
+                _ => Some(OneOrMany::Many(content)),
+            },
             tool_calls,
             tool_call_id: None,
+            tool_name: None,
         }
     }
 }
@@ -180,18 +394,24 @@ impl GaiseClient for GaiseClientOllama {
         &self,
         request: &GaiseInstructRequest,
     ) -> Result<
-        Pin<Box<dyn Stream<Item = Result<GaiseInstructStreamResponse, Box<dyn std::error::Error + Send + Sync>>> + Send>>,
+        Pin<
+            Box<
+                dyn Stream<
+                        Item = Result<
+                            GaiseInstructStreamResponse,
+                            Box<dyn std::error::Error + Send + Sync>,
+                        >,
+                    > + Send,
+            >,
+        >,
         Box<dyn std::error::Error + Send + Sync>,
     > {
         let url = format!("{}/api/chat", self.api_url);
-        
+
         let mut ollama_request = OllamaChatRequest::from(request);
         ollama_request.stream = true;
 
-        let response = self.client.post(url)
-            .json(&ollama_request)
-            .send()
-            .await?;
+        let response = self.client.post(url).json(&ollama_request).send().await?;
 
         if !response.status().is_success() {
             let err_text = response.text().await?;
@@ -199,61 +419,50 @@ impl GaiseClient for GaiseClientOllama {
         }
 
         let stream = response.bytes_stream();
-        
-        let mapped_stream = stream.map(|res| {
-            res.map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>).and_then(|bytes| {
-                let chunk: OllamaChatResponse = serde_json::from_slice(&bytes)?;
-                
-                // Ollama stream chunks usually contain one message piece or tool call
-                if let Some(tool_calls) = chunk.message.tool_calls {
-                    if let Some((index, tc)) = tool_calls.into_iter().enumerate().next() {
-                        return Ok(GaiseInstructStreamResponse {
-                            chunk: GaiseStreamChunk::ToolCall {
-                                index,
-                                id: None,
-                                name: Some(tc.function.name),
-                                arguments: Some(serde_json::to_string(&tc.function.arguments).unwrap_or_default()),
-                            },
-                            external_id: None,
-                        });
+
+        // Ollama streams newline-delimited JSON, but HTTP chunks can split or
+        // combine lines. Buffer until a complete JSON object is available.
+        let mapped_stream = stream
+            .scan(Vec::<u8>::new(), |buffer, result| {
+                let mut events: Vec<
+                    Result<GaiseInstructStreamResponse, Box<dyn std::error::Error + Send + Sync>>,
+                > = Vec::new();
+                match result {
+                    Err(error) => events.push(Err(Box::new(error))),
+                    Ok(bytes) => {
+                        buffer.extend_from_slice(&bytes);
+                        while let Some(position) = buffer.iter().position(|byte| *byte == b'\n') {
+                            let line = buffer.drain(..=position).collect::<Vec<_>>();
+                            let line = String::from_utf8_lossy(&line);
+                            let line = line.trim();
+                            if line.is_empty() {
+                                continue;
+                            }
+                            match serde_json::from_str::<OllamaChatResponse>(line) {
+                                Ok(chunk) => {
+                                    events.extend(map_stream_response(chunk).into_iter().map(Ok));
+                                }
+                                Err(error) => events.push(Err(Box::new(error))),
+                            }
+                        }
                     }
                 }
-
-                if chunk.done {
-                    // Could emit usage here
-                    let mut input_usage = HashMap::new();
-                    input_usage.insert("prompt_tokens".to_string(), chunk.prompt_eval_count.unwrap_or(0));
-                    let mut output_usage = HashMap::new();
-                    output_usage.insert("completion_tokens".to_string(), chunk.eval_count.unwrap_or(0));
-                    
-                    return Ok(GaiseInstructStreamResponse {
-                        chunk: GaiseStreamChunk::Usage(GaiseUsage {
-                            input: Some(input_usage),
-                            output: Some(output_usage),
-                        }),
-                        external_id: None,
-                    });
-                }
-
-                Ok(GaiseInstructStreamResponse {
-                    chunk: GaiseStreamChunk::Text(chunk.message.content.unwrap_or_default()),
-                    external_id: None,
-                })
+                futures_util::future::ready(Some(futures_util::stream::iter(events)))
             })
-        });
+            .flatten();
 
         Ok(Box::pin(mapped_stream))
     }
 
-    async fn instruct(&self, request: &GaiseInstructRequest) -> Result<GaiseInstructResponse, Box<dyn std::error::Error + Send + Sync>> {
+    async fn instruct(
+        &self,
+        request: &GaiseInstructRequest,
+    ) -> Result<GaiseInstructResponse, Box<dyn std::error::Error + Send + Sync>> {
         let url = format!("{}/api/chat", self.api_url);
-        
+
         let ollama_request = OllamaChatRequest::from(request);
 
-        let response = self.client.post(url)
-            .json(&ollama_request)
-            .send()
-            .await?;
+        let response = self.client.post(url).json(&ollama_request).send().await?;
 
         if !response.status().is_success() {
             let err_text = response.text().await?;
@@ -262,24 +471,24 @@ impl GaiseClient for GaiseClientOllama {
 
         let ollama_response: OllamaChatResponse = response.json().await?;
 
-        let mut input_usage = HashMap::new();
-        input_usage.insert("prompt_tokens".to_string(), ollama_response.prompt_eval_count.unwrap_or(0));
-        let mut output_usage = HashMap::new();
-        output_usage.insert("completion_tokens".to_string(), ollama_response.eval_count.unwrap_or(0));
+        let usage = map_ollama_chat_usage(
+            ollama_response.prompt_eval_count,
+            ollama_response.eval_count,
+        );
 
         Ok(GaiseInstructResponse {
             output: OneOrMany::One(self.map_from_ollama_message(ollama_response.message)),
             external_id: None,
-            usage: Some(GaiseUsage {
-                input: Some(input_usage),
-                output: Some(output_usage),
-            }),
+            usage,
         })
     }
 
-    async fn embeddings(&self, request: &GaiseEmbeddingsRequest) -> Result<GaiseEmbeddingsResponse, Box<dyn std::error::Error + Send + Sync>> {
+    async fn embeddings(
+        &self,
+        request: &GaiseEmbeddingsRequest,
+    ) -> Result<GaiseEmbeddingsResponse, Box<dyn std::error::Error + Send + Sync>> {
         let url = format!("{}/api/embed", self.api_url);
-        
+
         let inputs = match &request.input {
             OneOrMany::One(s) => vec![s.clone()],
             OneOrMany::Many(ss) => ss.clone(),
@@ -291,10 +500,7 @@ impl GaiseClient for GaiseClientOllama {
             options: None,
         };
 
-        let response = self.client.post(url)
-            .json(&ollama_request)
-            .send()
-            .await?;
+        let response = self.client.post(url).json(&ollama_request).send().await?;
 
         if !response.status().is_success() {
             let err_text = response.text().await?;
@@ -303,16 +509,45 @@ impl GaiseClient for GaiseClientOllama {
 
         let ollama_response: OllamaEmbedResponse = response.json().await?;
 
-        let mut input_usage = HashMap::new();
-        input_usage.insert("prompt_tokens".to_string(), ollama_response.prompt_eval_count.unwrap_or(0));
+        let usage = map_ollama_embedding_usage(ollama_response.prompt_eval_count);
 
         Ok(GaiseEmbeddingsResponse {
             external_id: None,
             output: ollama_response.embeddings,
-            usage: Some(GaiseUsage {
-                input: Some(input_usage),
-                output: None,
-            }),
+            usage,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_ollama_usage_totals_without_inventing_modality_breakdowns() {
+        let response: OllamaChatResponse = serde_json::from_value(serde_json::json!({
+            "model": "qwen3",
+            "created_at": "2026-01-01T00:00:00Z",
+            "message": {"role": "assistant", "content": "done"},
+            "done": true,
+            "prompt_eval_count": 12,
+            "eval_count": 8
+        }))
+        .unwrap();
+        let events = map_stream_response(response);
+        let GaiseStreamChunk::Usage(usage) = &events.last().unwrap().chunk else {
+            panic!("expected usage event");
+        };
+        let input = usage.input.as_ref().unwrap();
+        assert_eq!(input.get("prompt_tokens"), Some(&12));
+        assert!(!input.contains_key("image_tokens"));
+        assert!(!input.contains_key("audio_tokens"));
+        assert_eq!(
+            usage.output.as_ref().unwrap().get("completion_tokens"),
+            Some(&8)
+        );
+        assert_eq!(usage.total.as_ref().unwrap().get("total_tokens"), Some(&20));
+        assert!(map_ollama_chat_usage(None, None).is_none());
+        assert!(map_ollama_embedding_usage(None).is_none());
     }
 }

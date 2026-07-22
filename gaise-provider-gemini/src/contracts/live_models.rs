@@ -22,6 +22,15 @@ pub struct GeminiLiveSetupConfig {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<GeminiLiveToolSet>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub realtime_input_config: Option<GeminiLiveRealtimeInputConfig>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_audio_transcription: Option<Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_audio_transcription: Option<Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -37,16 +46,19 @@ pub struct GeminiLiveGenerationConfig {
     pub temperature: Option<f32>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f32>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<usize>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<usize>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub input_audio_transcription: Option<Value>,
+    pub thinking_config: Option<super::models::GeminiThinkingConfig>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_audio_transcription: Option<Value>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub realtime_input_config: Option<GeminiLiveRealtimeInputConfig>,
+    pub media_resolution: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -132,11 +144,25 @@ pub struct GeminiLiveRealtimeInput {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GeminiLiveRealtimeInputData {
+    /// Deprecated by Gemini, retained only so older serialized callers remain
+    /// source compatible. New code should use `audio` or `video`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media_chunks: Option<Vec<GeminiLiveMediaChunk>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub audio: Option<GeminiLiveMediaChunk>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video: Option<GeminiLiveMediaChunk>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity_start: Option<Value>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity_end: Option<Value>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub audio_stream_end: Option<bool>,
@@ -197,6 +223,9 @@ pub struct GeminiLiveFunctionResponse {
 #[serde(rename_all = "camelCase")]
 pub struct GeminiLiveServerMessage {
     #[serde(default)]
+    pub error: Option<Value>,
+
+    #[serde(default)]
     pub setup_complete: Option<Value>,
 
     #[serde(default)]
@@ -228,6 +257,9 @@ pub struct GeminiLiveServerContent {
     pub interrupted: Option<bool>,
 
     #[serde(default)]
+    pub generation_complete: Option<bool>,
+
+    #[serde(default)]
     pub input_transcription: Option<GeminiLiveTranscription>,
 
     #[serde(default)]
@@ -245,6 +277,12 @@ pub struct GeminiLiveModelTurn {
 pub struct GeminiLiveServerPart {
     #[serde(default)]
     pub text: Option<String>,
+
+    #[serde(default)]
+    pub thought: Option<bool>,
+
+    #[serde(default)]
+    pub thought_signature: Option<String>,
 
     #[serde(default)]
     pub inline_data: Option<GeminiLiveInlineData>,
@@ -288,7 +326,41 @@ pub struct GeminiLiveToolCallCancellation {
 #[serde(rename_all = "camelCase")]
 pub struct GeminiLiveUsageMetadata {
     #[serde(default)]
+    pub prompt_token_count: Option<usize>,
+
+    #[serde(default)]
+    pub cached_content_token_count: Option<usize>,
+
+    #[serde(default)]
+    pub response_token_count: Option<usize>,
+
+    #[serde(default)]
+    pub tool_use_prompt_token_count: Option<usize>,
+
+    #[serde(default)]
+    pub thoughts_token_count: Option<usize>,
+
+    #[serde(default)]
     pub total_token_count: Option<usize>,
+
+    #[serde(default)]
+    pub prompt_tokens_details: Option<Vec<GeminiLiveModalityTokenCount>>,
+
+    #[serde(default)]
+    pub cache_tokens_details: Option<Vec<GeminiLiveModalityTokenCount>>,
+
+    #[serde(default)]
+    pub response_tokens_details: Option<Vec<GeminiLiveModalityTokenCount>>,
+
+    #[serde(default)]
+    pub tool_use_prompt_tokens_details: Option<Vec<GeminiLiveModalityTokenCount>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeminiLiveModalityTokenCount {
+    pub modality: String,
+    pub token_count: usize,
 }
 
 #[derive(Debug, Deserialize)]

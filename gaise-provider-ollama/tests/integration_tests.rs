@@ -6,7 +6,7 @@ use gaise_provider_ollama::ollama_client::GaiseClientOllama;
 #[ignore] // Ignore by default as it requires a running Ollama instance and the specific model
 async fn test_ollama_instruct_gpt_oss() {
     let client = GaiseClientOllama::new("http://localhost:11434".to_string());
-    
+
     let request = GaiseInstructRequest {
         model: "gpt-oss:20b".to_string(),
         input: OneOrMany::One(GaiseMessage {
@@ -20,7 +20,7 @@ async fn test_ollama_instruct_gpt_oss() {
     };
 
     let response = client.instruct(&request).await;
-    
+
     match response {
         Ok(res) => {
             println!("Response: {:?}", res);
@@ -44,9 +44,9 @@ async fn test_ollama_instruct_gpt_oss() {
 #[ignore]
 async fn test_ollama_instruct_stream_gpt_oss() {
     use futures_util::StreamExt;
-    
+
     let client = GaiseClientOllama::new("http://localhost:11434".to_string());
-    
+
     let request = GaiseInstructRequest {
         model: "gpt-oss:20b".to_string(),
         input: OneOrMany::One(GaiseMessage {
@@ -60,18 +60,22 @@ async fn test_ollama_instruct_stream_gpt_oss() {
     };
 
     let stream_res = client.instruct_stream(&request).await;
-    assert!(stream_res.is_ok(), "Failed to start stream: {:?}", stream_res.err());
-    
+    assert!(
+        stream_res.is_ok(),
+        "Failed to start stream: {:?}",
+        stream_res.err()
+    );
+
     let mut stream = stream_res.unwrap();
     let mut full_text = String::new();
-    
+
     while let Some(chunk_res) = stream.next().await {
         let chunk = chunk_res.expect("Stream chunk error");
         if let gaise_core::contracts::GaiseStreamChunk::Text(t) = chunk.chunk {
             full_text.push_str(&t);
         }
     }
-    
+
     assert!(!full_text.is_empty());
     println!("Streamed text: {}", full_text);
 }
@@ -80,11 +84,11 @@ async fn test_ollama_instruct_stream_gpt_oss() {
 #[ignore]
 async fn test_ollama_tool_call_gpt_oss() {
     use gaise_core::contracts::{GaiseTool, GaiseToolParameter};
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     let client = GaiseClientOllama::new("http://localhost:11434".to_string());
 
-    let mut properties = HashMap::new();
+    let mut properties = BTreeMap::new();
     properties.insert(
         "location".to_string(),
         GaiseToolParameter {
@@ -143,12 +147,12 @@ async fn test_ollama_tool_call_gpt_oss() {
 #[tokio::test]
 #[ignore]
 async fn test_ollama_tool_call_stream_gpt_oss() {
-    use gaise_core::contracts::{GaiseTool, GaiseToolParameter, GaiseStreamAccumulator};
-    use std::collections::HashMap;
+    use gaise_core::contracts::{GaiseStreamAccumulator, GaiseTool, GaiseToolParameter};
+    use std::collections::BTreeMap;
 
     let client = GaiseClientOllama::new("http://localhost:11434".to_string());
 
-    let mut properties = HashMap::new();
+    let mut properties = BTreeMap::new();
     properties.insert(
         "location".to_string(),
         GaiseToolParameter {
@@ -183,13 +187,22 @@ async fn test_ollama_tool_call_stream_gpt_oss() {
     };
 
     let stream_res = client.instruct_stream(&request).await;
-    assert!(stream_res.is_ok(), "Failed to start stream: {:?}", stream_res.err());
+    assert!(
+        stream_res.is_ok(),
+        "Failed to start stream: {:?}",
+        stream_res.err()
+    );
 
     let stream = stream_res.unwrap();
-    let message = GaiseStreamAccumulator::collect(stream).await.expect("Failed to collect stream");
+    let message = GaiseStreamAccumulator::collect(stream)
+        .await
+        .expect("Failed to collect stream");
 
     assert_eq!(message.role, "assistant");
-    let tool_calls = message.tool_calls.as_ref().expect("Expected tool calls in streamed response");
+    let tool_calls = message
+        .tool_calls
+        .as_ref()
+        .expect("Expected tool calls in streamed response");
     assert!(!tool_calls.is_empty());
     assert_eq!(tool_calls[0].function.name, "get_current_weather");
     assert!(tool_calls[0].function.arguments.is_some());

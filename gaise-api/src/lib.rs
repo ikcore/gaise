@@ -1,17 +1,20 @@
-use std::sync::Arc;
 use axum::{
+    Json, Router,
     extract::State,
     http::StatusCode,
-    response::{sse::{Event, Sse}, IntoResponse},
+    response::{
+        IntoResponse,
+        sse::{Event, Sse},
+    },
     routing::post,
-    Json, Router,
 };
 use futures_util::StreamExt;
-use gaise_core::{
-    contracts::{GaiseEmbeddingsRequest, GaiseInstructRequest},
-    GaiseClient,
-};
 use gaise_client::GaiseClientService;
+use gaise_core::{
+    GaiseClient,
+    contracts::{GaiseEmbeddingsRequest, GaiseInstructRequest},
+};
+use std::sync::Arc;
 use tracing::error;
 
 #[cfg(feature = "live")]
@@ -57,15 +60,9 @@ async fn handle_instruct_stream(
 ) -> impl IntoResponse {
     match state.client_service.instruct_stream(&request).await {
         Ok(stream) => {
-            let sse_stream = stream.map(|item| {
-                match item {
-                    Ok(chunk) => {
-                        Event::default().json_data(chunk)
-                    }
-                    Err(e) => {
-                        Ok(Event::default().event("error").data(e.to_string()))
-                    }
-                }
+            let sse_stream = stream.map(|item| match item {
+                Ok(chunk) => Event::default().json_data(chunk),
+                Err(e) => Ok(Event::default().event("error").data(e.to_string())),
             });
             Sse::new(sse_stream).into_response()
         }
@@ -108,16 +105,14 @@ async fn handle_live_session(socket: WebSocket, state: Arc<AppState>) {
     // First message must be a config message
     let config: GaiseLiveConfig = loop {
         match ws_source.next().await {
-            Some(Ok(Message::Text(text))) => {
-                match serde_json::from_str::<GaiseLiveConfig>(&text) {
-                    Ok(cfg) => break cfg,
-                    Err(e) => {
-                        let err = serde_json::json!({"type": "error", "message": format!("Invalid config: {}", e)});
-                        let _ = ws_sink.send(Message::Text(err.to_string().into())).await;
-                        return;
-                    }
+            Some(Ok(Message::Text(text))) => match serde_json::from_str::<GaiseLiveConfig>(&text) {
+                Ok(cfg) => break cfg,
+                Err(e) => {
+                    let err = serde_json::json!({"type": "error", "message": format!("Invalid config: {}", e)});
+                    let _ = ws_sink.send(Message::Text(err.to_string())).await;
+                    return;
                 }
-            }
+            },
             Some(Ok(Message::Close(_))) | None => return,
             _ => continue,
         }
@@ -127,8 +122,9 @@ async fn handle_live_session(socket: WebSocket, state: Arc<AppState>) {
     let session = match state.client_service.live_connect(&config).await {
         Ok(s) => s,
         Err(e) => {
-            let err = serde_json::json!({"type": "error", "message": format!("Connect error: {}", e)});
-            let _ = ws_sink.send(Message::Text(err.to_string().into())).await;
+            let err =
+                serde_json::json!({"type": "error", "message": format!("Connect error: {}", e)});
+            let _ = ws_sink.send(Message::Text(err.to_string())).await;
             return;
         }
     };
@@ -146,17 +142,15 @@ async fn handle_live_session(socket: WebSocket, state: Arc<AppState>) {
                     let mut frame = Vec::with_capacity(4 + data.len());
                     frame.extend_from_slice(&sample_rate.to_le_bytes());
                     frame.extend_from_slice(&data);
-                    Message::Binary(frame.into())
+                    Message::Binary(frame)
                 }
-                Ok(event) => {
-                    match serde_json::to_string(&event) {
-                        Ok(json) => Message::Text(json.into()),
-                        Err(_) => continue,
-                    }
-                }
+                Ok(event) => match serde_json::to_string(&event) {
+                    Ok(json) => Message::Text(json),
+                    Err(_) => continue,
+                },
                 Err(e) => {
                     let err = serde_json::json!({"type": "error", "message": e.to_string()});
-                    Message::Text(err.to_string().into())
+                    Message::Text(err.to_string())
                 }
             };
             if ws_sink.send(msg).await.is_err() {
@@ -173,12 +167,10 @@ async fn handle_live_session(socket: WebSocket, state: Arc<AppState>) {
         };
 
         let input = match msg {
-            Message::Text(text) => {
-                match serde_json::from_str::<GaiseLiveInput>(&text) {
-                    Ok(input) => input,
-                    Err(_) => continue,
-                }
-            }
+            Message::Text(text) => match serde_json::from_str::<GaiseLiveInput>(&text) {
+                Ok(input) => input,
+                Err(_) => continue,
+            },
             Message::Binary(data) => {
                 // Binary frames are raw PCM audio (16kHz PCM16 by default)
                 GaiseLiveInput::Audio {

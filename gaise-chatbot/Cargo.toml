@@ -3,6 +3,7 @@ name = "gaise-chatbot"
 description = "Sample CLI chatbot built on GAISe"
 version.workspace = true
 edition = "2021"
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false

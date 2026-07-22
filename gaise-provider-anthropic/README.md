@@ -8,12 +8,14 @@ Anthropic Claude provider for [GAISe](https://crates.io/crates/gaise) — implem
 
 ## Supported Features
 
-- Text and multimodal (image) instruct requests
+- Text, image, PDF/document, and UTF-8 file instruct requests
 - Streaming via SSE
-- System message extraction (moved to top-level `system` field)
-- Function calling / tool use (`tool_use` / `tool_result` content blocks)
-- Extended thinking (`thinking.type` with optional `budget_tokens`)
-- Claude 4.6 adaptive thinking support
+- Multiple system messages combined into the top-level `system` field
+- Function calling and multimodal `tool_result` content blocks
+- Manual and adaptive thinking, effort levels, summaries, and signatures
+- Safety-redacted reasoning round trips
+- Prompt-cache controls for system prompts, messages, and tools
+- Usage including cache TTL, server-tool request, and reported reasoning counters
 
 ## Usage
 
@@ -28,7 +30,7 @@ let client = GaiseClientAnthropic::new(
 );
 
 let request = GaiseInstructRequest {
-    model: "claude-sonnet-4-6".to_string(),
+    model: "claude-sonnet-5".to_string(),
     input: OneOrMany::One(GaiseMessage {
         role: "user".to_string(),
         content: Some(OneOrMany::One(GaiseContent::Text {
@@ -46,7 +48,7 @@ let response = client.instruct(&request).await?;
 
 ```rust
 let request = GaiseInstructRequest {
-    model: "claude-sonnet-4-6".to_string(),
+    model: "claude-sonnet-5".to_string(),
     generation_config: Some(GaiseGenerationConfig {
         thinking_effort: Some("high".to_string()),
         thinking_tokens: Some(10000),  // optional budget
@@ -57,7 +59,7 @@ let request = GaiseInstructRequest {
 };
 ```
 
-Maps `thinking_effort` to `thinking.type: "enabled"` and `thinking_tokens` to `budget_tokens`.
+The adapter maps modern effort values to Anthropic's effort field and chooses adaptive or budgeted thinking according to the selected model family. Reasoning text and signatures are retained for multi-turn requests.
 
 ## Environment Variables
 

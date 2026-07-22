@@ -1,112 +1,104 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides repository guidance for coding agents.
 
-## Project Overview
+## Project overview
 
-GAISe (Generative AI Service) is a Rust workspace that abstracts multiple GenAI providers behind a unified interface. A single `GaiseClient` trait defines `instruct`, `instruct_stream`, and `embeddings` — each provider crate implements this trait by translating to/from its native API format.
+GAISe is a Rust workspace that translates one provider-neutral contract to OpenAI, Anthropic, Gemini, Vertex AI, Amazon Bedrock, and Ollama. The core `GaiseClient` trait exposes `instruct`, `instruct_stream`, and `embeddings`; `gaise-client` routes `provider::model-id` strings to feature-gated adapters.
 
-## Build & Test Commands
+## Safe build and test commands
 
-```bash
-cargo build                        # Build entire workspace
-cargo test                         # Run all tests
-cargo test -p gaise-provider-ollama  # Run tests for a single crate
-cargo run -p gaise-api             # Start the Axum HTTP server (default port 3000)
-cargo clippy                       # Lint
-cargo fmt --check                  # Check formatting
+```powershell
+cargo build --workspace
+cargo fmt --all -- --check
+cargo test --workspace --all-targets
+cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-## Architecture
+The default suite must remain hermetic. Tests that need credentials, provider APIs, a running Ollama service, or external credential-provider initialization must use `#[ignore]` with a clear reason. Do not run ignored/live tests unless the user explicitly authorizes external traffic and possible cost.
 
-### Workspace Crates
+## Workspace layout
 
-- **gaise-core** — `GaiseClient` trait, all shared contracts (request/response models, `OneOrMany<T>`, `GaiseContent` enum, tool definitions), logging trait (`IGaiseLogger`)
-- **gaise-client** — `GaiseClientService` router that parses `"provider::model"` strings, lazy-loads provider clients, and delegates calls. Uses feature flags to conditionally compile providers.
-- **gaise-provider-{ollama,openai,vertexai,bedrock,anthropic,gemini}** — Each implements `GaiseClient` using `From` impls to convert between Gaise contracts and provider-specific API types
-- **gaise-api** — Axum web server exposing `/v1/instruct`, `/v1/instruct/stream` (SSE), `/v1/embeddings`
-- **gaise-chatbot** — Sample CLI chatbot
+- `gaise-core/`: package `gaise`, library crate `gaise_core`; shared contracts, `GaiseClient`, stream accumulator, and logging.
+- `gaise-client/`: feature-gated provider router and environment configuration.
+- `gaise-provider-openai/`: Chat Completions, Embeddings, and Realtime.
+- `gaise-provider-anthropic/`: Messages API.
+- `gaise-provider-gemini/`: Gemini generateContent, Embeddings, and Live.
+- `gaise-provider-vertexai/`: Vertex AI generateContent and Embeddings.
+- `gaise-provider-bedrock/`: Converse/ConverseStream and InvokeModel embeddings.
+- `gaise-provider-ollama/`: local Chat and Embeddings.
+- `gaise-api/`: Axum JSON, SSE, and WebSocket server.
+- `gaise-chatbot/`: example CLI.
 
-### Key Patterns
+## Core contracts
 
-**Model routing:** Requests use `"provider::model_name"` format (e.g. `"openai::gpt-4o"`). `GaiseClientService::parse_model()` splits this, strips the prefix, and routes to the correct provider client.
+`GaiseContent` variants are:
 
-**Request/response translation:** Each provider crate uses `From<&GaiseInstructRequest> for ProviderRequest` impls to convert Gaise types to provider-native types and back. This is where most provider-specific logic lives.
+- `Text { text }`
+- `Image { data, format }`
+- `Audio { data, format }`
+- `File { data, name }`
+- `Reasoning { text, signature }`
+- `Parts { parts }`
 
-**Content model:** `GaiseContent` is an enum with `Text`, `Image`, `Audio`, `File`, and `Parts` variants. Messages use `OneOrMany<GaiseContent>` for flexible single/multi-content payloads.
+Messages use `OneOrMany<GaiseContent>`. Provider mappers must recursively flatten `Parts`, preserve content order, normalize MIME types through the helpers in `gaise_content.rs`, and fail or emit an explicit fallback when the destination API cannot represent a modality. Never invent a provider block shape.
 
-**Streaming:** Providers return `Pin<Box<dyn Stream<Item = Result<GaiseInstructStreamResponse>>>>`. The API layer converts these to SSE. `GaiseStreamAccumulator` can collect chunks into a complete `GaiseMessage`.
+Tool-result messages carry `tool_call_id` and optional `tool_name`. Preserve both when the provider returns a call ID: Gemini and Vertex function responses require the name as well as the optional ID, while OpenAI, Anthropic, and Bedrock can resolve by ID alone.
 
-**Logging:** `IGaiseLogger` trait with `log_request`, `log_response`, `log_stream_chunk`. `ConsoleGaiseLogger` is the default. `GaiseClientService` automatically hooks logging around provider calls using correlation IDs.
+Streaming uses `GaiseStreamChunk::{Text, Content, ToolCall, Usage}`. `Content` carries returned reasoning and generated media. Tool calls and reasoning may include opaque provider signatures; preserve them for later turns. Stream parsers must tolerate JSON/SSE/NDJSON frames split across arbitrary byte chunks.
 
-### Test Pattern
+`GaiseGenerationConfig` includes sampling, output limits, reasoning controls, returned-thought selection, output modalities, image configuration, OpenAI image-input detail, and cache keys. Add common fields only when they have a defensible provider-neutral meaning.
 
-Tests focus on mapping correctness between Gaise contracts and provider-specific models. Each provider has `tests/mapping_tests.rs` that verifies request/response conversion for text, tools, multi-modal content, and multi-turn conversations.
+## Provider-specific boundaries
 
-### Reasoning / Thinking
+### OpenAI
 
-GAISe abstracts provider-specific reasoning/thinking via two fields on `GaiseGenerationConfig`:
+The instruct adapter targets Chat Completions, not Responses. Chat message content supports text, image, and supported audio blocks, but not Responses-style `input_file`. UTF-8 files may be represented as tagged text; binary file input must return the explicit Responses limitation. OpenAI image generation, persisted reasoning, pro mode, hosted tools, and native file input need a future Responses adapter.
 
-- **`thinking_effort`** `Option<String>` — Controls how much reasoning the model performs. Standardised values: `"low"`, `"medium"`, `"high"`.
-- **`thinking_tokens`** `Option<usize>` — Explicit token budget for thinking. Providers that support a numeric budget use this directly; others ignore it.
+`max_tokens` maps to `max_completion_tokens`. Reasoning effort is passed only for reasoning families. Image input uses MIME-aware data URLs and `input_image_detail`, including `original` where the model supports it.
 
-#### Provider Mapping
+### Anthropic
 
-| GAISe field | OpenAI | Anthropic | Gemini (2.5) | Gemini (3.x) | Bedrock | Ollama |
-|---|---|---|---|---|---|---|
-| `thinking_effort` | `reasoning_effort` (`"low"` / `"medium"` / `"high"`) | `thinking.type` → `"enabled"` (or `"adaptive"` for Claude 4.6) | `thinkingConfig.thinkingBudget` (mapped to range) | `thinkingConfig.thinkingLevel` (`"LOW"` / `"MEDIUM"` / `"HIGH"`) | Passed to underlying provider | N/A |
-| `thinking_tokens` | N/A (implicit in `max_completion_tokens`) | `thinking.budget_tokens` | `thinkingConfig.thinkingBudget` | N/A (use `thinkingLevel` instead) | Passed to underlying provider | N/A |
-| `max_tokens` | `max_completion_tokens` (all models, includes reasoning + output) | `max_tokens` | `maxOutputTokens` | `maxOutputTokens` | `maxTokens` | `num_predict` |
+System messages become the top-level system prompt. Prompt caching applies ephemeral cache control at stable boundaries. PDFs and supported text documents become document blocks; unsupported binary/Office input must remain explicit.
 
-> **Note on OpenAI `max_tokens`:** The legacy `max_tokens` parameter is deprecated across all OpenAI models and **not supported** on reasoning models (o3, o4-mini) or gpt-5.x. GAISe maps `max_tokens` → `max_completion_tokens` for all OpenAI requests. For reasoning models this budget covers both reasoning tokens and visible output — set it high enough (OpenAI recommends ≥ 25,000).
+Reasoning is model-aware:
 
-#### Effort-level semantics
+- Fable 5, Mythos 5, Opus 4.8/4.7, and Sonnet 5 use adaptive thinking.
+- Opus/Sonnet 4.6 support adaptive thinking; manual budgets are deprecated there.
+- Older compatible Claude models use manual `budget_tokens`.
+- Effort maps to `output_config.effort` where supported.
+- `include_thoughts` maps to `thinking.display` (`summarized` or `omitted`).
+- Newer fixed-sampling models must not receive non-default temperature/top-p fields; Claude 4.5 must not receive both temperature and top-p.
 
-| `thinking_effort` | Intent | OpenAI | Anthropic | Gemini 3.x |
-|---|---|---|---|---|
-| `None` | Provider default / no reasoning | No `reasoning_effort` | No `thinking` block | Model default |
-| `"low"` | Quick tasks, minimal overhead | `"low"` | `"enabled"` + small `budget_tokens` | `"LOW"` |
-| `"medium"` | Balanced reasoning | `"medium"` | `"enabled"` + moderate `budget_tokens` (or `"adaptive"`) | `"MEDIUM"` |
-| `"high"` | Deep reasoning, complex tasks | `"high"` | `"enabled"` + large `budget_tokens` (or `"adaptive"`) | `"HIGH"` |
+### Gemini and Vertex AI
 
-When `thinking_tokens` is also set alongside `thinking_effort`, providers that support an explicit budget (Anthropic, Gemini 2.5) use it directly. When only `thinking_effort` is set, providers use their own defaults for that effort level.
+Gemini 2.5 uses `thinkingBudget`; Gemini 3.x uses `thinkingLevel`. If reasoning is requested and `include_thoughts` is absent, request summaries by default. Gemini 3.5/3.6 fixed-sampling models omit temperature, top-p, and top-k.
 
-#### Example request
+`response_modalities` maps to `responseModalities`; `image_config` maps to the current `responseFormat.image` shape. Returned `inlineData` becomes `GaiseContent::Image`, `Audio`, or `File`. Preserve `thoughtSignature` on reasoning and tool calls.
 
-```json
-{
-  "model": "openai::o3",
-  "input": { "role": "user", "content": { "type": "text", "text": "Prove that √2 is irrational" } },
-  "generation_config": {
-    "thinking_effort": "high",
-    "max_tokens": 32000
-  }
-}
-```
+Gemini API and Vertex AI have separate model lifecycles. Do not copy retirement dates between them; `model-registry.toml` records this distinction.
 
-The same request works identically across providers — just change the model string:
+### Bedrock
 
-| Model string | What happens |
-|---|---|
-| `openai::o3` | `reasoning_effort: "high"`, `max_completion_tokens: 32000` |
-| `anthropic::claude-sonnet-4-6` | `thinking: { type: "adaptive" }`, `max_tokens: 32000` |
-| `gemini::gemini-2.5-pro` | `thinkingConfig: { thinkingBudget: -1 }`, `maxOutputTokens: 32000` |
-| `gemini::gemini-3-flash-preview` | `thinkingConfig: { thinkingLevel: "HIGH" }`, `maxOutputTokens: 32000` |
+Use Converse/ConverseStream for chat and InvokeModel for supported embedding families. A Bedrock document block must be accompanied by a text block. Model IDs and inference profiles are region-specific; avoid hard-coded global allowlists and rely on AWS lifecycle/discovery APIs.
 
-#### Models that support reasoning
+Do not mutate process-wide AWS environment variables in request routing. Pass region configuration into the SDK builder.
 
-| Provider | Reasoning models | Non-reasoning models |
-|---|---|---|
-| **OpenAI** | o3, o4-mini, gpt-5, gpt-5-mini, gpt-5-nano, gpt-5.2, gpt-5.4 | gpt-4o, gpt-4o-mini, gpt-4.1, gpt-4.1-mini, gpt-4.1-nano |
-| **Anthropic** | All Claude 3.7+ (Sonnet 3.7, Sonnet/Opus 4, 4.1, 4.5, 4.6) | Haiku 3.5, older models |
-| **Gemini** | All 2.5 and 3.x models | 2.0 and older |
+### Ollama
 
-## Conventions
+The installed catalog is dynamic (`GET /api/tags`). Thinking is usually a boolean, while GPT-OSS accepts `low`, `medium`, or `high`. Vision and tool support depend on the installed tag. Keep UTF-8 file fallback explicit and never assume every local model accepts images.
 
-- Use `#[serde(skip_serializing_if = "Option::is_none")]` and `#[serde(default)]` on optional fields. Implement `Default` trait to avoid verbose `None` declarations.
-- All provider methods are async (`#[async_trait]`), built on `tokio` and `reqwest`.
-- Provider-specific API types live in `src/contracts/models.rs` within each provider crate.
+## Mapping and test conventions
 
-## Environment Variables (for gaise-api)
+- Provider request/response types belong in each provider's `src/contracts/` module.
+- Prefer pure conversion helpers that can be tested without HTTP.
+- Use recursive tool schemas (`properties`, `items`, `required`) and deterministic maps.
+- Add tests for both serialized provider JSON and mapped common output.
+- Add split-frame fixtures for stream parsers.
+- Use `#[serde(skip_serializing_if = "Option::is_none")]` on optional outbound fields so unsupported parameters are omitted rather than serialized as `null`.
+- Keep usage counters provider-named inside the common input/output maps.
+- Treat `model-registry.toml` as advisory; arbitrary model IDs are intentional for forward compatibility.
 
-`OLLAMA_URL`, `VERTEXAI_API_URL`, `VERTEXAI_SA_PATH`, `OPENAI_API_KEY`, `OPENAI_API_URL`, `ANTHROPIC_API_KEY`, `ANTHROPIC_API_URL`, `GEMINI_API_KEY`, `GEMINI_API_URL`, `GAISE_PORT` (default 3000).
+## Model references
+
+Model names and lifecycle dates change independently of the crate. Before updating hard-coded model behavior, verify the official sources linked from `model-registry.toml` and update both that registry and `audit-report.md` when appropriate.

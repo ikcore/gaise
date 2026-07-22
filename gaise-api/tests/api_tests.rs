@@ -2,8 +2,8 @@ use axum::{
     body::Body,
     http::{self, Request, StatusCode},
 };
-use gaise_api::{create_app, AppState};
-use gaise_client::{GaiseClientService, GaiseClientConfig};
+use gaise_api::{AppState, create_app};
+use gaise_client::{GaiseClientConfig, GaiseClientService};
 use serde_json::json;
 use std::sync::Arc;
 use tower::ServiceExt; // for `oneshot`
@@ -53,7 +53,9 @@ async fn test_instruct_post_request() {
     // because GaiseClientService returns an error which the handler maps to 500.
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
-    let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
     let body_str = String::from_utf8(body.to_vec()).unwrap();
     assert!(body_str.contains("Unknown provider: nonexistent"));
 }

@@ -1,9 +1,11 @@
-use gaise_core::GaiseClient;
-use gaise_core::contracts::{GaiseContent, GaiseInstructRequest, GaiseMessage, OneOrMany, GaiseStreamChunk};
-use gaise_client::{GaiseClientService, GaiseClientConfig};
 use futures_util::StreamExt;
-use std::io::{self, Write};
+use gaise_client::{GaiseClientConfig, GaiseClientService};
+use gaise_core::contracts::{
+    GaiseContent, GaiseInstructRequest, GaiseMessage, GaiseStreamChunk, OneOrMany,
+};
+use gaise_core::GaiseClient;
 use indicatif::{ProgressBar, ProgressStyle};
+use std::io::{self, Write};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -15,7 +17,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         ..Default::default()
     };
     let client = GaiseClientService::new(config);
-
 
     println!("Welcome to GAISe Chatbot!");
     println!("Using model: {}", model);
@@ -62,9 +63,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         };
 
         let pb = ProgressBar::new_spinner();
-        pb.set_style(ProgressStyle::default_spinner()
-            .template("{spinner:.green} Thinking...")
-            .unwrap());
+        pb.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.green} Thinking...")
+                .unwrap(),
+        );
         pb.enable_steady_tick(std::time::Duration::from_millis(100));
 
         let stream_res = client.instruct_stream(&request).await;
@@ -73,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Ok(mut stream) => {
                 let mut first_chunk = true;
                 let mut full_response = String::new();
-                
+
                 print!("AI: ");
                 io::stdout().flush()?;
 
@@ -88,16 +91,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                             if let GaiseStreamChunk::Text(text) = response.chunk {
                                 full_response.push_str(&text);
                                 let mut display_text = text.as_str();
-                                
+
                                 // Basic logic to detect thought tags if the model uses them
                                 if display_text.contains("<thought>") {
                                     println!("\n[Thinking...]");
-                                    display_text = display_text.split("<thought>").last().unwrap_or("");
+                                    display_text =
+                                        display_text.split("<thought>").last().unwrap_or("");
                                 }
-                                
+
                                 if display_text.contains("</thought>") {
                                     println!("\n[Thought end]");
-                                    display_text = display_text.split("</thought>").last().unwrap_or("");
+                                    display_text =
+                                        display_text.split("</thought>").last().unwrap_or("");
                                 }
 
                                 if !display_text.is_empty() {

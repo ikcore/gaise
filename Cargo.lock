@@ -983,7 +983,7 @@ dependencies = [
 
 [[package]]
 name = "gaise"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -996,7 +996,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-api"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "axum",
@@ -1017,7 +1017,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-chatbot"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "futures-util",
  "gaise",
@@ -1031,7 +1031,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-client"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -1049,7 +1049,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-anthropic"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "base64",
@@ -1062,17 +1062,19 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-bedrock"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-stream",
  "async-trait",
  "aws-config",
  "aws-sdk-bedrockruntime",
+ "aws-smithy-runtime",
  "aws-smithy-types",
  "base64",
  "bytes",
  "futures-util",
  "gaise",
+ "hyper-rustls 0.24.2",
  "serde",
  "serde_json",
  "tokio",
@@ -1080,7 +1082,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-gemini"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "base64",
@@ -1097,7 +1099,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-ollama"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "base64",
@@ -1112,7 +1114,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-openai"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "base64",
@@ -1131,7 +1133,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-vertexai"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "async-trait",
  "base64",
@@ -1369,6 +1371,7 @@ dependencies = [
  "rustls 0.21.12",
  "tokio",
  "tokio-rustls 0.24.1",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -3403,6 +3406,12 @@ checksum = "804f18a4ac2676ffb4e8b5b5fa9ae38af06df08162314f96a68d2a363e21a8ca"
 dependencies = [
  "rustls-pki-types",
 ]
+
+[[package]]
+name = "webpki-roots"
+version = "0.25.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f20c57d8d7db6d3b86154206ae5d8fba62dd39573114de97c2cb0578251f8e1"
 
 [[package]]
 name = "winapi-util"

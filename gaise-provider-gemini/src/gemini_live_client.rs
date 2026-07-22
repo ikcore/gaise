@@ -3,14 +3,100 @@ use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
 use gaise_core::GaiseLiveClient;
 use gaise_core::contracts::{
-    GaiseLiveConfig, GaiseLiveEvent, GaiseLiveEventStream, GaiseLiveInput,
-    GaiseLiveModality, GaiseLiveSession, GaiseTool, GaiseToolParameter, GaiseUsage,
+    GaiseLiveConfig, GaiseLiveEvent, GaiseLiveEventStream, GaiseLiveInput, GaiseLiveModality,
+    GaiseLiveSession, GaiseTool, GaiseToolParameter, GaiseUsage,
 };
 use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::contracts::live_models::*;
+
+fn live_thinking_level_from_tokens(tokens: usize) -> String {
+    match tokens {
+        0 => "MINIMAL",
+        1..=2_000 => "LOW",
+        2_001..=12_000 => "MEDIUM",
+        _ => "HIGH",
+    }
+    .to_string()
+}
+
+fn normalize_live_thinking_level(effort: &str) -> String {
+    match effort.to_ascii_lowercase().as_str() {
+        "none" | "off" | "disabled" => "MINIMAL".to_string(),
+        "xhigh" | "max" => "HIGH".to_string(),
+        other => other.to_ascii_uppercase(),
+    }
+}
+
+fn normalize_live_media_resolution(resolution: &str) -> String {
+    let upper = resolution.to_ascii_uppercase();
+    if upper.starts_with("MEDIA_RESOLUTION_") {
+        upper
+    } else {
+        format!("MEDIA_RESOLUTION_{upper}")
+    }
+}
+
+fn live_modality_key(modality: &str, prefix: &str) -> String {
+    let name = modality
+        .strip_prefix("MODALITY_")
+        .unwrap_or(modality)
+        .to_ascii_lowercase();
+    format!("{prefix}{name}_tokens")
+}
+
+fn insert_live_modality_usage(
+    target: &mut HashMap<String, usize>,
+    details: Option<&Vec<GeminiLiveModalityTokenCount>>,
+    prefix: &str,
+) {
+    if let Some(details) = details {
+        for detail in details {
+            *target
+                .entry(live_modality_key(&detail.modality, prefix))
+                .or_insert(0) += detail.token_count;
+        }
+    }
+}
+
+fn map_live_usage(usage: &GeminiLiveUsageMetadata) -> GaiseUsage {
+    let mut input = HashMap::new();
+    if let Some(prompt) = usage.prompt_token_count {
+        input.insert("prompt_tokens".to_string(), prompt);
+    }
+    if let Some(cached) = usage.cached_content_token_count {
+        input.insert("cached_tokens".to_string(), cached);
+    }
+    if let Some(tool_prompt) = usage.tool_use_prompt_token_count {
+        input.insert("tool_prompt_tokens".to_string(), tool_prompt);
+    }
+    insert_live_modality_usage(&mut input, usage.prompt_tokens_details.as_ref(), "");
+    insert_live_modality_usage(&mut input, usage.cache_tokens_details.as_ref(), "cached_");
+    insert_live_modality_usage(
+        &mut input,
+        usage.tool_use_prompt_tokens_details.as_ref(),
+        "tool_",
+    );
+
+    let mut output = HashMap::new();
+    if let Some(response) = usage.response_token_count {
+        output.insert("response_tokens".to_string(), response);
+    }
+    if let Some(thoughts) = usage.thoughts_token_count {
+        output.insert("reasoning_tokens".to_string(), thoughts);
+    }
+    insert_live_modality_usage(&mut output, usage.response_tokens_details.as_ref(), "");
+
+    GaiseUsage {
+        input: (!input.is_empty()).then_some(input),
+        output: (!output.is_empty()).then_some(output),
+        total: usage
+            .total_token_count
+            .map(|total| HashMap::from([("total_tokens".to_string(), total)])),
+    }
+}
 
 pub struct GaiseClientGeminiLive {
     api_url: String,
@@ -21,15 +107,6 @@ impl GaiseClientGeminiLive {
     pub fn new(api_url: String, api_key: String) -> Self {
         Self { api_url, api_key }
     }
-}
-
-/// Gemini doesn't allow hyphens in function names.
-fn sanitize_tool_name(name: &str) -> String {
-    name.replace('-', "_")
-}
-
-fn unsanitize_tool_name(name: &str) -> String {
-    name.replace('_', "-")
 }
 
 fn map_tool_parameter(param: &GaiseToolParameter) -> serde_json::Value {
@@ -71,7 +148,7 @@ fn build_tool_declarations(tools: &[GaiseTool]) -> Vec<GeminiLiveFunctionDeclara
     tools
         .iter()
         .map(|t| GeminiLiveFunctionDeclaration {
-            name: sanitize_tool_name(&t.name),
+            name: t.name.clone(),
             description: t.description.clone(),
             parameters: t.parameters.as_ref().map(map_tool_parameter),
         })
@@ -141,16 +218,52 @@ fn build_setup_message(config: &GaiseLiveConfig, api_model_path: &str) -> Gemini
         .generation_config
         .as_ref()
         .and_then(|gc| gc.temperature);
-    let max_output_tokens = config.generation_config.as_ref().and_then(|gc| gc.max_tokens);
+    let top_p = config.generation_config.as_ref().and_then(|gc| gc.top_p);
+    let top_k = config.generation_config.as_ref().and_then(|gc| gc.top_k);
+    let max_output_tokens = config
+        .generation_config
+        .as_ref()
+        .and_then(|gc| gc.max_tokens);
+    let thinking_config = config.generation_config.as_ref().and_then(|gc| {
+        let uses_levels = config.model.to_ascii_lowercase().starts_with("gemini-3");
+        let requested = gc.thinking_effort.is_some()
+            || gc.thinking_tokens.is_some()
+            || gc.include_thoughts.is_some();
+        requested.then(|| {
+            if uses_levels {
+                crate::contracts::GeminiThinkingConfig {
+                    thinking_budget: None,
+                    thinking_level: gc
+                        .thinking_effort
+                        .as_deref()
+                        .map(normalize_live_thinking_level)
+                        .or_else(|| gc.thinking_tokens.map(live_thinking_level_from_tokens)),
+                    include_thoughts: gc.include_thoughts,
+                }
+            } else {
+                crate::contracts::GeminiThinkingConfig {
+                    thinking_budget: gc.thinking_tokens.map(|tokens| tokens as i64),
+                    thinking_level: None,
+                    include_thoughts: gc.include_thoughts,
+                }
+            }
+        })
+    });
+    let media_resolution = config
+        .generation_config
+        .as_ref()
+        .and_then(|gc| gc.input_media_resolution.as_deref())
+        .map(normalize_live_media_resolution);
 
     let generation_config = GeminiLiveGenerationConfig {
         response_modalities: Some(modalities),
         speech_config,
         temperature,
+        top_p,
+        top_k,
         max_output_tokens,
-        input_audio_transcription,
-        output_audio_transcription,
-        realtime_input_config,
+        thinking_config,
+        media_resolution,
     };
 
     let system_instruction =
@@ -173,6 +286,9 @@ fn build_setup_message(config: &GaiseLiveConfig, api_model_path: &str) -> Gemini
             generation_config: Some(generation_config),
             system_instruction,
             tools,
+            realtime_input_config,
+            input_audio_transcription,
+            output_audio_transcription,
         },
     }
 }
@@ -214,19 +330,35 @@ impl GaiseLiveClient for GaiseClientGeminiLive {
         ws_sink.send(Message::Text(setup_json.into())).await?;
 
         // Wait for setupComplete
+        let mut setup_complete = false;
         while let Some(msg) = ws_source.next().await {
             let msg = msg?;
             if let Message::Text(text) = msg {
                 let server_msg: GeminiLiveServerMessage = serde_json::from_str(&text)?;
                 if server_msg.setup_complete.is_some() {
+                    setup_complete = true;
                     break;
                 }
+                if let Some(error) = server_msg.error {
+                    return Err(std::io::Error::other(format!(
+                        "Gemini Live setup failed: {error}"
+                    ))
+                    .into());
+                }
             }
+        }
+        if !setup_complete {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "Gemini Live closed before setupComplete",
+            )
+            .into());
         }
 
         // Create channels
         let (input_tx, mut input_rx) = mpsc::channel::<GaiseLiveInput>(256);
-        let (event_tx, event_rx) = mpsc::channel::<Result<GaiseLiveEvent, Box<dyn std::error::Error + Send + Sync>>>(256);
+        let (event_tx, event_rx) =
+            mpsc::channel::<Result<GaiseLiveEvent, Box<dyn std::error::Error + Send + Sync>>>(256);
 
         let session_id = uuid_simple();
 
@@ -248,24 +380,53 @@ impl GaiseLiveClient for GaiseClientGeminiLive {
                         let mime = format!("audio/pcm;rate={}", sample_rate);
                         let msg = GeminiLiveRealtimeInput {
                             realtime_input: GeminiLiveRealtimeInputData {
-                                media_chunks: Some(vec![GeminiLiveMediaChunk {
+                                media_chunks: None,
+                                audio: Some(GeminiLiveMediaChunk {
                                     mime_type: mime,
                                     data: b64,
-                                }]),
+                                }),
+                                video: None,
                                 text: None,
+                                activity_start: None,
+                                activity_end: None,
+                                audio_stream_end: None,
+                            },
+                        };
+                        serde_json::to_string(&msg)
+                    }
+                    GaiseLiveInput::Image {
+                        data,
+                        mime_type,
+                        detail: _,
+                    } => {
+                        let msg = GeminiLiveRealtimeInput {
+                            realtime_input: GeminiLiveRealtimeInputData {
+                                media_chunks: None,
+                                audio: None,
+                                video: Some(GeminiLiveMediaChunk {
+                                    mime_type,
+                                    data: base64::prelude::BASE64_STANDARD.encode(data),
+                                }),
+                                text: None,
+                                activity_start: None,
+                                activity_end: None,
                                 audio_stream_end: None,
                             },
                         };
                         serde_json::to_string(&msg)
                     }
                     GaiseLiveInput::Text { text } => {
-                        let msg = GeminiLiveClientContent {
-                            client_content: GeminiLiveClientContentData {
-                                turns: vec![GeminiLiveTurn {
-                                    role: "user".to_string(),
-                                    parts: vec![GeminiLiveTextPart { text }],
-                                }],
-                                turn_complete: true,
+                        // Gemini 3.1 Live only permits clientContent for initial
+                        // history; realtimeInput.text is valid throughout a session.
+                        let msg = GeminiLiveRealtimeInput {
+                            realtime_input: GeminiLiveRealtimeInputData {
+                                media_chunks: None,
+                                audio: None,
+                                video: None,
+                                text: Some(text),
+                                activity_start: None,
+                                activity_end: None,
+                                audio_stream_end: None,
                             },
                         };
                         serde_json::to_string(&msg)
@@ -275,29 +436,74 @@ impl GaiseLiveClient for GaiseClientGeminiLive {
                         name,
                         result,
                     } => {
+                        let response = if result.is_object() {
+                            result
+                        } else {
+                            serde_json::json!({ "result": result })
+                        };
                         let msg = GeminiLiveToolResponse {
                             tool_response: GeminiLiveToolResponseData {
                                 function_responses: vec![GeminiLiveFunctionResponse {
                                     id: call_id,
-                                    name: sanitize_tool_name(&name),
-                                    response: result,
+                                    name,
+                                    response,
                                 }],
                             },
                         };
                         serde_json::to_string(&msg)
                     }
-                    GaiseLiveInput::Close => {
+                    GaiseLiveInput::ActivityStart => {
                         let msg = GeminiLiveRealtimeInput {
                             realtime_input: GeminiLiveRealtimeInputData {
                                 media_chunks: None,
+                                audio: None,
+                                video: None,
                                 text: None,
+                                activity_start: Some(serde_json::json!({})),
+                                activity_end: None,
+                                audio_stream_end: None,
+                            },
+                        };
+                        serde_json::to_string(&msg)
+                    }
+                    GaiseLiveInput::ActivityEnd => {
+                        let msg = GeminiLiveRealtimeInput {
+                            realtime_input: GeminiLiveRealtimeInputData {
+                                media_chunks: None,
+                                audio: None,
+                                video: None,
+                                text: None,
+                                activity_start: None,
+                                activity_end: Some(serde_json::json!({})),
+                                audio_stream_end: None,
+                            },
+                        };
+                        serde_json::to_string(&msg)
+                    }
+                    GaiseLiveInput::AudioStreamEnd => {
+                        let msg = GeminiLiveRealtimeInput {
+                            realtime_input: GeminiLiveRealtimeInputData {
+                                media_chunks: None,
+                                audio: None,
+                                video: None,
+                                text: None,
+                                activity_start: None,
+                                activity_end: None,
                                 audio_stream_end: Some(true),
                             },
                         };
-                        let _ = match serde_json::to_string(&msg) {
-                            Ok(json) => ws_sink.send(Message::Text(json.into())).await,
-                            Err(_) => Ok(()),
-                        };
+                        serde_json::to_string(&msg)
+                    }
+                    GaiseLiveInput::ClearAudio | GaiseLiveInput::CancelResponse => {
+                        let _ = event_tx_send
+                            .send(Ok(GaiseLiveEvent::Error {
+                                message: "Gemini Live does not expose this realtime control"
+                                    .to_string(),
+                            }))
+                            .await;
+                        continue;
+                    }
+                    GaiseLiveInput::Close => {
                         let _ = ws_sink.close().await;
                         break;
                     }
@@ -355,62 +561,73 @@ impl GaiseLiveClient for GaiseClientGeminiLive {
                             }
                         };
 
+                        if let Some(error) = &server_msg.error {
+                            let _ = event_tx
+                                .send(Ok(GaiseLiveEvent::Error {
+                                    message: format!("Gemini Live error: {error}"),
+                                }))
+                                .await;
+                            continue;
+                        }
+
                         // Process server content
                         if let Some(content) = &server_msg.server_content {
                             // Audio output from model
                             if let Some(model_turn) = &content.model_turn {
                                 for part in &model_turn.parts {
                                     if let Some(text) = &part.text {
-                                        let _ = event_tx
-                                            .send(Ok(GaiseLiveEvent::Text {
+                                        let event = if part.thought == Some(true) {
+                                            GaiseLiveEvent::Reasoning {
                                                 text: text.clone(),
+                                                signature: part.thought_signature.clone(),
+                                            }
+                                        } else {
+                                            GaiseLiveEvent::Text { text: text.clone() }
+                                        };
+                                        let _ = event_tx.send(Ok(event)).await;
+                                    }
+                                    if let Some(inline_data) = &part.inline_data
+                                        && let Ok(audio_bytes) = base64::prelude::BASE64_STANDARD
+                                            .decode(&inline_data.data)
+                                    {
+                                        // Parse sample rate from mime_type (e.g. "audio/pcm;rate=24000")
+                                        let sample_rate = inline_data
+                                            .mime_type
+                                            .split("rate=")
+                                            .nth(1)
+                                            .and_then(|s| s.parse::<u32>().ok())
+                                            .unwrap_or(24000);
+
+                                        let _ = event_tx
+                                            .send(Ok(GaiseLiveEvent::Audio {
+                                                data: audio_bytes,
+                                                sample_rate,
                                             }))
                                             .await;
-                                    }
-                                    if let Some(inline_data) = &part.inline_data {
-                                        if let Ok(audio_bytes) =
-                                            base64::prelude::BASE64_STANDARD
-                                                .decode(&inline_data.data)
-                                        {
-                                            // Parse sample rate from mime_type (e.g. "audio/pcm;rate=24000")
-                                            let sample_rate = inline_data
-                                                .mime_type
-                                                .split("rate=")
-                                                .nth(1)
-                                                .and_then(|s| s.parse::<u32>().ok())
-                                                .unwrap_or(24000);
-
-                                            let _ = event_tx
-                                                .send(Ok(GaiseLiveEvent::Audio {
-                                                    data: audio_bytes,
-                                                    sample_rate,
-                                                }))
-                                                .await;
-                                        }
                                     }
                                 }
                             }
 
                             // Transcriptions
-                            if let Some(tx_data) = &content.input_transcription {
-                                if let Some(text) = &tx_data.text {
-                                    let _ = event_tx
-                                        .send(Ok(GaiseLiveEvent::Transcript {
-                                            role: "user".to_string(),
-                                            text: text.clone(),
-                                        }))
-                                        .await;
-                                }
+                            if let Some(tx_data) = &content.input_transcription
+                                && let Some(text) = &tx_data.text
+                            {
+                                let _ = event_tx
+                                    .send(Ok(GaiseLiveEvent::Transcript {
+                                        role: "user".to_string(),
+                                        text: text.clone(),
+                                    }))
+                                    .await;
                             }
-                            if let Some(tx_data) = &content.output_transcription {
-                                if let Some(text) = &tx_data.text {
-                                    let _ = event_tx
-                                        .send(Ok(GaiseLiveEvent::Transcript {
-                                            role: "assistant".to_string(),
-                                            text: text.clone(),
-                                        }))
-                                        .await;
-                                }
+                            if let Some(tx_data) = &content.output_transcription
+                                && let Some(text) = &tx_data.text
+                            {
+                                let _ = event_tx
+                                    .send(Ok(GaiseLiveEvent::Transcript {
+                                        role: "assistant".to_string(),
+                                        text: text.clone(),
+                                    }))
+                                    .await;
                             }
 
                             // Turn complete
@@ -431,7 +648,7 @@ impl GaiseLiveClient for GaiseClientGeminiLive {
                                     .send(Ok(GaiseLiveEvent::ToolCall {
                                         id: fc.id.clone(),
                                         function: gaise_core::contracts::GaiseFunctionCall {
-                                            name: unsanitize_tool_name(&fc.name),
+                                            name: fc.name.clone(),
                                             arguments: fc.args.as_ref().map(|a| a.to_string()),
                                         },
                                     }))
@@ -450,15 +667,12 @@ impl GaiseLiveClient for GaiseClientGeminiLive {
 
                         // Usage metadata
                         if let Some(usage) = &server_msg.usage_metadata {
-                            if let Some(total) = usage.total_token_count {
-                                let mut output_map = HashMap::new();
-                                output_map.insert("total_tokens".to_string(), total);
-                                let _ = event_tx
-                                    .send(Ok(GaiseLiveEvent::Usage(GaiseUsage {
-                                        input: None,
-                                        output: Some(output_map),
-                                    })))
-                                    .await;
+                            let mapped = map_live_usage(usage);
+                            if mapped.input.is_some()
+                                || mapped.output.is_some()
+                                || mapped.total.is_some()
+                            {
+                                let _ = event_tx.send(Ok(GaiseLiveEvent::Usage(mapped))).await;
                             }
                         }
 
@@ -502,4 +716,46 @@ fn uuid_simple() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     format!("{:x}{:x}", d.as_secs(), d.subsec_nanos())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_live_usage_modalities_and_keeps_total_neutral() {
+        let usage: GeminiLiveUsageMetadata = serde_json::from_value(serde_json::json!({
+            "promptTokenCount": 90,
+            "cachedContentTokenCount": 10,
+            "responseTokenCount": 70,
+            "toolUsePromptTokenCount": 4,
+            "thoughtsTokenCount": 8,
+            "totalTokenCount": 172,
+            "promptTokensDetails": [
+                {"modality": "TEXT", "tokenCount": 30},
+                {"modality": "VIDEO", "tokenCount": 20},
+                {"modality": "AUDIO", "tokenCount": 40}
+            ],
+            "responseTokensDetails": [
+                {"modality": "TEXT", "tokenCount": 25},
+                {"modality": "AUDIO", "tokenCount": 45}
+            ],
+            "cacheTokensDetails": [{"modality": "AUDIO", "tokenCount": 10}],
+            "toolUsePromptTokensDetails": [{"modality": "TEXT", "tokenCount": 4}]
+        }))
+        .unwrap();
+
+        let mapped = map_live_usage(&usage);
+        let input = mapped.input.unwrap();
+        let output = mapped.output.unwrap();
+        assert_eq!(input.get("text_tokens"), Some(&30));
+        assert_eq!(input.get("video_tokens"), Some(&20));
+        assert_eq!(input.get("audio_tokens"), Some(&40));
+        assert_eq!(input.get("cached_audio_tokens"), Some(&10));
+        assert_eq!(output.get("text_tokens"), Some(&25));
+        assert_eq!(output.get("audio_tokens"), Some(&45));
+        assert_eq!(output.get("reasoning_tokens"), Some(&8));
+        assert!(!output.contains_key("total_tokens"));
+        assert_eq!(mapped.total.unwrap().get("total_tokens"), Some(&172));
+    }
 }

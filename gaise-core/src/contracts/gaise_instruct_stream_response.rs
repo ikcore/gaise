@@ -11,9 +11,13 @@ pub enum GaiseStreamChunk {
         id: Option<String>,
         name: Option<String>,
         arguments: Option<String>,
+        thought_signature: Option<String>,
     },
     #[serde(rename = "usage")]
     Usage(GaiseUsage),
+    /// A complete non-text content part, such as a generated image or audio clip.
+    #[serde(rename = "content")]
+    Content(GaiseContent),
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
@@ -28,6 +32,8 @@ pub struct GaiseInstructStreamResponse {
 pub struct GaiseStreamAccumulator {
     pub role: String,
     pub text: String,
+    /// Ordered response content. Adjacent text deltas are coalesced.
+    pub content_parts: Vec<GaiseContent>,
     pub tool_calls: std::collections::BTreeMap<usize, GaiseToolCall>,
     pub usage: Option<GaiseUsage>,
     pub external_id: Option<String>,
@@ -49,8 +55,19 @@ impl GaiseStreamAccumulator {
         match &response.chunk {
             GaiseStreamChunk::Text(t) => {
                 self.text.push_str(t);
+                if let Some(GaiseContent::Text { text }) = self.content_parts.last_mut() {
+                    text.push_str(t);
+                } else {
+                    self.content_parts.push(GaiseContent::Text { text: t.clone() });
+                }
             }
-            GaiseStreamChunk::ToolCall { index, id, name, arguments } => {
+            GaiseStreamChunk::ToolCall {
+                index,
+                id,
+                name,
+                arguments,
+                thought_signature,
+            } => {
                 let entry = self.tool_calls.entry(*index).or_insert_with(|| GaiseToolCall {
                     r#type: "function".to_string(),
                     ..Default::default()
@@ -66,30 +83,63 @@ impl GaiseStreamAccumulator {
                     let current_args = entry.function.arguments.get_or_insert_with(String::new);
                     current_args.push_str(args);
                 }
+                if thought_signature.is_some() {
+                    entry.thought_signature = thought_signature.clone();
+                }
             }
             GaiseStreamChunk::Usage(u) => {
                 let current_usage = self.usage.get_or_insert_with(GaiseUsage::default);
                 if let Some(input) = &u.input {
                     let cur_input = current_usage.input.get_or_insert_with(std::collections::HashMap::new);
                     for (k, v) in input {
-                        *cur_input.entry(k.clone()).or_insert(0) += v;
+                        // Provider usage events are snapshots, not deltas. Replacing a
+                        // repeated counter avoids double-counting cumulative metadata.
+                        cur_input.insert(k.clone(), *v);
                     }
                 }
                 if let Some(output) = &u.output {
                     let cur_output = current_usage.output.get_or_insert_with(std::collections::HashMap::new);
                     for (k, v) in output {
-                        *cur_output.entry(k.clone()).or_insert(0) += v;
+                        cur_output.insert(k.clone(), *v);
                     }
+                }
+                if let Some(total) = &u.total {
+                    let cur_total = current_usage
+                        .total
+                        .get_or_insert_with(std::collections::HashMap::new);
+                    for (k, v) in total {
+                        cur_total.insert(k.clone(), *v);
+                    }
+                }
+            }
+            GaiseStreamChunk::Content(content) => {
+                if let (
+                    Some(GaiseContent::Reasoning {
+                        text: current_text,
+                        signature: current_signature,
+                    }),
+                    GaiseContent::Reasoning { text, signature },
+                ) = (self.content_parts.last_mut(), content)
+                {
+                    current_text.push_str(text);
+                    if signature.is_some() {
+                        *current_signature = signature.clone();
+                    }
+                } else {
+                    self.content_parts.push(content.clone());
                 }
             }
         }
     }
 
     pub fn finish(self) -> GaiseMessage {
-        let mut content = None;
-        if !self.text.is_empty() {
-            content = Some(OneOrMany::One(GaiseContent::Text { text: self.text }));
-        }
+        let content = match self.content_parts.len() {
+            0 => None,
+            1 => Some(OneOrMany::One(
+                self.content_parts.into_iter().next().expect("one content part"),
+            )),
+            _ => Some(OneOrMany::Many(self.content_parts)),
+        };
 
         let tool_calls = if self.tool_calls.is_empty() {
             None
@@ -102,6 +152,7 @@ impl GaiseStreamAccumulator {
             content,
             tool_calls,
             tool_call_id: None,
+            tool_name: None,
         }
     }
 

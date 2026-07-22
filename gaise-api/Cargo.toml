@@ -3,6 +3,7 @@ name = "gaise-api"
 description = "Axum HTTP server for GAISe — exposes /v1/instruct, /v1/instruct/stream, and /v1/embeddings"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 keywords.workspace = true

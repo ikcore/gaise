@@ -44,6 +44,9 @@ pub struct GeminiPart {
     /// Must be echoed back in multi-turn tool conversations.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thought_signature: Option<String>,
+    /// Marks a text part as a thought summary rather than final answer text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thought: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -55,6 +58,8 @@ pub struct GeminiInlineData {
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct GeminiFunctionCall {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<Value>,
@@ -62,8 +67,29 @@ pub struct GeminiFunctionCall {
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct GeminiFunctionResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub name: String,
     pub response: Value,
+    /// Gemini 3 can consume media returned by a function as nested response
+    /// parts. Older models ignore or reject this field, so adapters only emit it
+    /// when the caller actually supplied supported media.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parts: Option<Vec<GeminiFunctionResponsePart>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct GeminiFunctionResponsePart {
+    pub inline_data: GeminiFunctionResponseBlob,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct GeminiFunctionResponseBlob {
+    pub mime_type: String,
+    pub display_name: String,
+    pub data: String,
 }
 
 // ── Generation Config ────────────────────────────────────────────────
@@ -83,6 +109,30 @@ pub struct GeminiGenerationConfig {
     pub candidate_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_config: Option<GeminiThinkingConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_modalities: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_config: Option<GeminiImageConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<GeminiResponseFormatConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_resolution: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct GeminiImageConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aspect_ratio: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_size: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct GeminiResponseFormatConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<GeminiImageConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -124,10 +174,22 @@ pub struct GeminiSafetySetting {
 impl GeminiSafetySetting {
     pub fn defaults() -> Vec<Self> {
         vec![
-            Self { category: "HARM_CATEGORY_HATE_SPEECH".into(), threshold: "OFF".into() },
-            Self { category: "HARM_CATEGORY_DANGEROUS_CONTENT".into(), threshold: "OFF".into() },
-            Self { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT".into(), threshold: "OFF".into() },
-            Self { category: "HARM_CATEGORY_HARASSMENT".into(), threshold: "OFF".into() },
+            Self {
+                category: "HARM_CATEGORY_HATE_SPEECH".into(),
+                threshold: "OFF".into(),
+            },
+            Self {
+                category: "HARM_CATEGORY_DANGEROUS_CONTENT".into(),
+                threshold: "OFF".into(),
+            },
+            Self {
+                category: "HARM_CATEGORY_SEXUALLY_EXPLICIT".into(),
+                threshold: "OFF".into(),
+            },
+            Self {
+                category: "HARM_CATEGORY_HARASSMENT".into(),
+                threshold: "OFF".into(),
+            },
         ]
     }
 }
@@ -163,6 +225,25 @@ pub struct GeminiUsageMetadata {
     pub total_token_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cached_content_token_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_use_prompt_token_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thoughts_token_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_tokens_details: Option<Vec<GeminiModalityTokenCount>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_tokens_details: Option<Vec<GeminiModalityTokenCount>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub candidates_tokens_details: Option<Vec<GeminiModalityTokenCount>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_use_prompt_tokens_details: Option<Vec<GeminiModalityTokenCount>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct GeminiModalityTokenCount {
+    pub modality: String,
+    pub token_count: usize,
 }
 
 // ── Embeddings ───────────────────────────────────────────────────────

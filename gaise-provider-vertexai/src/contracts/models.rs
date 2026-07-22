@@ -1,33 +1,98 @@
-use gaise_core::contracts::{GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseInstructRequest, GaiseInstructResponse, GaiseMessage, OneOrMany, GaiseInstructStreamResponse, GaiseStreamChunk, GaiseUsage};
-use serde::{Serialize, Deserialize};
+use base64::Engine;
+use gaise_core::contracts::{
+    GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseInstructRequest,
+    GaiseInstructResponse, GaiseInstructStreamResponse, GaiseMessage, GaiseStreamChunk, GaiseUsage,
+    OneOrMany, audio_media_type, file_media_type, image_media_type,
+};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+fn google_modality_key(modality: &str, prefix: &str) -> String {
+    let name = modality
+        .strip_prefix("MODALITY_")
+        .unwrap_or(modality)
+        .to_ascii_lowercase();
+    format!("{prefix}{name}_tokens")
+}
+
+fn insert_google_modality_usage(
+    target: &mut HashMap<String, usize>,
+    details: Option<&Vec<GoogleModalityTokenCount>>,
+    prefix: &str,
+) {
+    if let Some(details) = details {
+        for detail in details {
+            *target
+                .entry(google_modality_key(&detail.modality, prefix))
+                .or_insert(0) += detail.token_count;
+        }
+    }
+}
+
+fn map_google_usage(usage: &GoogleUsageMetadata) -> GaiseUsage {
+    let mut input = HashMap::new();
+    if let Some(value) = usage.prompt_token_count {
+        input.insert("prompt_tokens".to_string(), value);
+    }
+    if let Some(value) = usage.cached_content_token_count {
+        input.insert("cached_tokens".to_string(), value);
+    }
+    if let Some(value) = usage.tool_use_prompt_token_count {
+        input.insert("tool_prompt_tokens".to_string(), value);
+    }
+    insert_google_modality_usage(&mut input, usage.prompt_tokens_details.as_ref(), "");
+    insert_google_modality_usage(&mut input, usage.cache_tokens_details.as_ref(), "cached_");
+    insert_google_modality_usage(
+        &mut input,
+        usage.tool_use_prompt_tokens_details.as_ref(),
+        "tool_",
+    );
+
+    let mut output = HashMap::new();
+    if let Some(value) = usage.candidates_token_count {
+        output.insert("candidates_tokens".to_string(), value);
+    }
+    if let Some(value) = usage.thoughts_token_count {
+        output.insert("reasoning_tokens".to_string(), value);
+    }
+    insert_google_modality_usage(&mut output, usage.candidates_tokens_details.as_ref(), "");
+
+    GaiseUsage {
+        input: (!input.is_empty()).then_some(input),
+        output: (!output.is_empty()).then_some(output),
+        total: usage
+            .total_token_count
+            .map(|value| HashMap::from([("total_tokens".to_string(), value)])),
+    }
+}
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct GoogleAccessToken {
-    pub access_token:String,
-    pub token_type:String,
-    pub expires_in:usize
+    pub access_token: String,
+    pub token_type: String,
+    pub expires_in: usize,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct GoogleInstructRequest {
     pub contents: Vec<GoogleContent>,
 
-    #[serde(rename="system_instruction", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "system_instruction", skip_serializing_if = "Option::is_none")]
     pub system_instruction: Option<GoogleContent>,
 
-    #[serde(rename="generationConfig", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "generationConfig", skip_serializing_if = "Option::is_none")]
     pub generation_config: Option<GoogleParameters>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<GoogleTool>>,
 
-    #[serde(rename="toolConfig", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "toolConfig", skip_serializing_if = "Option::is_none")]
     pub tool_config: Option<GoogleToolConfig>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct GoogleTool {
-    #[serde(rename="functionDeclarations")]
+    #[serde(rename = "functionDeclarations")]
     pub function_declarations: Vec<GoogleFunctionDeclaration>,
 }
 
@@ -47,11 +112,13 @@ pub struct GoogleSchema {
     pub properties: Option<std::collections::HashMap<String, GoogleSchema>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub items: Option<Box<GoogleSchema>>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct GoogleToolConfig {
-    #[serde(rename="functionCallingConfig")]
+    #[serde(rename = "functionCallingConfig")]
     pub function_calling_config: GoogleFunctionCallingConfig,
 }
 
@@ -76,24 +143,43 @@ pub struct GooglePart {
     pub tool_call: Option<GoogleFunctionCall>,
     #[serde(rename = "functionResponse", skip_serializing_if = "Option::is_none")]
     pub tool_response: Option<GoogleToolResponse>,
+    #[serde(rename = "thought", skip_serializing_if = "Option::is_none")]
+    pub thought: Option<bool>,
+    #[serde(rename = "thoughtSignature", skip_serializing_if = "Option::is_none")]
+    pub thought_signature: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct GoogleFunctionCall {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub name: String,
     pub args: serde_json::Value,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct GoogleToolResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub name: String,
-    pub response: GoogleFunctionResponseData,
+    pub response: serde_json::Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parts: Option<Vec<GoogleFunctionResponsePart>>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct GoogleFunctionResponseData {
-    pub name: String,
-    pub content: serde_json::Value,
+pub struct GoogleFunctionResponsePart {
+    #[serde(rename = "inlineData")]
+    pub inline_data: GoogleFunctionResponseBlob,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct GoogleFunctionResponseBlob {
+    #[serde(rename = "mimeType")]
+    pub mime_type: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    pub data: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -101,6 +187,75 @@ pub struct GoogleInlineData {
     #[serde(rename = "mimeType")]
     pub mime_type: String,
     pub data: String,
+}
+
+fn model_uses_thinking_level(model: &str) -> bool {
+    model.to_ascii_lowercase().starts_with("gemini-3")
+}
+
+fn model_uses_fixed_sampling(model: &str) -> bool {
+    let model = model.to_ascii_lowercase();
+    model.starts_with("gemini-3.5-flash") || model.starts_with("gemini-3.6-flash")
+}
+
+fn normalize_media_resolution(resolution: &str) -> String {
+    let upper = resolution.to_ascii_uppercase();
+    if upper.starts_with("MEDIA_RESOLUTION_") {
+        upper
+    } else {
+        format!("MEDIA_RESOLUTION_{upper}")
+    }
+}
+
+fn thinking_level_from_tokens(tokens: usize) -> String {
+    match tokens {
+        0..=2_000 => "LOW",
+        2_001..=12_000 => "MEDIUM",
+        _ => "HIGH",
+    }
+    .to_string()
+}
+
+fn supports_inline_file(media_type: &str) -> bool {
+    media_type == "application/pdf"
+        || media_type == "application/json"
+        || media_type == "application/rtf"
+        || media_type == "application/xml"
+        || media_type.starts_with("text/")
+}
+
+fn response_file_name(media_type: &str) -> String {
+    let extension = match media_type {
+        "application/pdf" => "pdf",
+        "application/json" => "json",
+        "text/csv" => "csv",
+        "text/html" => "html",
+        "text/markdown" => "md",
+        _ => "bin",
+    };
+    format!("response.{extension}")
+}
+
+fn inline_data_to_gaise(inline: &GoogleInlineData) -> Option<GaiseContent> {
+    let data = base64::engine::general_purpose::STANDARD
+        .decode(&inline.data)
+        .ok()?;
+    if inline.mime_type.starts_with("image/") {
+        Some(GaiseContent::Image {
+            data,
+            format: Some(inline.mime_type.clone()),
+        })
+    } else if inline.mime_type.starts_with("audio/") {
+        Some(GaiseContent::Audio {
+            data,
+            format: Some(inline.mime_type.clone()),
+        })
+    } else {
+        Some(GaiseContent::File {
+            data,
+            name: Some(response_file_name(&inline.mime_type)),
+        })
+    }
 }
 
 impl GoogleContent {
@@ -119,56 +274,67 @@ impl GoogleContent {
 }
 
 impl GooglePart {
+    fn text(text: String) -> Self {
+        Self {
+            text: Some(text),
+            inline_data: None,
+            tool_call: None,
+            tool_response: None,
+            thought: None,
+            thought_signature: None,
+        }
+    }
+
+    fn inline(data: &[u8], mime_type: String) -> Self {
+        Self {
+            text: None,
+            inline_data: Some(GoogleInlineData {
+                mime_type,
+                data: base64::engine::general_purpose::STANDARD.encode(data),
+            }),
+            tool_call: None,
+            tool_response: None,
+            thought: None,
+            thought_signature: None,
+        }
+    }
+
     pub fn from_gaise(gaise: &GaiseContent) -> Vec<GooglePart> {
         match gaise {
-            GaiseContent::Text { text } => vec![GooglePart {
+            GaiseContent::Text { text } => vec![Self::text(text.clone())],
+            GaiseContent::Audio { data, format } => {
+                vec![Self::inline(data, audio_media_type(format.as_deref()))]
+            }
+            GaiseContent::Image { data, format } => {
+                vec![Self::inline(data, image_media_type(format.as_deref()))]
+            }
+            GaiseContent::File { data, name } => {
+                let media_type = file_media_type(name.as_deref());
+                if supports_inline_file(media_type) {
+                    vec![Self::inline(data, media_type.to_string())]
+                } else if let Ok(text) = String::from_utf8(data.clone()) {
+                    let name = name.as_deref().unwrap_or("document");
+                    vec![Self::text(format!(
+                        "<attached_document name=\"{name}\">\n{text}\n</attached_document>"
+                    ))]
+                } else {
+                    let name = name.as_deref().unwrap_or("document");
+                    vec![Self::text(format!(
+                        "[Unsupported inline binary document for Vertex AI generateContent: {name}]"
+                    ))]
+                }
+            }
+            GaiseContent::Reasoning { text, signature } => vec![Self {
                 text: Some(text.clone()),
                 inline_data: None,
                 tool_call: None,
                 tool_response: None,
+                thought: Some(true),
+                thought_signature: signature.clone(),
             }],
-            GaiseContent::Audio { data, format } => vec![GooglePart {
-                text: None,
-                inline_data: Some(GoogleInlineData {
-                    mime_type: format.clone().unwrap_or("audio/mpeg".to_string()),
-                    data: base64::Engine::encode(
-                        &base64::engine::general_purpose::STANDARD,
-                        data,
-                    ),
-                }),
-                tool_call: None,
-                tool_response: None,
-            }],
-            GaiseContent::Image { data, format } => vec![GooglePart {
-                text: None,
-                inline_data: Some(GoogleInlineData {
-                    mime_type: format.clone().unwrap_or("image/jpeg".to_string()),
-                    data: base64::Engine::encode(
-                        &base64::engine::general_purpose::STANDARD,
-                        data,
-                    ),
-                }),
-                tool_call: None,
-                tool_response: None,
-            }],
-            GaiseContent::File { data, name } => {
-                let mime_type = match name.as_deref() {
-                    Some(n) if n.ends_with(".pdf") => "application/pdf",
-                    _ => "application/octet-stream",
-                };
-                vec![GooglePart {
-                    text: None,
-                    inline_data: Some(GoogleInlineData {
-                        mime_type: mime_type.to_string(),
-                        data: base64::Engine::encode(
-                            &base64::engine::general_purpose::STANDARD,
-                            data,
-                        ),
-                    }),
-                    tool_call: None,
-                    tool_response: None,
-                }]
-            }
+            GaiseContent::RedactedReasoning { .. } => vec![Self::text(
+                "[Encrypted reasoning retained only on its source provider]".to_string(),
+            )],
             GaiseContent::Parts { parts } => {
                 parts.iter().flat_map(GooglePart::from_gaise).collect()
             }
@@ -176,94 +342,192 @@ impl GooglePart {
     }
 
     pub fn from(gaise: &GaiseContent) -> GooglePart {
-        match gaise {
-            GaiseContent::Text { text } => GooglePart {
-                text: Some(text.clone()),
-                inline_data: None,
-                tool_call: None,
-                tool_response: None,
-            },
-            GaiseContent::Audio { data, format } => GooglePart {
-                text: None,
-                inline_data: Some(GoogleInlineData {
-                    mime_type: format.clone().unwrap_or("audio/mpeg".to_string()),
-                    data: base64::Engine::encode(
-                        &base64::engine::general_purpose::STANDARD,
-                        data,
-                    ),
-                }),
-                tool_call: None,
-                tool_response: None,
-            },
-            GaiseContent::Image { data, format } => GooglePart {
-                text: None,
-                inline_data: Some(GoogleInlineData {
-                    mime_type: format.clone().unwrap_or("image/jpeg".to_string()),
-                    data: base64::Engine::encode(
-                        &base64::engine::general_purpose::STANDARD,
-                        data,
-                    ),
-                }),
-                tool_call: None,
-                tool_response: None,
-            },
-            GaiseContent::File { data, name } => {
-                let mime_type = match name.as_deref() {
-                    Some(n) if n.ends_with(".pdf") => "application/pdf",
-                    _ => "application/octet-stream",
-                };
-                GooglePart {
-                    text: None,
-                    inline_data: Some(GoogleInlineData {
-                        mime_type: mime_type.to_string(),
-                        data: base64::Engine::encode(
-                            &base64::engine::general_purpose::STANDARD,
-                            data,
-                        ),
-                    }),
-                    tool_call: None,
-                    tool_response: None,
-                }
+        GooglePart::from_gaise(gaise)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| GooglePart::text(String::new()))
+    }
+}
+
+fn collect_text_content(content: &GaiseContent, output: &mut Vec<String>) {
+    match content {
+        GaiseContent::Text { text } => output.push(text.clone()),
+        GaiseContent::Parts { parts } => {
+            for part in parts {
+                collect_text_content(part, output);
             }
-            GaiseContent::Parts { .. } => {
-                // If it's a collection of parts, we can't represent it as a single GooglePart easily
-                // without losing structure, but Google expects a flat list of parts anyway.
-                // We'll return the first one or a default if empty to satisfy the signature.
-                // Callers should ideally use from_gaise to get multiple parts.
-                GooglePart::from_gaise(gaise).into_iter().next().unwrap_or(GooglePart {
-                    text: Some(String::new()),
-                    inline_data: None,
-                    tool_call: None,
-                    tool_response: None,
-                })
+        }
+        _ => {}
+    }
+}
+
+fn function_response_media_name(preferred: Option<&str>, media_type: &str, index: usize) -> String {
+    let extension = match media_type {
+        "image/png" => "png",
+        "image/jpeg" => "jpg",
+        "image/webp" => "webp",
+        "application/pdf" => "pdf",
+        "text/plain" => "txt",
+        _ => "bin",
+    };
+    let name = preferred
+        .filter(|name| !name.trim().is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| format!("tool-result-{index}.{extension}"));
+    name.chars().take(128).collect()
+}
+
+fn collect_function_response_content(
+    content: &GaiseContent,
+    text: &mut Vec<String>,
+    media: &mut Vec<GoogleFunctionResponsePart>,
+) {
+    match content {
+        GaiseContent::Text { text: value } => text.push(value.clone()),
+        GaiseContent::Image { data, format } => {
+            let media_type = image_media_type(format.as_deref());
+            if matches!(
+                media_type.as_str(),
+                "image/png" | "image/jpeg" | "image/webp"
+            ) {
+                let index = media.len() + 1;
+                media.push(GoogleFunctionResponsePart {
+                    inline_data: GoogleFunctionResponseBlob {
+                        display_name: function_response_media_name(None, &media_type, index),
+                        mime_type: media_type,
+                        data: base64::engine::general_purpose::STANDARD.encode(data),
+                    },
+                });
+            } else {
+                text.push(format!(
+                    "[Unsupported Vertex AI function-response image type: {media_type}]"
+                ));
+            }
+        }
+        GaiseContent::File { data, name } => {
+            let media_type = file_media_type(name.as_deref());
+            if matches!(media_type, "application/pdf" | "text/plain") {
+                let index = media.len() + 1;
+                media.push(GoogleFunctionResponsePart {
+                    inline_data: GoogleFunctionResponseBlob {
+                        display_name: function_response_media_name(
+                            name.as_deref(),
+                            media_type,
+                            index,
+                        ),
+                        mime_type: media_type.to_string(),
+                        data: base64::engine::general_purpose::STANDARD.encode(data),
+                    },
+                });
+            } else if let Ok(value) = std::str::from_utf8(data) {
+                let name = name.as_deref().unwrap_or("document");
+                text.push(format!(
+                    "<attached_document name=\"{name}\">\n{value}\n</attached_document>"
+                ));
+            } else {
+                let name = name.as_deref().unwrap_or("document");
+                text.push(format!(
+                    "[Unsupported binary Vertex AI function-response document: {name}]"
+                ));
+            }
+        }
+        GaiseContent::Audio { format, .. } => text.push(format!(
+            "[Unsupported Vertex AI function-response audio type: {}]",
+            audio_media_type(format.as_deref())
+        )),
+        GaiseContent::Reasoning { text: value, .. } => text.push(value.clone()),
+        GaiseContent::RedactedReasoning { .. } => {
+            text.push("[Encrypted reasoning retained only on its source provider]".to_string())
+        }
+        GaiseContent::Parts { parts } => {
+            for part in parts {
+                collect_function_response_content(part, text, media);
             }
         }
     }
 }
 
-impl GoogleInstructRequest {
+fn function_response_value(text: String) -> serde_json::Value {
+    if text.trim().is_empty() {
+        return serde_json::json!({});
+    }
+    let parsed = serde_json::from_str(&text).unwrap_or(serde_json::Value::String(text));
+    if parsed.is_object() {
+        parsed
+    } else {
+        serde_json::json!({ "result": parsed })
+    }
+}
 
+impl GoogleInstructRequest {
     pub fn add_content(&mut self, msg: GaiseMessage) {
         if msg.role == "system" {
             if let Some(ref content) = msg.content {
-                let prompt = match content {
-                    OneOrMany::One(GaiseContent::Text { text }) => text.clone(),
-                    _ => String::new(),
-                };
-                let part = GooglePart {
-                    text: Some(prompt),
-                    inline_data: None,
-                    tool_call: None,
-                    tool_response: None,
-                };
-                self.system_instruction = Some(GoogleContent {
-                    role: "system".to_owned(),
-                    parts: vec![part],
-                })
+                let mut text_parts = Vec::new();
+                match content {
+                    OneOrMany::One(content) => collect_text_content(content, &mut text_parts),
+                    OneOrMany::Many(contents) => {
+                        for content in contents {
+                            collect_text_content(content, &mut text_parts);
+                        }
+                    }
+                }
+                let parts = text_parts.into_iter().map(GooglePart::text);
+                if let Some(system) = self.system_instruction.as_mut() {
+                    system.parts.extend(parts);
+                } else {
+                    self.system_instruction = Some(GoogleContent {
+                        role: "system".to_owned(),
+                        parts: parts.collect(),
+                    });
+                }
             }
-        } else {
-            let mut parts = vec![];
+            return;
+        }
 
+        let mut parts = vec![];
+
+        if msg.role == "tool" || msg.tool_call_id.is_some() {
+            let mut text_parts = Vec::new();
+            let mut media_parts = Vec::new();
+            if let Some(ref content) = msg.content {
+                match content {
+                    OneOrMany::One(content) => collect_function_response_content(
+                        content,
+                        &mut text_parts,
+                        &mut media_parts,
+                    ),
+                    OneOrMany::Many(contents) => {
+                        for content in contents {
+                            collect_function_response_content(
+                                content,
+                                &mut text_parts,
+                                &mut media_parts,
+                            );
+                        }
+                    }
+                }
+            }
+            let call_id = msg.tool_call_id.clone();
+            let name = msg
+                .tool_name
+                .clone()
+                .or_else(|| call_id.clone())
+                .unwrap_or_default();
+            parts.push(GooglePart {
+                text: None,
+                inline_data: None,
+                tool_call: None,
+                tool_response: Some(GoogleToolResponse {
+                    id: call_id,
+                    name,
+                    response: function_response_value(text_parts.join("\n")),
+                    parts: (!media_parts.is_empty()).then_some(media_parts),
+                }),
+                thought: None,
+                thought_signature: None,
+            });
+        } else {
             if let Some(ref content) = msg.content {
                 match content {
                     OneOrMany::One(x) => {
@@ -283,40 +547,28 @@ impl GoogleInstructRequest {
                         text: None,
                         inline_data: None,
                         tool_call: Some(GoogleFunctionCall {
+                            id: (!tc.id.is_empty()).then_some(tc.id.clone()),
                             name: tc.function.name.clone(),
-                            args: tc.function.arguments.as_ref().and_then(|a| serde_json::from_str(a).ok()).unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
+                            args: tc
+                                .function
+                                .arguments
+                                .as_ref()
+                                .and_then(|a| serde_json::from_str(a).ok())
+                                .unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
                         }),
                         tool_response: None,
+                        thought: None,
+                        thought_signature: tc.thought_signature.clone(),
                     });
                 }
             }
+        }
 
-            if let Some(ref tool_call_id) = msg.tool_call_id
-                && let Some(ref content) = msg.content {
-                    let response_val = match content {
-                        OneOrMany::One(GaiseContent::Text { text }) => serde_json::from_str(text).unwrap_or(serde_json::Value::String(text.clone())),
-                        _ => serde_json::Value::Null,
-                    };
-                    parts.push(GooglePart {
-                        text: None,
-                        inline_data: None,
-                        tool_call: None,
-                        tool_response: Some(GoogleToolResponse {
-                            name: tool_call_id.clone(),
-                            response: GoogleFunctionResponseData {
-                                name: tool_call_id.clone(),
-                                content: response_val,
-                            },
-                        }),
-                    });
-                }
-
-            if !parts.is_empty() {
-                self.contents.push(GoogleContent {
-                    role: to_google_role(&msg.role).unwrap_or(msg.role),
-                    parts,
-                });
-            }
+        if !parts.is_empty() {
+            self.contents.push(GoogleContent {
+                role: to_google_role(&msg.role).unwrap_or(msg.role),
+                parts,
+            });
         }
     }
 
@@ -324,12 +576,53 @@ impl GoogleInstructRequest {
         let mut request = GoogleInstructRequest {
             contents: vec![],
             system_instruction: None,
-            generation_config: source.generation_config.as_ref().map(|gc| GoogleParameters {
-                temperature: gc.temperature,
-                max_output_tokens: gc.max_tokens,
-                top_p: gc.top_p,
-                top_k: gc.top_k,
-                ..Default::default()
+            generation_config: source.generation_config.as_ref().map(|gc| {
+                let fixed_sampling = model_uses_fixed_sampling(&source.model);
+                let thinking_config = if model_uses_thinking_level(&source.model) {
+                    gc.thinking_effort
+                        .as_ref()
+                        .map(|effort| effort.to_uppercase())
+                        .or_else(|| gc.thinking_tokens.map(thinking_level_from_tokens))
+                        .map(|thinking_level| GoogleThinkingConfig {
+                            thinking_level: Some(thinking_level),
+                            thinking_budget: None,
+                            include_thoughts: Some(gc.include_thoughts.unwrap_or(true)),
+                        })
+                } else {
+                    gc.thinking_tokens.map(|tokens| GoogleThinkingConfig {
+                        thinking_level: None,
+                        thinking_budget: Some(tokens as i64),
+                        include_thoughts: Some(gc.include_thoughts.unwrap_or(true)),
+                    })
+                };
+
+                GoogleParameters {
+                    temperature: (!fixed_sampling).then_some(gc.temperature).flatten(),
+                    max_output_tokens: gc.max_tokens,
+                    top_p: (!fixed_sampling).then_some(gc.top_p).flatten(),
+                    top_k: (!fixed_sampling).then_some(gc.top_k).flatten(),
+                    thinking_config,
+                    response_modalities: gc.response_modalities.as_ref().map(|modalities| {
+                        modalities
+                            .iter()
+                            .map(|value| value.to_uppercase())
+                            .collect()
+                    }),
+                    image_config: None,
+                    response_format: gc.image_config.as_ref().map(|config| {
+                        GoogleResponseFormatConfig {
+                            image: Some(GoogleImageConfig {
+                                aspect_ratio: config.aspect_ratio.clone(),
+                                image_size: config.image_size.clone(),
+                            }),
+                        }
+                    }),
+                    media_resolution: gc
+                        .input_media_resolution
+                        .as_ref()
+                        .map(|resolution| normalize_media_resolution(resolution)),
+                    ..Default::default()
+                }
             }),
             tools: source.tools.as_ref().map(|tools| {
                 vec![GoogleTool {
@@ -338,12 +631,15 @@ impl GoogleInstructRequest {
                         .map(|t| GoogleFunctionDeclaration {
                             name: t.name.clone(),
                             description: t.description.clone().unwrap_or_default(),
-                            parameters: t.parameters.as_ref().map(GoogleSchema::from).unwrap_or(GoogleSchema {
-                                r#type: "object".to_string(),
-                                description: None,
-                                properties: Some(std::collections::HashMap::new()),
-                                required: None,
-                            }),
+                            parameters: t.parameters.as_ref().map(GoogleSchema::from).unwrap_or(
+                                GoogleSchema {
+                                    r#type: "object".to_string(),
+                                    description: None,
+                                    properties: Some(std::collections::HashMap::new()),
+                                    required: None,
+                                    items: None,
+                                },
+                            ),
                         })
                         .collect(),
                 }]
@@ -380,6 +676,10 @@ impl GoogleSchema {
                     .collect()
             }),
             required: source.required.clone(),
+            items: source
+                .items
+                .as_ref()
+                .map(|items| Box::new(GoogleSchema::from(items))),
         }
     }
 }
@@ -387,19 +687,25 @@ impl GoogleSchema {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct GoogleEmbeddingsRequest {
     pub instances: Vec<GoogleInstance>,
-    pub parameters: GoogleParameters
+    pub parameters: GoogleParameters,
 }
 
 impl GoogleEmbeddingsRequest {
-    pub fn from(model:&GaiseEmbeddingsRequest) -> GoogleEmbeddingsRequest {
-
-        let instances = match &model.input  {
+    pub fn from(model: &GaiseEmbeddingsRequest) -> GoogleEmbeddingsRequest {
+        let instances = match &model.input {
             OneOrMany::One(x) => {
-               vec![GoogleInstance { content: Some(x.to_string()), ..Default::default() }]
-            },
-            OneOrMany::Many(vx) => {
-                vx.iter().map(|x| GoogleInstance { content: Some(x.to_string()), ..Default::default() }).collect()
+                vec![GoogleInstance {
+                    content: Some(x.to_string()),
+                    ..Default::default()
+                }]
             }
+            OneOrMany::Many(vx) => vx
+                .iter()
+                .map(|x| GoogleInstance {
+                    content: Some(x.to_string()),
+                    ..Default::default()
+                })
+                .collect(),
         };
 
         GoogleEmbeddingsRequest {
@@ -407,7 +713,7 @@ impl GoogleEmbeddingsRequest {
             parameters: GoogleParameters {
                 auto_truncate: Some(true),
                 ..Default::default()
-            }
+            },
         }
     }
 }
@@ -419,7 +725,7 @@ pub struct GoogleInstance {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub messages: Option<Vec<GoogleMessage>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub context: Option<String>
+    pub context: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
@@ -437,6 +743,40 @@ pub struct GoogleParameters {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "autoTruncate")]
     pub auto_truncate: Option<bool>,
+    #[serde(rename = "thinkingConfig", skip_serializing_if = "Option::is_none")]
+    pub thinking_config: Option<GoogleThinkingConfig>,
+    #[serde(rename = "responseModalities", skip_serializing_if = "Option::is_none")]
+    pub response_modalities: Option<Vec<String>>,
+    #[serde(rename = "imageConfig", skip_serializing_if = "Option::is_none")]
+    pub image_config: Option<GoogleImageConfig>,
+    #[serde(rename = "responseFormat", skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<GoogleResponseFormatConfig>,
+    #[serde(rename = "mediaResolution", skip_serializing_if = "Option::is_none")]
+    pub media_resolution: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+pub struct GoogleImageConfig {
+    #[serde(rename = "aspectRatio", skip_serializing_if = "Option::is_none")]
+    pub aspect_ratio: Option<String>,
+    #[serde(rename = "imageSize", skip_serializing_if = "Option::is_none")]
+    pub image_size: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+pub struct GoogleResponseFormatConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<GoogleImageConfig>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+pub struct GoogleThinkingConfig {
+    #[serde(rename = "thinkingLevel", skip_serializing_if = "Option::is_none")]
+    pub thinking_level: Option<String>,
+    #[serde(rename = "thinkingBudget", skip_serializing_if = "Option::is_none")]
+    pub thinking_budget: Option<i64>,
+    #[serde(rename = "includeThoughts", skip_serializing_if = "Option::is_none")]
+    pub include_thoughts: Option<bool>,
 }
 
 /*
@@ -475,18 +815,19 @@ impl GoogleMessage {
 }
     */
 
-pub fn to_google_role(input:&str) -> Option<String> {
+pub fn to_google_role(input: &str) -> Option<String> {
     let result = match input {
         "assistant" => "model".to_owned(),
-        _ => input.to_string()
+        "tool" => "user".to_owned(),
+        _ => input.to_string(),
     };
     Some(result)
 }
 
-pub fn to_gaise_role(input:&str) -> Option<String> {
+pub fn to_gaise_role(input: &str) -> Option<String> {
     let result = match input {
         "model" => "assistant".to_owned(),
-        _ => input.to_string()
+        _ => input.to_string(),
     };
     Some(result)
 }
@@ -532,11 +873,67 @@ pub fn to_gaise_role(input:&str) -> Option<String> {
 }
 */
 
+#[cfg(test)]
+mod usage_tests {
+    use super::*;
+
+    #[test]
+    fn maps_vertex_usage_modalities_reasoning_and_neutral_total() {
+        let usage: GoogleUsageMetadata = serde_json::from_value(serde_json::json!({
+            "promptTokenCount": 60,
+            "cachedContentTokenCount": 10,
+            "candidatesTokenCount": 45,
+            "toolUsePromptTokenCount": 3,
+            "thoughtsTokenCount": 7,
+            "totalTokenCount": 115,
+            "promptTokensDetails": [
+                {"modality": "TEXT", "tokenCount": 20},
+                {"modality": "IMAGE", "tokenCount": 15},
+                {"modality": "AUDIO", "tokenCount": 25}
+            ],
+            "candidatesTokensDetails": [
+                {"modality": "TEXT", "tokenCount": 15},
+                {"modality": "IMAGE", "tokenCount": 10},
+                {"modality": "AUDIO", "tokenCount": 20}
+            ],
+            "cacheTokensDetails": [{"modality": "IMAGE", "tokenCount": 10}],
+            "toolUsePromptTokensDetails": [{"modality": "TEXT", "tokenCount": 3}]
+        }))
+        .unwrap();
+
+        let mapped = map_google_usage(&usage);
+        let input = mapped.input.unwrap();
+        let output = mapped.output.unwrap();
+        assert_eq!(input.get("text_tokens"), Some(&20));
+        assert_eq!(input.get("image_tokens"), Some(&15));
+        assert_eq!(input.get("audio_tokens"), Some(&25));
+        assert_eq!(input.get("cached_image_tokens"), Some(&10));
+        assert_eq!(output.get("text_tokens"), Some(&15));
+        assert_eq!(output.get("image_tokens"), Some(&10));
+        assert_eq!(output.get("audio_tokens"), Some(&20));
+        assert_eq!(output.get("reasoning_tokens"), Some(&7));
+        assert!(!output.contains_key("total_tokens"));
+        assert_eq!(mapped.total.unwrap().get("total_tokens"), Some(&115));
+    }
+
+    #[test]
+    fn returns_vertex_embedding_usage() {
+        let response: GoogleEmbeddingsResponse = serde_json::from_value(serde_json::json!({
+            "predictions": [{"embeddings": {"values": [0.1, 0.2]}}],
+            "metadata": {"totalBillableCharacters": 12, "totalTokens": 4}
+        }))
+        .unwrap();
+        let mapped = response.to_view();
+        let usage = mapped.usage.unwrap();
+        assert_eq!(usage.input.unwrap().get("input_tokens"), Some(&4));
+        assert_eq!(usage.total.unwrap().get("total_tokens"), Some(&4));
+    }
+}
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct GoogleChatCompletionResponse {
     pub candidates: Vec<GoogleCandidate>,
-    #[serde(rename="usageMetadata", default)]
+    #[serde(rename = "usageMetadata", default)]
     pub usage_metadata: Option<GoogleUsageMetadata>,
 }
 
@@ -545,7 +942,7 @@ pub struct GoogleCandidate {
     pub content: GoogleContent,
 
     #[serde(rename = "finishReason")]
-    pub finish_reason: Option<String>
+    pub finish_reason: Option<String>,
 }
 
 impl GoogleChatCompletionResponse {
@@ -553,25 +950,10 @@ impl GoogleChatCompletionResponse {
         let mut responses = Vec::new();
 
         if let Some(usage) = &self.usage_metadata {
-            let mut input = std::collections::HashMap::new();
-            if let Some(v) = usage.prompt_token_count {
-                input.insert("prompt_tokens".to_string(), v);
-            }
-
-            let mut output = std::collections::HashMap::new();
-            if let Some(v) = usage.candidates_token_count {
-                output.insert("candidates_tokens".to_string(), v);
-            }
-            if let Some(v) = usage.total_token_count {
-                output.insert("total_tokens".to_string(), v);
-            }
-
-            if !input.is_empty() || !output.is_empty() {
+            let mapped = map_google_usage(usage);
+            if mapped.input.is_some() || mapped.output.is_some() || mapped.total.is_some() {
                 responses.push(GaiseInstructStreamResponse {
-                    chunk: GaiseStreamChunk::Usage(GaiseUsage {
-                        input: if input.is_empty() { None } else { Some(input) },
-                        output: if output.is_empty() { None } else { Some(output) },
-                    }),
+                    chunk: GaiseStreamChunk::Usage(mapped),
                     external_id: None,
                 });
             }
@@ -581,7 +963,22 @@ impl GoogleChatCompletionResponse {
             for (part_idx, part) in candidate.content.parts.iter().enumerate() {
                 if let Some(text) = &part.text {
                     responses.push(GaiseInstructStreamResponse {
-                        chunk: GaiseStreamChunk::Text(text.clone()),
+                        chunk: if part.thought.unwrap_or(false) {
+                            GaiseStreamChunk::Content(GaiseContent::Reasoning {
+                                text: text.clone(),
+                                signature: part.thought_signature.clone(),
+                            })
+                        } else {
+                            GaiseStreamChunk::Text(text.clone())
+                        },
+                        external_id: None,
+                    });
+                }
+                if let Some(inline_data) = &part.inline_data
+                    && let Some(content) = inline_data_to_gaise(inline_data)
+                {
+                    responses.push(GaiseInstructStreamResponse {
+                        chunk: GaiseStreamChunk::Content(content),
                         external_id: None,
                     });
                 }
@@ -589,9 +986,15 @@ impl GoogleChatCompletionResponse {
                     responses.push(GaiseInstructStreamResponse {
                         chunk: GaiseStreamChunk::ToolCall {
                             index: part_idx,
-                            id: None,
+                            id: Some(
+                                tool_call
+                                    .id
+                                    .clone()
+                                    .unwrap_or_else(|| tool_call.name.clone()),
+                            ),
                             name: Some(tool_call.name.clone()),
                             arguments: Some(tool_call.args.to_string()),
+                            thought_signature: part.thought_signature.clone(),
                         },
                         external_id: None,
                     });
@@ -612,16 +1015,32 @@ impl GoogleChatCompletionResponse {
 
                 for part in &candidate.content.parts {
                     if let Some(text) = &part.text {
-                        contents.push(GaiseContent::Text { text: text.clone() });
+                        if part.thought.unwrap_or(false) {
+                            contents.push(GaiseContent::Reasoning {
+                                text: text.clone(),
+                                signature: part.thought_signature.clone(),
+                            });
+                        } else {
+                            contents.push(GaiseContent::Text { text: text.clone() });
+                        }
+                    }
+                    if let Some(inline_data) = &part.inline_data
+                        && let Some(content) = inline_data_to_gaise(inline_data)
+                    {
+                        contents.push(content);
                     }
                     if let Some(tool_call) = &part.tool_call {
                         tool_calls.push(gaise_core::contracts::GaiseToolCall {
-                            id: "".to_string(), // Vertex AI doesn't always provide an ID in the same way, but it uses the name for response
+                            id: tool_call
+                                .id
+                                .clone()
+                                .unwrap_or_else(|| tool_call.name.clone()),
                             r#type: "function".to_string(),
                             function: gaise_core::contracts::GaiseFunctionCall {
                                 name: tool_call.name.clone(),
                                 arguments: Some(tool_call.args.to_string()),
                             },
+                            thought_signature: part.thought_signature.clone(),
                         });
                     }
                 }
@@ -639,14 +1058,17 @@ impl GoogleChatCompletionResponse {
                         Some(tool_calls)
                     },
                     tool_call_id: None,
+                    tool_name: None,
                 }
             })
             .collect();
 
+        let usage = self.usage_metadata.as_ref().map(map_google_usage);
+
         GaiseInstructResponse {
             output: OneOrMany::Many(outputs),
             external_id: None,
-            usage: None,
+            usage,
         }
     }
 }
@@ -659,31 +1081,52 @@ pub struct GoogleEmbeddingsResponse {
 
 impl GoogleEmbeddingsResponse {
     pub fn to_view(&self) -> GaiseEmbeddingsResponse {
+        let usage = self.metadata.as_ref().and_then(|metadata| {
+            let mut input = HashMap::new();
+            if let Some(tokens) = metadata.total_tokens {
+                input.insert("input_tokens".to_string(), tokens);
+            }
+            if let Some(characters) = metadata.total_billable_characters {
+                input.insert("billable_characters".to_string(), characters);
+            }
+            let total = metadata
+                .total_tokens
+                .map(|tokens| HashMap::from([("total_tokens".to_string(), tokens)]));
+            (!input.is_empty() || total.is_some()).then_some(GaiseUsage {
+                input: (!input.is_empty()).then_some(input),
+                output: None,
+                total,
+            })
+        });
         GaiseEmbeddingsResponse {
-            output: self.predictions.iter().filter_map(|x| x.embeddings.as_ref().map(|e| e.values.clone())).collect(),
+            output: self
+                .predictions
+                .iter()
+                .filter_map(|x| x.embeddings.as_ref().map(|e| e.values.clone()))
+                .collect(),
             external_id: None,
-            usage: None,
+            usage,
         }
     }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct GoogleEmbeddings {
-    pub values:Vec<f32>
+    pub values: Vec<f32>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct GooglePrediction {
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename="citationMetadata")]
+    #[serde(rename = "citationMetadata")]
     pub citation_metadata: Option<Vec<GoogleCitationMetadata>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename="safetyAttributes")]
+    #[serde(rename = "safetyAttributes")]
     pub safety_attributes: Option<Vec<GoogleSafetyAttributes>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub candidates:Option<Vec<GoogleMessage>>,
+    pub candidates: Option<Vec<GoogleMessage>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub embeddings: Option<GoogleEmbeddings>,
 }
@@ -699,17 +1142,17 @@ pub struct GoogleSafetyAttributes {
     pub blocked: Option<bool>,
     pub scores: Vec<f32>,
     pub categories: Vec<String>,
-    #[serde(rename="safetyRatings")]
+    #[serde(rename = "safetyRatings")]
     pub safety_ratings: Vec<GoogleSafetyRating>,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct GoogleSafetyRating {
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename="probabilityScore")]
+    #[serde(rename = "probabilityScore")]
     pub probability_score: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename="severityScore")]
+    #[serde(rename = "severityScore")]
     pub severity_score: Option<f32>,
     pub category: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -718,9 +1161,9 @@ pub struct GoogleSafetyRating {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct GoogleEmbeddingsMetadata {
-    #[serde(rename="totalBillableCharacters")]
+    #[serde(rename = "totalBillableCharacters")]
     pub total_billable_characters: Option<usize>,
-    #[serde(rename="totalTokens")]
+    #[serde(rename = "totalTokens")]
     pub total_tokens: Option<usize>,
 }
 
@@ -736,16 +1179,35 @@ pub struct GoogleMetadata {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct GoogleUsageMetadata {
-    #[serde(rename="candidatesTokenCount")]
+    #[serde(rename = "candidatesTokenCount")]
     pub candidates_token_count: Option<usize>,
-    #[serde(rename="promptTokenCount")]
+    #[serde(rename = "promptTokenCount")]
     pub prompt_token_count: Option<usize>,
-    #[serde(rename="totalTokenCount")]
+    #[serde(rename = "totalTokenCount")]
     pub total_token_count: Option<usize>,
-    #[serde(rename="thoughtsTokenCount")]
+    #[serde(rename = "thoughtsTokenCount")]
     pub thoughts_token_count: Option<usize>,
-    #[serde(rename="trafficType")]
+    #[serde(rename = "cachedContentTokenCount")]
+    pub cached_content_token_count: Option<usize>,
+    #[serde(rename = "toolUsePromptTokenCount")]
+    pub tool_use_prompt_token_count: Option<usize>,
+    #[serde(rename = "promptTokensDetails")]
+    pub prompt_tokens_details: Option<Vec<GoogleModalityTokenCount>>,
+    #[serde(rename = "cacheTokensDetails")]
+    pub cache_tokens_details: Option<Vec<GoogleModalityTokenCount>>,
+    #[serde(rename = "candidatesTokensDetails")]
+    pub candidates_tokens_details: Option<Vec<GoogleModalityTokenCount>>,
+    #[serde(rename = "toolUsePromptTokensDetails")]
+    pub tool_use_prompt_tokens_details: Option<Vec<GoogleModalityTokenCount>>,
+    #[serde(rename = "trafficType")]
     pub traffic_type: Option<String>,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GoogleModalityTokenCount {
+    pub modality: String,
+    pub token_count: usize,
 }
 
 /*

@@ -11,8 +11,11 @@ Google Vertex AI provider for [GAISe](https://crates.io/crates/gaise) — implem
 - Text and multimodal (image, audio, file/PDF) instruct requests
 - Streaming via SSE (`streamGenerateContent`)
 - Embeddings via Vertex AI prediction endpoint
-- System instruction extraction
-- Function calling / tool use
+- Multiple system messages combined into the top-level system instruction
+- Function calling with call IDs, names, and thought signatures preserved
+- Gemini thinking configuration and generated-image/media output
+- Response modalities, current `responseFormat.image`, and input media resolution
+- Usage with prompt/cache/tool/reasoning totals, input/output modality details, and embedding metadata
 - Service account JWT authentication with auto-refresh
 
 ## Usage
@@ -30,7 +33,7 @@ let client = GaiseClientVertexAI::new(
 ).await;
 
 let request = GaiseInstructRequest {
-    model: "gemini-2.5-flash".to_string(),
+    model: "gemini-3.6-flash".to_string(),
     input: OneOrMany::One(GaiseMessage {
         role: "user".to_string(),
         content: Some(OneOrMany::One(GaiseContent::Text {

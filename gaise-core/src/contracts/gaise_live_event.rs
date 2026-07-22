@@ -19,6 +19,11 @@ pub enum GaiseLiveEvent {
     Text {
         text: String,
     },
+    Reasoning {
+        text: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
     ToolCall {
         id: String,
         function: GaiseFunctionCall,

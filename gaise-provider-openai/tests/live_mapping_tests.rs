@@ -9,7 +9,7 @@ mod tests {
     #[test]
     fn test_session_update_basic() {
         let config = GaiseLiveConfig {
-            model: "gpt-4o-realtime-preview".to_string(),
+            model: "gpt-realtime-2.1".to_string(),
             system_instruction: Some("You are a helpful assistant.".to_string()),
             voice: Some("alloy".to_string()),
             modalities: vec![GaiseLiveModality::Audio, GaiseLiveModality::Text],
@@ -20,27 +20,41 @@ mod tests {
         let json = serde_json::to_value(&update).unwrap();
 
         assert_eq!(json["type"], "session.update");
-        assert_eq!(json["session"]["modalities"][0], "audio");
-        assert_eq!(json["session"]["modalities"][1], "text");
-        assert_eq!(json["session"]["instructions"], "You are a helpful assistant.");
-        assert_eq!(json["session"]["voice"], "alloy");
+        assert_eq!(json["session"]["type"], "realtime");
+        assert_eq!(json["session"]["output_modalities"][0], "audio");
+        assert_eq!(
+            json["session"]["output_modalities"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            json["session"]["instructions"],
+            "You are a helpful assistant."
+        );
+        assert_eq!(json["session"]["audio"]["output"]["voice"], "alloy");
+        assert_eq!(json["session"]["audio"]["input"]["format"]["rate"], 24_000);
     }
 
     #[test]
     fn test_session_update_with_tools() {
         let config = GaiseLiveConfig {
-            model: "gpt-4o-realtime-preview".to_string(),
+            model: "gpt-realtime-2.1".to_string(),
             tools: Some(vec![GaiseTool {
                 name: "get-weather".to_string(),
                 description: Some("Get weather".to_string()),
                 parameters: Some(GaiseToolParameter {
                     r#type: Some("object".to_string()),
                     properties: Some(
-                        [("city".to_string(), GaiseToolParameter {
-                            r#type: Some("string".to_string()),
-                            description: Some("City name".to_string()),
-                            ..Default::default()
-                        })]
+                        [(
+                            "city".to_string(),
+                            GaiseToolParameter {
+                                r#type: Some("string".to_string()),
+                                description: Some("City name".to_string()),
+                                ..Default::default()
+                            },
+                        )]
                         .into_iter()
                         .collect(),
                     ),
@@ -59,13 +73,16 @@ mod tests {
         // OpenAI preserves hyphens in tool names (unlike Gemini)
         assert_eq!(tools[0]["name"], "get-weather");
         assert_eq!(tools[0]["description"], "Get weather");
-        assert_eq!(tools[0]["parameters"]["properties"]["city"]["type"], "string");
+        assert_eq!(
+            tools[0]["parameters"]["properties"]["city"]["type"],
+            "string"
+        );
     }
 
     #[test]
     fn test_session_update_with_vad() {
         let config = GaiseLiveConfig {
-            model: "gpt-4o-realtime-preview".to_string(),
+            model: "gpt-realtime-2.1".to_string(),
             vad_config: Some(GaiseVadConfig {
                 enabled: true,
                 silence_duration_ms: Some(500),
@@ -78,7 +95,7 @@ mod tests {
         let update = build_test_session_update(&config);
         let json = serde_json::to_value(&update).unwrap();
 
-        let td = &json["session"]["turn_detection"];
+        let td = &json["session"]["audio"]["input"]["turn_detection"];
         assert_eq!(td["type"], "server_vad");
         assert_eq!(td["silence_duration_ms"], 500);
         assert_eq!(td["prefix_padding_ms"], 300);
@@ -87,7 +104,7 @@ mod tests {
     #[test]
     fn test_session_update_with_transcription() {
         let config = GaiseLiveConfig {
-            model: "gpt-4o-realtime-preview".to_string(),
+            model: "gpt-realtime-2.1".to_string(),
             transcription: Some(GaiseTranscriptionConfig {
                 input: true,
                 output: false,
@@ -98,7 +115,10 @@ mod tests {
         let update = build_test_session_update(&config);
         let json = serde_json::to_value(&update).unwrap();
 
-        assert_eq!(json["session"]["input_audio_transcription"]["model"], "whisper-1");
+        assert_eq!(
+            json["session"]["audio"]["input"]["transcription"]["model"],
+            "gpt-4o-mini-transcribe"
+        );
     }
 
     #[test]
@@ -122,7 +142,9 @@ mod tests {
                 role: Some("user".to_string()),
                 content: Some(vec![OpenAIRealtimeItemContent {
                     r#type: "input_text".to_string(),
-                    text: "Hello".to_string(),
+                    text: Some("Hello".to_string()),
+                    image_url: None,
+                    detail: None,
                 }]),
                 call_id: None,
                 output: None,
@@ -135,6 +157,31 @@ mod tests {
         assert_eq!(json["item"]["role"], "user");
         assert_eq!(json["item"]["content"][0]["type"], "input_text");
         assert_eq!(json["item"]["content"][0]["text"], "Hello");
+    }
+
+    #[test]
+    fn test_image_item_create_serialization() {
+        let msg = OpenAIRealtimeItemCreate {
+            r#type: "conversation.item.create".to_string(),
+            item: OpenAIRealtimeItem {
+                r#type: "message".to_string(),
+                role: Some("user".to_string()),
+                content: Some(vec![OpenAIRealtimeItemContent {
+                    r#type: "input_image".to_string(),
+                    text: None,
+                    image_url: Some("data:image/png;base64,AQID".to_string()),
+                    detail: Some("high".to_string()),
+                }]),
+                call_id: None,
+                output: None,
+            },
+        };
+
+        let json = serde_json::to_value(&msg).unwrap();
+        let image = &json["item"]["content"][0];
+        assert_eq!(image["type"], "input_image");
+        assert_eq!(image["image_url"], "data:image/png;base64,AQID");
+        assert_eq!(image["detail"], "high");
     }
 
     #[test]
@@ -213,38 +260,36 @@ mod tests {
     #[test]
     fn test_server_event_audio_delta() {
         let json = r#"{
-            "type": "response.audio.delta",
+            "type": "response.output_audio.delta",
             "delta": "AQIDBA=="
         }"#;
 
         let event: OpenAIRealtimeServerEvent = serde_json::from_str(json).unwrap();
-        assert_eq!(event.r#type, "response.audio.delta");
+        assert_eq!(event.r#type, "response.output_audio.delta");
         assert_eq!(event.delta.unwrap(), "AQIDBA==");
     }
 
     // Helper to build session update (mirrors the private function in openai_live_client)
     fn build_test_session_update(config: &GaiseLiveConfig) -> OpenAIRealtimeSessionUpdate {
-        let modalities: Vec<String> = if config.modalities.is_empty() {
-            vec!["audio".to_string(), "text".to_string()]
+        let output_modalities: Vec<String> = if config.modalities.is_empty()
+            || config.modalities.contains(&GaiseLiveModality::Audio)
+        {
+            vec!["audio".to_string()]
         } else {
-            config
-                .modalities
-                .iter()
-                .map(|m| match m {
-                    GaiseLiveModality::Text => "text".to_string(),
-                    GaiseLiveModality::Audio => "audio".to_string(),
-                })
-                .collect()
+            vec!["text".to_string()]
         };
 
-        let turn_detection = config.vad_config.as_ref().map(|vad| {
-            OpenAIRealtimeTurnDetection {
+        let turn_detection = match config.vad_config.as_ref() {
+            Some(vad) if !vad.enabled => None,
+            vad => Some(OpenAIRealtimeTurnDetection {
                 r#type: "server_vad".to_string(),
+                create_response: Some(true),
+                interrupt_response: Some(true),
                 threshold: None,
-                prefix_padding_ms: vad.prefix_padding_ms,
-                silence_duration_ms: vad.silence_duration_ms,
-            }
-        });
+                prefix_padding_ms: vad.and_then(|v| v.prefix_padding_ms),
+                silence_duration_ms: vad.and_then(|v| v.silence_duration_ms),
+            }),
+        };
 
         let tools = config.tools.as_ref().map(|ts| {
             ts.iter()
@@ -261,33 +306,45 @@ mod tests {
                 .collect()
         });
 
-        let temperature = config.generation_config.as_ref().and_then(|gc| gc.temperature);
-        let max_response_output_tokens = config
+        let max_output_tokens = config
             .generation_config
             .as_ref()
             .and_then(|gc| gc.max_tokens)
             .map(serde_json::Value::from);
 
-        let input_audio_transcription = config
-            .transcription
-            .as_ref()
-            .filter(|t| t.input)
-            .map(|_| OpenAIRealtimeTranscriptionConfig {
-                model: "whisper-1".to_string(),
-            });
+        let transcription = config.transcription.as_ref().filter(|t| t.input).map(|_| {
+            OpenAIRealtimeTranscriptionConfig {
+                model: "gpt-4o-mini-transcribe".to_string(),
+            }
+        });
+
+        let pcm24 = || OpenAIRealtimeAudioFormat {
+            r#type: "audio/pcm".to_string(),
+            rate: 24_000,
+        };
+        let audio_output = output_modalities.iter().any(|m| m == "audio");
 
         OpenAIRealtimeSessionUpdate {
             r#type: "session.update".to_string(),
             session: OpenAIRealtimeSessionConfig {
-                modalities: Some(modalities),
+                r#type: "realtime".to_string(),
+                output_modalities: Some(output_modalities),
                 instructions: config.system_instruction.clone(),
-                voice: config.voice.clone(),
-                temperature,
-                max_response_output_tokens,
+                max_output_tokens,
+                audio: Some(OpenAIRealtimeAudioConfig {
+                    input: Some(OpenAIRealtimeAudioInputConfig {
+                        format: pcm24(),
+                        turn_detection,
+                        transcription,
+                    }),
+                    output: audio_output.then(|| OpenAIRealtimeAudioOutputConfig {
+                        format: pcm24(),
+                        voice: config.voice.clone(),
+                    }),
+                }),
+                reasoning: None,
                 tools,
                 tool_choice: None,
-                turn_detection,
-                input_audio_transcription,
             },
         }
     }
@@ -298,7 +355,10 @@ mod tests {
             obj.insert("type".into(), serde_json::Value::String(t.clone()));
         }
         if let Some(desc) = &param.description {
-            obj.insert("description".into(), serde_json::Value::String(desc.clone()));
+            obj.insert(
+                "description".into(),
+                serde_json::Value::String(desc.clone()),
+            );
         }
         if let Some(props) = &param.properties {
             let mut properties = serde_json::Map::new();
@@ -310,7 +370,11 @@ mod tests {
         if let Some(req) = &param.required {
             obj.insert(
                 "required".into(),
-                serde_json::Value::Array(req.iter().map(|r| serde_json::Value::String(r.clone())).collect()),
+                serde_json::Value::Array(
+                    req.iter()
+                        .map(|r| serde_json::Value::String(r.clone()))
+                        .collect(),
+                ),
             );
         }
         serde_json::Value::Object(obj)

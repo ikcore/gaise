@@ -12,6 +12,109 @@ use tokio_tungstenite::tungstenite::Message;
 
 use crate::contracts::realtime_models::*;
 
+fn map_realtime_usage(usage: &OpenAIRealtimeResponseUsage) -> GaiseUsage {
+    let mut input = HashMap::new();
+    let mut output = HashMap::new();
+    if let Some(tokens) = usage.input_tokens {
+        input.insert("input_tokens".to_string(), tokens);
+    }
+    if let Some(tokens) = usage.output_tokens {
+        output.insert("output_tokens".to_string(), tokens);
+    }
+    if let Some(details) = &usage.input_token_details {
+        if let Some(tokens) = details.cached_tokens {
+            input.insert("cached_tokens".to_string(), tokens);
+        }
+        if let Some(tokens) = details.text_tokens {
+            input.insert("text_tokens".to_string(), tokens);
+        }
+        if let Some(tokens) = details.audio_tokens {
+            input.insert("audio_tokens".to_string(), tokens);
+        }
+        if let Some(tokens) = details.image_tokens {
+            input.insert("image_tokens".to_string(), tokens);
+        }
+        if let Some(cached) = &details.cached_tokens_details {
+            if let Some(tokens) = cached.text_tokens {
+                input.insert("cached_text_tokens".to_string(), tokens);
+            }
+            if let Some(tokens) = cached.audio_tokens {
+                input.insert("cached_audio_tokens".to_string(), tokens);
+            }
+            if let Some(tokens) = cached.image_tokens {
+                input.insert("cached_image_tokens".to_string(), tokens);
+            }
+        }
+    }
+    if let Some(details) = &usage.output_token_details {
+        if let Some(tokens) = details.text_tokens {
+            output.insert("text_tokens".to_string(), tokens);
+        }
+        if let Some(tokens) = details.audio_tokens {
+            output.insert("audio_tokens".to_string(), tokens);
+        }
+    }
+    GaiseUsage {
+        input: (!input.is_empty()).then_some(input),
+        output: (!output.is_empty()).then_some(output),
+        total: usage
+            .total_tokens
+            .map(|tokens| HashMap::from([("total_tokens".to_string(), tokens)])),
+    }
+}
+
+fn map_transcription_usage(usage: &OpenAIRealtimeTranscriptionUsage) -> GaiseUsage {
+    let mut input = HashMap::new();
+    let mut output = HashMap::new();
+    if let Some(tokens) = usage.input_tokens {
+        input.insert("transcription_input_tokens".to_string(), tokens);
+    }
+    if let Some(tokens) = usage.output_tokens {
+        output.insert("transcription_output_tokens".to_string(), tokens);
+    }
+    if let Some(milliseconds) = usage.seconds.and_then(|seconds| {
+        let milliseconds = seconds * 1_000.0;
+        (milliseconds.is_finite() && milliseconds >= 0.0 && milliseconds <= usize::MAX as f64)
+            .then(|| milliseconds.round() as usize)
+    }) {
+        input.insert("transcription_audio_milliseconds".to_string(), milliseconds);
+    }
+    if let Some(details) = &usage.input_token_details {
+        if let Some(tokens) = details.text_tokens {
+            input.insert("transcription_text_tokens".to_string(), tokens);
+        }
+        if let Some(tokens) = details.audio_tokens {
+            input.insert("transcription_audio_tokens".to_string(), tokens);
+        }
+    }
+    GaiseUsage {
+        input: (!input.is_empty()).then_some(input),
+        output: (!output.is_empty()).then_some(output),
+        total: usage
+            .total_tokens
+            .map(|tokens| HashMap::from([("transcription_total_tokens".to_string(), tokens)])),
+    }
+}
+
+fn realtime_reasoning_effort_from_tokens(tokens: usize) -> String {
+    match tokens {
+        0..=1_000 => "minimal",
+        1_001..=4_000 => "low",
+        4_001..=12_000 => "medium",
+        12_001..=24_000 => "high",
+        _ => "xhigh",
+    }
+    .to_string()
+}
+
+fn normalize_realtime_reasoning_effort(effort: &str) -> String {
+    match effort.to_ascii_lowercase().as_str() {
+        "none" | "off" | "disabled" => "minimal".to_string(),
+        "max" => "xhigh".to_string(),
+        other => other.to_string(),
+    }
+}
+
 pub struct GaiseClientOpenAILive {
     api_url: String,
     api_key: String,
@@ -75,67 +178,95 @@ fn build_realtime_tools(tools: &[GaiseTool]) -> Vec<OpenAIRealtimeTool> {
 }
 
 fn build_session_update(config: &GaiseLiveConfig) -> OpenAIRealtimeSessionUpdate {
-    let modalities: Vec<String> = if config.modalities.is_empty() {
-        vec!["audio".to_string(), "text".to_string()]
-    } else {
-        config
-            .modalities
-            .iter()
-            .map(|m| match m {
-                GaiseLiveModality::Text => "text".to_string(),
-                GaiseLiveModality::Audio => "audio".to_string(),
-            })
-            .collect()
-    };
+    // The GA Realtime API permits exactly one output modality. Audio responses
+    // always include a transcript, so prefer audio when callers request both.
+    let output_modalities: Vec<String> =
+        if config.modalities.is_empty() || config.modalities.contains(&GaiseLiveModality::Audio) {
+            vec!["audio".to_string()]
+        } else {
+            vec!["text".to_string()]
+        };
 
-    let turn_detection = config.vad_config.as_ref().map(|vad| {
-        OpenAIRealtimeTurnDetection {
+    let turn_detection = match config.vad_config.as_ref() {
+        Some(vad) if !vad.enabled => None,
+        vad => Some(OpenAIRealtimeTurnDetection {
             r#type: "server_vad".to_string(),
+            create_response: Some(true),
+            interrupt_response: Some(true),
             threshold: None,
-            prefix_padding_ms: vad.prefix_padding_ms,
-            silence_duration_ms: vad.silence_duration_ms,
-        }
-    });
+            prefix_padding_ms: vad.and_then(|v| v.prefix_padding_ms),
+            silence_duration_ms: vad.and_then(|v| v.silence_duration_ms),
+        }),
+    };
 
     let tools = config.tools.as_ref().map(|ts| build_realtime_tools(ts));
 
-    let temperature = config
-        .generation_config
-        .as_ref()
-        .and_then(|gc| gc.temperature);
-    let max_response_output_tokens = config
+    let max_output_tokens = config
         .generation_config
         .as_ref()
         .and_then(|gc| gc.max_tokens)
         .map(serde_json::Value::from);
+    let reasoning = config.generation_config.as_ref().and_then(|gc| {
+        gc.thinking_effort
+            .as_deref()
+            .map(normalize_realtime_reasoning_effort)
+            .or_else(|| {
+                gc.thinking_tokens
+                    .map(realtime_reasoning_effort_from_tokens)
+            })
+            .map(|effort| OpenAIRealtimeReasoning { effort })
+    });
 
-    let input_audio_transcription = config
-        .transcription
-        .as_ref()
-        .filter(|t| t.input)
-        .map(|_| OpenAIRealtimeTranscriptionConfig {
-            model: "whisper-1".to_string(),
-        });
+    let transcription = config.transcription.as_ref().filter(|t| t.input).map(|_| {
+        OpenAIRealtimeTranscriptionConfig {
+            model: "gpt-4o-mini-transcribe".to_string(),
+        }
+    });
+
+    let pcm24 = || OpenAIRealtimeAudioFormat {
+        r#type: "audio/pcm".to_string(),
+        rate: 24_000,
+    };
+    let audio_output = output_modalities.iter().any(|m| m == "audio");
+    let audio = Some(OpenAIRealtimeAudioConfig {
+        input: Some(OpenAIRealtimeAudioInputConfig {
+            format: pcm24(),
+            turn_detection,
+            transcription,
+        }),
+        output: audio_output.then(|| OpenAIRealtimeAudioOutputConfig {
+            format: pcm24(),
+            voice: config.voice.clone(),
+        }),
+    });
+
+    let tool_choice = config.tool_config.as_ref().and_then(|tc| {
+        tc.mode.as_deref().map(|mode| match mode {
+            "any" => "required".to_string(),
+            other => other.to_string(),
+        })
+    });
 
     OpenAIRealtimeSessionUpdate {
         r#type: "session.update".to_string(),
         session: OpenAIRealtimeSessionConfig {
-            modalities: Some(modalities),
+            r#type: "realtime".to_string(),
+            output_modalities: Some(output_modalities),
             instructions: config.system_instruction.clone(),
-            voice: config.voice.clone(),
-            temperature,
-            max_response_output_tokens,
+            max_output_tokens,
+            audio,
+            reasoning,
             tools,
-            tool_choice: None,
-            turn_detection,
-            input_audio_transcription,
+            tool_choice,
         },
     }
 }
 
 async fn send_two_messages<S: serde::Serialize, T: serde::Serialize>(
     sink: &mut futures_util::stream::SplitSink<
-        tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
         Message,
     >,
     msg1: &S,
@@ -160,32 +291,60 @@ impl GaiseLiveClient for GaiseClientOpenAILive {
             .trim_end_matches('/')
             .replace("https://", "wss://")
             .replace("http://", "ws://");
-        let ws_url = format!("{}/v1/realtime?model={}", base, config.model);
+        let api_root = if base.ends_with("/v1") {
+            base
+        } else {
+            format!("{base}/v1")
+        };
+        let ws_url = format!("{api_root}/realtime?model={}", config.model);
 
         // Build request with auth header
         let request = http::Request::builder()
             .uri(&ws_url)
             .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("OpenAI-Beta", "realtime=v1")
             .header("Sec-WebSocket-Version", "13")
-            .header("Sec-WebSocket-Key", tungstenite::handshake::client::generate_key())
+            .header(
+                "Sec-WebSocket-Key",
+                tungstenite::handshake::client::generate_key(),
+            )
             .header("Connection", "Upgrade")
             .header("Upgrade", "websocket")
-            .header("Host", http::Uri::try_from(&ws_url)?.host().unwrap_or("api.openai.com"))
+            .header(
+                "Host",
+                http::Uri::try_from(&ws_url)?
+                    .host()
+                    .unwrap_or("api.openai.com"),
+            )
             .body(())?;
 
         let (ws_stream, _response) = tokio_tungstenite::connect_async(request).await?;
         let (mut ws_sink, mut ws_source) = ws_stream.split();
 
         // Wait for session.created
+        let mut session_created = false;
         while let Some(msg) = ws_source.next().await {
             let msg = msg?;
             if let Message::Text(text) = msg {
                 let event: OpenAIRealtimeServerEvent = serde_json::from_str(&text)?;
                 if event.r#type == "session.created" {
+                    session_created = true;
                     break;
                 }
+                if event.r#type == "error" {
+                    let message = event
+                        .error
+                        .and_then(|error| error.message)
+                        .unwrap_or_else(|| "OpenAI Realtime session creation failed".to_string());
+                    return Err(std::io::Error::other(message).into());
+                }
             }
+        }
+        if !session_created {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "OpenAI Realtime closed before session.created",
+            )
+            .into());
         }
 
         // Send session.update with config
@@ -194,14 +353,30 @@ impl GaiseLiveClient for GaiseClientOpenAILive {
         ws_sink.send(Message::Text(update_json.into())).await?;
 
         // Wait for session.updated
+        let mut session_updated = false;
         while let Some(msg) = ws_source.next().await {
             let msg = msg?;
             if let Message::Text(text) = msg {
                 let event: OpenAIRealtimeServerEvent = serde_json::from_str(&text)?;
                 if event.r#type == "session.updated" {
+                    session_updated = true;
                     break;
                 }
+                if event.r#type == "error" {
+                    let message = event
+                        .error
+                        .and_then(|error| error.message)
+                        .unwrap_or_else(|| "OpenAI Realtime session update failed".to_string());
+                    return Err(std::io::Error::other(message).into());
+                }
             }
+        }
+        if !session_updated {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "OpenAI Realtime closed before session.updated",
+            )
+            .into());
         }
 
         // Create channels
@@ -220,10 +395,25 @@ impl GaiseLiveClient for GaiseClientOpenAILive {
 
         // Spawn send loop
         let event_tx_send = event_tx.clone();
+        let manual_vad = config.vad_config.as_ref().is_some_and(|vad| !vad.enabled);
+        let default_image_detail = config
+            .generation_config
+            .as_ref()
+            .and_then(|gc| gc.input_image_detail.clone());
         tokio::spawn(async move {
             while let Some(input) = input_rx.recv().await {
                 let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = match input {
-                    GaiseLiveInput::Audio { data, .. } => {
+                    GaiseLiveInput::Audio { data, sample_rate } => {
+                        if sample_rate != 24_000 {
+                            let _ = event_tx_send
+                                .send(Ok(GaiseLiveEvent::Error {
+                                    message: format!(
+                                        "OpenAI Realtime requires 24 kHz PCM16 input; received {sample_rate} Hz"
+                                    ),
+                                }))
+                                .await;
+                            continue;
+                        }
                         let b64 = base64::prelude::BASE64_STANDARD.encode(&data);
                         let msg = OpenAIRealtimeAudioAppend {
                             r#type: "input_audio_buffer.append".to_string(),
@@ -237,6 +427,49 @@ impl GaiseLiveClient for GaiseClientOpenAILive {
                             Err(e) => Err(e.into()),
                         }
                     }
+                    GaiseLiveInput::Image {
+                        data,
+                        mime_type,
+                        detail,
+                    } => {
+                        let normalized_mime = match mime_type.to_ascii_lowercase().as_str() {
+                            "image/png" => "image/png",
+                            "image/jpeg" | "image/jpg" => "image/jpeg",
+                            _ => {
+                                let _ = event_tx_send
+                                    .send(Ok(GaiseLiveEvent::Error {
+                                        message: format!(
+                                            "OpenAI Realtime image input supports PNG and JPEG, not {mime_type}"
+                                        ),
+                                    }))
+                                    .await;
+                                continue;
+                            }
+                        };
+                        let image_url = format!(
+                            "data:{normalized_mime};base64,{}",
+                            base64::prelude::BASE64_STANDARD.encode(data)
+                        );
+                        let item_msg = OpenAIRealtimeItemCreate {
+                            r#type: "conversation.item.create".to_string(),
+                            item: OpenAIRealtimeItem {
+                                r#type: "message".to_string(),
+                                role: Some("user".to_string()),
+                                content: Some(vec![OpenAIRealtimeItemContent {
+                                    r#type: "input_image".to_string(),
+                                    text: None,
+                                    image_url: Some(image_url),
+                                    detail: detail.or_else(|| default_image_detail.clone()),
+                                }]),
+                                call_id: None,
+                                output: None,
+                            },
+                        };
+                        let response_msg = OpenAIRealtimeResponseCreate {
+                            r#type: "response.create".to_string(),
+                        };
+                        send_two_messages(&mut ws_sink, &item_msg, &response_msg).await
+                    }
                     GaiseLiveInput::Text { text } => {
                         let item_msg = OpenAIRealtimeItemCreate {
                             r#type: "conversation.item.create".to_string(),
@@ -245,7 +478,9 @@ impl GaiseLiveClient for GaiseClientOpenAILive {
                                 role: Some("user".to_string()),
                                 content: Some(vec![OpenAIRealtimeItemContent {
                                     r#type: "input_text".to_string(),
-                                    text,
+                                    text: Some(text),
+                                    image_url: None,
+                                    detail: None,
                                 }]),
                                 call_id: None,
                                 output: None,
@@ -275,6 +510,44 @@ impl GaiseLiveClient for GaiseClientOpenAILive {
                             r#type: "response.create".to_string(),
                         };
                         send_two_messages(&mut ws_sink, &item_msg, &response_msg).await
+                    }
+                    GaiseLiveInput::ActivityStart => Ok(()),
+                    GaiseLiveInput::ActivityEnd | GaiseLiveInput::AudioStreamEnd => {
+                        if manual_vad {
+                            let commit = OpenAIRealtimeSimpleEvent {
+                                r#type: "input_audio_buffer.commit".to_string(),
+                            };
+                            let response = OpenAIRealtimeResponseCreate {
+                                r#type: "response.create".to_string(),
+                            };
+                            send_two_messages(&mut ws_sink, &commit, &response).await
+                        } else {
+                            Ok(())
+                        }
+                    }
+                    GaiseLiveInput::ClearAudio => {
+                        let msg = OpenAIRealtimeSimpleEvent {
+                            r#type: "input_audio_buffer.clear".to_string(),
+                        };
+                        match serde_json::to_string(&msg) {
+                            Ok(json) => ws_sink
+                                .send(Message::Text(json.into()))
+                                .await
+                                .map_err(|e| e.into()),
+                            Err(e) => Err(e.into()),
+                        }
+                    }
+                    GaiseLiveInput::CancelResponse => {
+                        let msg = OpenAIRealtimeSimpleEvent {
+                            r#type: "response.cancel".to_string(),
+                        };
+                        match serde_json::to_string(&msg) {
+                            Ok(json) => ws_sink
+                                .send(Message::Text(json.into()))
+                                .await
+                                .map_err(|e| e.into()),
+                            Err(e) => Err(e.into()),
+                        }
                     }
                     GaiseLiveInput::Close => {
                         let _ = ws_sink.close().await;
@@ -331,23 +604,21 @@ impl GaiseLiveClient for GaiseClientOpenAILive {
 
                 match event.r#type.as_str() {
                     // Audio output
-                    "response.audio.delta" => {
-                        if let Some(delta) = &event.delta {
-                            if let Ok(audio_bytes) =
-                                base64::prelude::BASE64_STANDARD.decode(delta)
-                            {
-                                let _ = event_tx
-                                    .send(Ok(GaiseLiveEvent::Audio {
-                                        data: audio_bytes,
-                                        sample_rate: 24000,
-                                    }))
-                                    .await;
-                            }
+                    "response.output_audio.delta" | "response.audio.delta" => {
+                        if let Some(delta) = &event.delta
+                            && let Ok(audio_bytes) = base64::prelude::BASE64_STANDARD.decode(delta)
+                        {
+                            let _ = event_tx
+                                .send(Ok(GaiseLiveEvent::Audio {
+                                    data: audio_bytes,
+                                    sample_rate: 24000,
+                                }))
+                                .await;
                         }
                     }
 
                     // Text output
-                    "response.text.delta" => {
+                    "response.output_text.delta" | "response.text.delta" => {
                         if let Some(delta) = &event.delta {
                             let _ = event_tx
                                 .send(Ok(GaiseLiveEvent::Text {
@@ -358,7 +629,8 @@ impl GaiseLiveClient for GaiseClientOpenAILive {
                     }
 
                     // Audio transcript (model speech as text)
-                    "response.audio_transcript.delta" => {
+                    "response.output_audio_transcript.delta"
+                    | "response.audio_transcript.delta" => {
                         if let Some(delta) = &event.delta {
                             let _ = event_tx
                                 .send(Ok(GaiseLiveEvent::Transcript {
@@ -377,6 +649,11 @@ impl GaiseLiveClient for GaiseClientOpenAILive {
                                     role: "user".to_string(),
                                     text: transcript.clone(),
                                 }))
+                                .await;
+                        }
+                        if let Some(usage) = &event.usage {
+                            let _ = event_tx
+                                .send(Ok(GaiseLiveEvent::Usage(map_transcription_usage(usage))))
                                 .await;
                         }
                     }
@@ -399,39 +676,18 @@ impl GaiseLiveClient for GaiseClientOpenAILive {
                     // Response done (turn complete)
                     "response.done" => {
                         // Extract usage if available
-                        if let Some(resp) = &event.response {
-                            if let Some(usage) = &resp.usage {
-                                let mut input_map = HashMap::new();
-                                let mut output_map = HashMap::new();
-                                if let Some(input_tokens) = usage.input_tokens {
-                                    input_map
-                                        .insert("input_tokens".to_string(), input_tokens);
-                                }
-                                if let Some(output_tokens) = usage.output_tokens {
-                                    output_map
-                                        .insert("output_tokens".to_string(), output_tokens);
-                                }
-                                let _ = event_tx
-                                    .send(Ok(GaiseLiveEvent::Usage(GaiseUsage {
-                                        input: if input_map.is_empty() {
-                                            None
-                                        } else {
-                                            Some(input_map)
-                                        },
-                                        output: if output_map.is_empty() {
-                                            None
-                                        } else {
-                                            Some(output_map)
-                                        },
-                                    })))
-                                    .await;
-                            }
+                        if let Some(resp) = &event.response
+                            && let Some(usage) = &resp.usage
+                        {
+                            let _ = event_tx
+                                .send(Ok(GaiseLiveEvent::Usage(map_realtime_usage(usage))))
+                                .await;
                         }
                         let _ = event_tx.send(Ok(GaiseLiveEvent::TurnComplete)).await;
                     }
 
                     // Speech stopped (barge-in)
-                    "input_audio_buffer.speech_stopped" => {
+                    "input_audio_buffer.speech_started" => {
                         let _ = event_tx.send(Ok(GaiseLiveEvent::Interrupted)).await;
                     }
 
@@ -442,9 +698,7 @@ impl GaiseLiveClient for GaiseClientOpenAILive {
                             .as_ref()
                             .and_then(|e| e.message.clone())
                             .unwrap_or_else(|| "Unknown error".to_string());
-                        let _ = event_tx
-                            .send(Ok(GaiseLiveEvent::Error { message }))
-                            .await;
+                        let _ = event_tx.send(Ok(GaiseLiveEvent::Error { message })).await;
                     }
 
                     // Ignore other event types (session.created, session.updated, etc.)
@@ -469,4 +723,99 @@ fn uuid_simple() -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     format!("{:x}{:x}", d.as_secs(), d.subsec_nanos())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_realtime_usage_with_input_and_output_modalities() {
+        let usage: OpenAIRealtimeResponseUsage = serde_json::from_value(serde_json::json!({
+            "total_tokens": 230,
+            "input_tokens": 100,
+            "output_tokens": 130,
+            "input_token_details": {
+                "cached_tokens": 12,
+                "text_tokens": 40,
+                "audio_tokens": 35,
+                "image_tokens": 25,
+                "cached_tokens_details": {
+                    "text_tokens": 5,
+                    "audio_tokens": 4,
+                    "image_tokens": 3
+                }
+            },
+            "output_token_details": {
+                "text_tokens": 50,
+                "audio_tokens": 80
+            }
+        }))
+        .unwrap();
+
+        let mapped = map_realtime_usage(&usage);
+        let input = mapped.input.unwrap();
+        let output = mapped.output.unwrap();
+        assert_eq!(input.get("text_tokens"), Some(&40));
+        assert_eq!(input.get("image_tokens"), Some(&25));
+        assert_eq!(input.get("audio_tokens"), Some(&35));
+        assert_eq!(input.get("cached_text_tokens"), Some(&5));
+        assert_eq!(input.get("cached_audio_tokens"), Some(&4));
+        assert_eq!(input.get("cached_image_tokens"), Some(&3));
+        assert_eq!(output.get("text_tokens"), Some(&50));
+        assert_eq!(output.get("audio_tokens"), Some(&80));
+        assert!(!output.contains_key("total_tokens"));
+        assert_eq!(mapped.total.unwrap().get("total_tokens"), Some(&230));
+    }
+
+    #[test]
+    fn maps_separately_billed_transcription_usage_without_overwriting_turn_usage() {
+        let usage: OpenAIRealtimeTranscriptionUsage = serde_json::from_value(serde_json::json!({
+            "type": "tokens",
+            "input_tokens": 10,
+            "output_tokens": 4,
+            "total_tokens": 14,
+            "input_token_details": {"text_tokens": 2, "audio_tokens": 8}
+        }))
+        .unwrap();
+        let mapped = map_transcription_usage(&usage);
+        assert_eq!(
+            mapped
+                .input
+                .as_ref()
+                .unwrap()
+                .get("transcription_audio_tokens"),
+            Some(&8)
+        );
+        assert_eq!(
+            mapped
+                .output
+                .as_ref()
+                .unwrap()
+                .get("transcription_output_tokens"),
+            Some(&4)
+        );
+        assert_eq!(
+            mapped
+                .total
+                .as_ref()
+                .unwrap()
+                .get("transcription_total_tokens"),
+            Some(&14)
+        );
+
+        let duration: OpenAIRealtimeTranscriptionUsage =
+            serde_json::from_value(serde_json::json!({
+                "type": "duration",
+                "seconds": 3.25
+            }))
+            .unwrap();
+        assert_eq!(
+            map_transcription_usage(&duration)
+                .input
+                .unwrap()
+                .get("transcription_audio_milliseconds"),
+            Some(&3250)
+        );
+    }
 }

@@ -12,10 +12,13 @@ OpenAI provider for [GAISe](https://crates.io/crates/gaise) — implements the `
 - Streaming via SSE
 - Embeddings (`text-embedding-3-small`, `text-embedding-3-large`)
 - Function calling / tool use
-- Reasoning (`reasoning_effort` for o3, o4-mini, GPT-5 family)
+- Reasoning (`reasoning_effort` for current GPT-5 families)
 - `max_completion_tokens` (replaces deprecated `max_tokens`)
 - Prompt caching (`prompt_cache_key`)
-- **Live / Realtime sessions** (feature = `live`) — bidirectional WebSocket audio + text via the OpenAI Realtime API
+- Usage with separate input/output/total counters plus reported audio, cache, prediction, and reasoning details
+- **Live / Realtime sessions** (feature = `live`) — GA WebSocket text, 24 kHz PCM audio, PNG/JPEG image input, tools, reasoning controls, and modality usage
+
+The instruct adapter targets Chat Completions. Native binary file input, hosted image generation, persisted reasoning, and native audio output require other OpenAI API surfaces and are not claimed here.
 
 ## Usage
 
@@ -30,7 +33,7 @@ let client = GaiseClientOpenAI::new(
 );
 
 let request = GaiseInstructRequest {
-    model: "gpt-4o".to_string(),
+    model: "gpt-5.6-terra".to_string(),
     input: OneOrMany::One(GaiseMessage {
         role: "user".to_string(),
         content: Some(OneOrMany::One(GaiseContent::Text {
@@ -48,7 +51,7 @@ let response = client.instruct(&request).await?;
 
 ```rust
 let request = GaiseInstructRequest {
-    model: "o3".to_string(),
+    model: "gpt-5.6-terra".to_string(),
     generation_config: Some(GaiseGenerationConfig {
         thinking_effort: Some("high".to_string()),
         max_tokens: Some(32000),
@@ -80,15 +83,15 @@ let client = GaiseClientOpenAILive::new(
 );
 
 let config = GaiseLiveConfig {
-    model: "gpt-4o-realtime-preview".to_string(),
+    model: "gpt-realtime-2.1".to_string(),
     voice: Some("alloy".to_string()),
     modalities: vec![GaiseLiveModality::Audio, GaiseLiveModality::Text],
     ..Default::default()
 };
 
 let session = client.live_connect(&config).await?;
-// session.tx — send audio/text/tool responses
-// session.rx — receive audio/text/transcripts/tool calls
+// session.tx — send audio/text/images, controls, and tool responses
+// session.rx — receive audio/text/transcripts/tools/usage (including reasoning tokens)
 ```
 
 ## Environment Variables

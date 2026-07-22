@@ -12,9 +12,11 @@ Google Gemini provider for [GAISe](https://crates.io/crates/gaise) — implement
 - Streaming via `streamGenerateContent` (SSE)
 - Batch embeddings via `batchEmbedContents`
 - System instruction extraction (top-level `systemInstruction`)
-- Function calling with tool name sanitisation (hyphens to underscores)
+- Function calling with provider call IDs, names, and thought signatures preserved
 - Thinking config (`thinkingLevel` for 3.x, `thinkingBudget` for 2.5)
 - `thoughtSignature` preservation for multi-turn tool conversations
+- Generated image/audio/file output, current `responseFormat.image` controls, and input media resolution
+- Usage with prompt/cache/tool/reasoning totals and input/output modality details
 - Safety settings (all categories default to OFF)
 - **Live / Realtime sessions** (feature = `live`) — bidirectional WebSocket audio + text via the Gemini Live API
 
@@ -31,7 +33,7 @@ let client = GaiseClientGemini::new(
 );
 
 let request = GaiseInstructRequest {
-    model: "gemini-2.5-flash".to_string(),
+    model: "gemini-3.6-flash".to_string(),
     input: OneOrMany::One(GaiseMessage {
         role: "user".to_string(),
         content: Some(OneOrMany::One(GaiseContent::Text {
@@ -49,7 +51,7 @@ let response = client.instruct(&request).await?;
 
 ```rust
 let request = GaiseInstructRequest {
-    model: "gemini-3-flash-preview".to_string(),
+    model: "gemini-3.6-flash".to_string(),
     generation_config: Some(GaiseGenerationConfig {
         thinking_effort: Some("high".to_string()),
         max_tokens: Some(32000),
@@ -65,7 +67,7 @@ Maps `thinking_effort` to `thinkingConfig.thinkingLevel` (uppercased) and `think
 
 ```rust
 let request = GaiseEmbeddingsRequest {
-    model: "gemini-embedding-001".to_string(),
+    model: "gemini-embedding-2".to_string(),
     input: OneOrMany::One("Text to embed".to_string()),
     ..Default::default()
 };
@@ -93,15 +95,15 @@ let client = GaiseClientGeminiLive::new(
 );
 
 let config = GaiseLiveConfig {
-    model: "gemini-2.0-flash-live-001".to_string(),
+    model: "gemini-3.1-flash-live-preview".to_string(),
     voice: Some("Puck".to_string()),
     modalities: vec![GaiseLiveModality::Audio],
     ..Default::default()
 };
 
 let session = client.live_connect(&config).await?;
-// session.tx — send audio/text/tool responses
-// session.rx — receive audio/text/transcripts/tool calls
+// session.tx — send audio/text/image frames, activity controls, and tool responses
+// session.rx — receive audio/text/transcripts/reasoning/tools/usage
 ```
 
 ## API Endpoints

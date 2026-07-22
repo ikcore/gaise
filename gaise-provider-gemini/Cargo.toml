@@ -3,6 +3,7 @@ name = "gaise-provider-gemini"
 description = "Google Gemini provider for GAISe — generateContent, streaming, and embeddings via v1beta API"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 keywords.workspace = true

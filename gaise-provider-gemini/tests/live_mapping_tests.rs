@@ -12,7 +12,7 @@ mod tests {
     #[test]
     fn test_setup_message_basic_audio() {
         let config = GaiseLiveConfig {
-            model: "gemini-2.0-flash-live-001".to_string(),
+            model: "gemini-3.1-flash-live-preview".to_string(),
             system_instruction: Some("You are a helpful assistant.".to_string()),
             voice: Some("Puck".to_string()),
             modalities: vec![GaiseLiveModality::Audio],
@@ -36,27 +36,28 @@ mod tests {
     #[test]
     fn test_setup_message_with_tools() {
         let config = GaiseLiveConfig {
-            model: "gemini-2.0-flash-live-001".to_string(),
-            tools: Some(vec![
-                GaiseTool {
-                    name: "get-weather".to_string(),
-                    description: Some("Get weather for a city".to_string()),
-                    parameters: Some(GaiseToolParameter {
-                        r#type: Some("object".to_string()),
-                        properties: Some(
-                            [("city".to_string(), GaiseToolParameter {
+            model: "gemini-3.1-flash-live-preview".to_string(),
+            tools: Some(vec![GaiseTool {
+                name: "get-weather".to_string(),
+                description: Some("Get weather for a city".to_string()),
+                parameters: Some(GaiseToolParameter {
+                    r#type: Some("object".to_string()),
+                    properties: Some(
+                        [(
+                            "city".to_string(),
+                            GaiseToolParameter {
                                 r#type: Some("string".to_string()),
                                 description: Some("City name".to_string()),
                                 ..Default::default()
-                            })]
-                            .into_iter()
-                            .collect(),
-                        ),
-                        required: Some(vec!["city".to_string()]),
-                        ..Default::default()
-                    }),
-                },
-            ]),
+                            },
+                        )]
+                        .into_iter()
+                        .collect(),
+                    ),
+                    required: Some(vec!["city".to_string()]),
+                    ..Default::default()
+                }),
+            }]),
             ..Default::default()
         };
 
@@ -64,17 +65,20 @@ mod tests {
         let json = serde_json::to_value(&setup).unwrap();
 
         let tools = &json["setup"]["tools"][0]["functionDeclarations"];
-        // Tool name should be sanitized: hyphens → underscores
-        assert_eq!(tools[0]["name"], "get_weather");
+        // Gemini permits dashes in function names, so preserve the caller's name.
+        assert_eq!(tools[0]["name"], "get-weather");
         assert_eq!(tools[0]["description"], "Get weather for a city");
-        assert_eq!(tools[0]["parameters"]["properties"]["city"]["type"], "string");
+        assert_eq!(
+            tools[0]["parameters"]["properties"]["city"]["type"],
+            "string"
+        );
         assert_eq!(tools[0]["parameters"]["required"][0], "city");
     }
 
     #[test]
     fn test_setup_message_with_vad() {
         let config = GaiseLiveConfig {
-            model: "gemini-2.0-flash-live-001".to_string(),
+            model: "gemini-3.1-flash-live-preview".to_string(),
             vad_config: Some(GaiseVadConfig {
                 enabled: true,
                 start_sensitivity: Some("high".to_string()),
@@ -88,7 +92,7 @@ mod tests {
         let setup = build_test_setup(&config);
         let json = serde_json::to_value(&setup).unwrap();
 
-        let vad = &json["setup"]["generationConfig"]["realtimeInputConfig"]["automaticActivityDetection"];
+        let vad = &json["setup"]["realtimeInputConfig"]["automaticActivityDetection"];
         assert_eq!(vad["disabled"], false);
         assert_eq!(vad["startOfSpeechSensitivity"], "START_SENSITIVITY_HIGH");
         assert_eq!(vad["endOfSpeechSensitivity"], "END_SENSITIVITY_LOW");
@@ -99,7 +103,7 @@ mod tests {
     #[test]
     fn test_setup_message_with_transcription() {
         let config = GaiseLiveConfig {
-            model: "gemini-2.0-flash-live-001".to_string(),
+            model: "gemini-3.1-flash-live-preview".to_string(),
             transcription: Some(GaiseTranscriptionConfig {
                 input: true,
                 output: true,
@@ -110,15 +114,14 @@ mod tests {
         let setup = build_test_setup(&config);
         let json = serde_json::to_value(&setup).unwrap();
 
-        let gen_config = &json["setup"]["generationConfig"];
-        assert!(gen_config["inputAudioTranscription"].is_object());
-        assert!(gen_config["outputAudioTranscription"].is_object());
+        assert!(json["setup"]["inputAudioTranscription"].is_object());
+        assert!(json["setup"]["outputAudioTranscription"].is_object());
     }
 
     #[test]
     fn test_setup_message_text_modality() {
         let config = GaiseLiveConfig {
-            model: "gemini-2.0-flash-live-001".to_string(),
+            model: "gemini-3.1-flash-live-preview".to_string(),
             modalities: vec![GaiseLiveModality::Text],
             ..Default::default()
         };
@@ -126,28 +129,73 @@ mod tests {
         let setup = build_test_setup(&config);
         let json = serde_json::to_value(&setup).unwrap();
 
-        assert_eq!(json["setup"]["generationConfig"]["responseModalities"][0], "TEXT");
+        assert_eq!(
+            json["setup"]["generationConfig"]["responseModalities"][0],
+            "TEXT"
+        );
     }
 
     #[test]
     fn test_audio_input_serialization() {
         let msg = GeminiLiveRealtimeInput {
             realtime_input: GeminiLiveRealtimeInputData {
-                media_chunks: Some(vec![GeminiLiveMediaChunk {
+                media_chunks: None,
+                audio: Some(GeminiLiveMediaChunk {
                     mime_type: "audio/pcm;rate=16000".to_string(),
                     data: "AQID".to_string(), // base64 of [1,2,3]
-                }]),
+                }),
+                video: None,
                 text: None,
+                activity_start: None,
+                activity_end: None,
                 audio_stream_end: None,
             },
         };
 
         let json = serde_json::to_value(&msg).unwrap();
         assert_eq!(
-            json["realtimeInput"]["mediaChunks"][0]["mimeType"],
+            json["realtimeInput"]["audio"]["mimeType"],
             "audio/pcm;rate=16000"
         );
-        assert_eq!(json["realtimeInput"]["mediaChunks"][0]["data"], "AQID");
+        assert_eq!(json["realtimeInput"]["audio"]["data"], "AQID");
+        assert!(json["realtimeInput"].get("mediaChunks").is_none());
+    }
+
+    #[test]
+    fn test_video_frame_and_activity_serialization() {
+        let frame = GeminiLiveRealtimeInput {
+            realtime_input: GeminiLiveRealtimeInputData {
+                media_chunks: None,
+                audio: None,
+                video: Some(GeminiLiveMediaChunk {
+                    mime_type: "image/jpeg".to_string(),
+                    data: "AQID".to_string(),
+                }),
+                text: None,
+                activity_start: None,
+                activity_end: None,
+                audio_stream_end: None,
+            },
+        };
+        let activity_end = GeminiLiveRealtimeInput {
+            realtime_input: GeminiLiveRealtimeInputData {
+                media_chunks: None,
+                audio: None,
+                video: None,
+                text: None,
+                activity_start: None,
+                activity_end: Some(serde_json::json!({})),
+                audio_stream_end: None,
+            },
+        };
+
+        let frame_json = serde_json::to_value(frame).unwrap();
+        assert_eq!(
+            frame_json["realtimeInput"]["video"]["mimeType"],
+            "image/jpeg"
+        );
+        let activity_json = serde_json::to_value(activity_end).unwrap();
+        assert!(activity_json["realtimeInput"]["activityEnd"].is_object());
     }
 
     #[test]
@@ -285,49 +333,57 @@ mod tests {
             .filter(|t| t.output)
             .map(|_| serde_json::json!({}));
 
-        let realtime_input_config = config.vad_config.as_ref().map(|vad| {
-            GeminiLiveRealtimeInputConfig {
-                automatic_activity_detection: Some(GeminiLiveVadConfig {
-                    disabled: Some(!vad.enabled),
-                    start_of_speech_sensitivity: vad.start_sensitivity.as_deref().map(|s| {
-                        match s {
-                            "high" => "START_SENSITIVITY_HIGH",
-                            "low" => "START_SENSITIVITY_LOW",
-                            _ => "START_SENSITIVITY_MEDIUM",
-                        }
-                        .to_string()
+        let realtime_input_config =
+            config
+                .vad_config
+                .as_ref()
+                .map(|vad| GeminiLiveRealtimeInputConfig {
+                    automatic_activity_detection: Some(GeminiLiveVadConfig {
+                        disabled: Some(!vad.enabled),
+                        start_of_speech_sensitivity: vad.start_sensitivity.as_deref().map(|s| {
+                            match s {
+                                "high" => "START_SENSITIVITY_HIGH",
+                                "low" => "START_SENSITIVITY_LOW",
+                                _ => "START_SENSITIVITY_MEDIUM",
+                            }
+                            .to_string()
+                        }),
+                        end_of_speech_sensitivity: vad.end_sensitivity.as_deref().map(|s| {
+                            match s {
+                                "high" => "END_SENSITIVITY_HIGH",
+                                "low" => "END_SENSITIVITY_LOW",
+                                _ => "END_SENSITIVITY_MEDIUM",
+                            }
+                            .to_string()
+                        }),
+                        prefix_padding_ms: vad.prefix_padding_ms,
+                        silence_duration_ms: vad.silence_duration_ms,
                     }),
-                    end_of_speech_sensitivity: vad.end_sensitivity.as_deref().map(|s| {
-                        match s {
-                            "high" => "END_SENSITIVITY_HIGH",
-                            "low" => "END_SENSITIVITY_LOW",
-                            _ => "END_SENSITIVITY_MEDIUM",
-                        }
-                        .to_string()
-                    }),
-                    prefix_padding_ms: vad.prefix_padding_ms,
-                    silence_duration_ms: vad.silence_duration_ms,
-                }),
-            }
-        });
+                });
 
         let tools = config.tools.as_ref().map(|ts| {
             vec![GeminiLiveToolSet {
                 function_declarations: ts
                     .iter()
-                    .map(|t| {
-                        GeminiLiveFunctionDeclaration {
-                            name: t.name.replace('-', "_"),
-                            description: t.description.clone(),
-                            parameters: t.parameters.as_ref().map(|p| map_test_param(p)),
-                        }
+                    .map(|t| GeminiLiveFunctionDeclaration {
+                        name: t.name.clone(),
+                        description: t.description.clone(),
+                        parameters: t.parameters.as_ref().map(map_test_param),
                     })
                     .collect(),
             }]
         });
 
-        let temperature = config.generation_config.as_ref().and_then(|gc| gc.temperature);
-        let max_output_tokens = config.generation_config.as_ref().and_then(|gc| gc.max_tokens);
+        let temperature = config
+            .generation_config
+            .as_ref()
+            .and_then(|gc| gc.temperature);
+        let top_p = config.generation_config.as_ref().and_then(|gc| gc.top_p);
+        let top_k = config.generation_config.as_ref().and_then(|gc| gc.top_k);
+        let max_output_tokens = config
+            .generation_config
+            .as_ref()
+            .and_then(|gc| gc.max_tokens);
 
         GeminiLiveSetup {
             setup: GeminiLiveSetupConfig {
@@ -336,10 +392,11 @@ mod tests {
                     response_modalities: Some(modalities),
                     speech_config,
                     temperature,
+                    top_p,
+                    top_k,
                     max_output_tokens,
-                    input_audio_transcription,
-                    output_audio_transcription,
-                    realtime_input_config,
+                    thinking_config: None,
+                    media_resolution: None,
                 }),
                 system_instruction: config.system_instruction.as_ref().map(|text| {
                     GeminiLiveSystemInstruction {
@@ -347,6 +404,9 @@ mod tests {
                     }
                 }),
                 tools,
+                realtime_input_config,
+                input_audio_transcription,
+                output_audio_transcription,
             },
         }
     }
@@ -357,7 +417,10 @@ mod tests {
             obj.insert("type".into(), serde_json::Value::String(t.clone()));
         }
         if let Some(desc) = &param.description {
-            obj.insert("description".into(), serde_json::Value::String(desc.clone()));
+            obj.insert(
+                "description".into(),
+                serde_json::Value::String(desc.clone()),
+            );
         }
         if let Some(props) = &param.properties {
             let mut properties = serde_json::Map::new();
@@ -369,7 +432,11 @@ mod tests {
         if let Some(req) = &param.required {
             obj.insert(
                 "required".into(),
-                serde_json::Value::Array(req.iter().map(|r| serde_json::Value::String(r.clone())).collect()),
+                serde_json::Value::Array(
+                    req.iter()
+                        .map(|r| serde_json::Value::String(r.clone()))
+                        .collect(),
+                ),
             );
         }
         serde_json::Value::Object(obj)

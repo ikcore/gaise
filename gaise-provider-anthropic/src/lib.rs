@@ -1,2 +1,2 @@
-pub mod contracts;
 pub mod anthropic_client;
+pub mod contracts;

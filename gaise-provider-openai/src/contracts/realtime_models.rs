@@ -11,32 +11,68 @@ pub struct OpenAIRealtimeSessionUpdate {
 
 #[derive(Debug, Serialize)]
 pub struct OpenAIRealtimeSessionConfig {
+    pub r#type: String, // "realtime"
+
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub modalities: Option<Vec<String>>,
+    pub output_modalities: Option<Vec<String>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instructions: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub voice: Option<String>,
+    pub max_output_tokens: Option<Value>, // number or "inf"
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub temperature: Option<f32>,
+    pub audio: Option<OpenAIRealtimeAudioConfig>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_response_output_tokens: Option<Value>, // number or "inf"
+    pub reasoning: Option<OpenAIRealtimeReasoning>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<OpenAIRealtimeTool>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OpenAIRealtimeReasoning {
+    pub effort: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OpenAIRealtimeAudioConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input: Option<OpenAIRealtimeAudioInputConfig>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<OpenAIRealtimeAudioOutputConfig>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OpenAIRealtimeAudioInputConfig {
+    pub format: OpenAIRealtimeAudioFormat,
+
+    // `null` explicitly disables server VAD; omission would retain the API
+    // default. Always serialize this field so the two states remain distinct.
     pub turn_detection: Option<OpenAIRealtimeTurnDetection>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub input_audio_transcription: Option<OpenAIRealtimeTranscriptionConfig>,
+    pub transcription: Option<OpenAIRealtimeTranscriptionConfig>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OpenAIRealtimeAudioOutputConfig {
+    pub format: OpenAIRealtimeAudioFormat,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OpenAIRealtimeAudioFormat {
+    pub r#type: String, // "audio/pcm"
+    pub rate: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -52,6 +88,10 @@ pub struct OpenAIRealtimeTool {
 pub struct OpenAIRealtimeTurnDetection {
     pub r#type: String, // "server_vad"
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub create_response: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interrupt_response: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub threshold: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prefix_padding_ms: Option<u32>,
@@ -61,7 +101,7 @@ pub struct OpenAIRealtimeTurnDetection {
 
 #[derive(Debug, Serialize)]
 pub struct OpenAIRealtimeTranscriptionConfig {
-    pub model: String, // "whisper-1"
+    pub model: String,
 }
 
 // ── Audio buffer append ─────────────────────────────────────────────
@@ -103,7 +143,12 @@ pub struct OpenAIRealtimeItem {
 #[derive(Debug, Serialize)]
 pub struct OpenAIRealtimeItemContent {
     pub r#type: String, // "input_text"
-    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 // ── Response create (trigger model response) ────────────────────────
@@ -111,6 +156,11 @@ pub struct OpenAIRealtimeItemContent {
 #[derive(Debug, Serialize)]
 pub struct OpenAIRealtimeResponseCreate {
     pub r#type: String, // "response.create"
+}
+
+#[derive(Debug, Serialize)]
+pub struct OpenAIRealtimeSimpleEvent {
+    pub r#type: String,
 }
 
 // ── Server → Client events ──────────────────────────────────────────
@@ -123,7 +173,7 @@ pub struct OpenAIRealtimeServerEvent {
     #[serde(default)]
     pub session: Option<Value>,
 
-    // response.audio.delta
+    // response.output_audio.delta (and legacy response.audio.delta)
     #[serde(default)]
     pub delta: Option<String>,
 
@@ -145,6 +195,8 @@ pub struct OpenAIRealtimeServerEvent {
     // conversation.item.input_audio_transcription.completed
     #[serde(default)]
     pub transcript: Option<String>,
+    #[serde(default)]
+    pub usage: Option<OpenAIRealtimeTranscriptionUsage>,
 
     // response.done
     #[serde(default)]
@@ -158,6 +210,8 @@ pub struct OpenAIRealtimeServerEvent {
 #[derive(Debug, Deserialize)]
 pub struct OpenAIRealtimeResponseDone {
     #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
     pub usage: Option<OpenAIRealtimeResponseUsage>,
 }
 
@@ -169,6 +223,68 @@ pub struct OpenAIRealtimeResponseUsage {
     pub input_tokens: Option<usize>,
     #[serde(default)]
     pub output_tokens: Option<usize>,
+
+    #[serde(default)]
+    pub input_token_details: Option<OpenAIRealtimeInputTokenDetails>,
+
+    #[serde(default)]
+    pub output_token_details: Option<OpenAIRealtimeOutputTokenDetails>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OpenAIRealtimeInputTokenDetails {
+    #[serde(default)]
+    pub cached_tokens: Option<usize>,
+    #[serde(default)]
+    pub text_tokens: Option<usize>,
+    #[serde(default)]
+    pub audio_tokens: Option<usize>,
+    #[serde(default)]
+    pub image_tokens: Option<usize>,
+    #[serde(default)]
+    pub cached_tokens_details: Option<OpenAIRealtimeCachedTokenDetails>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OpenAIRealtimeCachedTokenDetails {
+    #[serde(default)]
+    pub text_tokens: Option<usize>,
+    #[serde(default)]
+    pub audio_tokens: Option<usize>,
+    #[serde(default)]
+    pub image_tokens: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OpenAIRealtimeOutputTokenDetails {
+    #[serde(default)]
+    pub text_tokens: Option<usize>,
+    #[serde(default)]
+    pub audio_tokens: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OpenAIRealtimeTranscriptionUsage {
+    #[serde(default)]
+    pub r#type: Option<String>,
+    #[serde(default)]
+    pub input_tokens: Option<usize>,
+    #[serde(default)]
+    pub output_tokens: Option<usize>,
+    #[serde(default)]
+    pub total_tokens: Option<usize>,
+    #[serde(default)]
+    pub seconds: Option<f64>,
+    #[serde(default)]
+    pub input_token_details: Option<OpenAIRealtimeTranscriptionInputTokenDetails>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OpenAIRealtimeTranscriptionInputTokenDetails {
+    #[serde(default)]
+    pub text_tokens: Option<usize>,
+    #[serde(default)]
+    pub audio_tokens: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -3,6 +3,7 @@ name = "gaise"
 description = "Core trait and contracts for GAISe — a unified GenAI provider abstraction"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 keywords.workspace = true

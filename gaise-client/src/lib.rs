@@ -1,9 +1,9 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use async_trait::async_trait;
 use futures_util::Stream;
+use std::collections::HashMap;
 use std::pin::Pin;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use gaise_core::{
     GaiseClient,
@@ -18,24 +18,24 @@ use gaise_core::{
     GaiseLiveClient,
     contracts::{GaiseLiveConfig, GaiseLiveSession},
 };
-#[cfg(feature = "ollama")]
-use gaise_provider_ollama::ollama_client::GaiseClientOllama;
-#[cfg(feature = "vertexai")]
-use gaise_provider_vertexai::vertexai_client::GaiseClientVertexAI;
-#[cfg(feature = "openai")]
-use gaise_provider_openai::openai_client::GaiseClientOpenAI;
-#[cfg(feature = "bedrock")]
-use gaise_provider_bedrock::bedrock_client::GaiseClientBedrock;
 #[cfg(feature = "anthropic")]
 use gaise_provider_anthropic::anthropic_client::GaiseClientAnthropic;
+#[cfg(feature = "bedrock")]
+use gaise_provider_bedrock::bedrock_client::GaiseClientBedrock;
 #[cfg(feature = "gemini")]
 use gaise_provider_gemini::gemini_client::GaiseClientGemini;
 #[cfg(all(feature = "gemini", feature = "live"))]
 use gaise_provider_gemini::gemini_live_client::GaiseClientGeminiLive;
+#[cfg(feature = "ollama")]
+use gaise_provider_ollama::ollama_client::GaiseClientOllama;
+#[cfg(feature = "openai")]
+use gaise_provider_openai::openai_client::GaiseClientOpenAI;
 #[cfg(all(feature = "openai", feature = "live"))]
 use gaise_provider_openai::openai_live_client::GaiseClientOpenAILive;
 #[cfg(feature = "vertexai")]
 pub use gaise_provider_vertexai::contracts::ServiceAccount;
+#[cfg(feature = "vertexai")]
+use gaise_provider_vertexai::vertexai_client::GaiseClientVertexAI;
 
 /// Configuration for the GAISe client service.
 /// This struct holds the necessary URLs and credentials for different AI providers.
@@ -78,7 +78,7 @@ pub struct GaiseClientConfig {
 /// A service that manages and routes requests to multiple Generative AI providers.
 ///
 /// `GaiseClientService` implements the `GaiseClient` trait and uses a provider-prefix
-/// routing mechanism (e.g., "openai::gpt-4o") to delegate calls to the appropriate
+/// routing mechanism (e.g., "openai::gpt-5.6-terra") to delegate calls to the appropriate
 /// provider implementation.
 pub struct GaiseClientService {
     #[allow(dead_code)]
@@ -105,7 +105,10 @@ impl GaiseClientService {
     /// Retrieves an existing client for the specified provider or initializes a new one.
     ///
     /// Supported providers: "ollama", "vertexai", "openai", "bedrock", "anthropic".
-    pub async fn get_client(&self, provider: &str) -> Result<Arc<dyn GaiseClient>, Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn get_client(
+        &self,
+        provider: &str,
+    ) -> Result<Arc<dyn GaiseClient>, Box<dyn std::error::Error + Send + Sync>> {
         {
             let clients = self.clients.read().await;
             if let Some(client) = clients.get(provider) {
@@ -117,40 +120,71 @@ impl GaiseClientService {
         let client: Arc<dyn GaiseClient> = match provider {
             #[cfg(feature = "ollama")]
             "ollama" => {
-                let url = self.config.ollama_url.as_deref().unwrap_or("http://localhost:11434");
+                let url = self
+                    .config
+                    .ollama_url
+                    .as_deref()
+                    .unwrap_or("http://localhost:11434");
                 Arc::new(GaiseClientOllama::new(url.to_string()))
             }
             #[cfg(feature = "vertexai")]
             "vertexai" => {
-                let sa = self.config.vertexai_sa.as_ref().ok_or("VertexAI Service Account not configured")?;
-                let url = self.config.vertexai_api_url.as_deref().ok_or("VertexAI API URL not configured")?;
-                Arc::new(GaiseClientVertexAI::new(sa, url.to_string()).await)
+                let sa = self
+                    .config
+                    .vertexai_sa
+                    .as_ref()
+                    .ok_or("VertexAI Service Account not configured")?;
+                let url = self
+                    .config
+                    .vertexai_api_url
+                    .as_deref()
+                    .ok_or("VertexAI API URL not configured")?;
+                Arc::new(GaiseClientVertexAI::new(sa, url.to_string()).await?)
             }
             #[cfg(feature = "openai")]
             "openai" => {
-                let url = self.config.openai_api_url.as_deref().unwrap_or("https://api.openai.com/v1");
-                let key = self.config.openai_api_key.as_deref().ok_or("OpenAI API Key not configured")?;
+                let url = self
+                    .config
+                    .openai_api_url
+                    .as_deref()
+                    .unwrap_or("https://api.openai.com/v1");
+                let key = self
+                    .config
+                    .openai_api_key
+                    .as_deref()
+                    .ok_or("OpenAI API Key not configured")?;
                 Arc::new(GaiseClientOpenAI::new(url.to_string(), key.to_string()))
             }
             #[cfg(feature = "bedrock")]
-            "bedrock" => {
-                if let Some(region) = &self.config.bedrock_region {
-                    unsafe {
-                        std::env::set_var("AWS_REGION", region);
-                    }
-                }
-                Arc::new(GaiseClientBedrock::new().await)
-            }
+            "bedrock" => Arc::new(
+                GaiseClientBedrock::new_with_region(self.config.bedrock_region.clone()).await,
+            ),
             #[cfg(feature = "anthropic")]
             "anthropic" => {
-                let url = self.config.anthropic_api_url.as_deref().unwrap_or("https://api.anthropic.com/v1");
-                let key = self.config.anthropic_api_key.as_deref().ok_or("Anthropic API Key not configured")?;
+                let url = self
+                    .config
+                    .anthropic_api_url
+                    .as_deref()
+                    .unwrap_or("https://api.anthropic.com/v1");
+                let key = self
+                    .config
+                    .anthropic_api_key
+                    .as_deref()
+                    .ok_or("Anthropic API Key not configured")?;
                 Arc::new(GaiseClientAnthropic::new(url.to_string(), key.to_string()))
             }
             #[cfg(feature = "gemini")]
             "gemini" => {
-                let url = self.config.gemini_api_url.as_deref().unwrap_or("https://generativelanguage.googleapis.com/v1beta");
-                let key = self.config.gemini_api_key.as_deref().ok_or("Gemini API Key not configured")?;
+                let url = self
+                    .config
+                    .gemini_api_url
+                    .as_deref()
+                    .unwrap_or("https://generativelanguage.googleapis.com/v1beta");
+                let key = self
+                    .config
+                    .gemini_api_key
+                    .as_deref()
+                    .ok_or("Gemini API Key not configured")?;
                 Arc::new(GaiseClientGemini::new(url.to_string(), key.to_string()))
             }
             _ => return Err(format!("Unknown or disabled provider: {}", provider).into()),
@@ -183,7 +217,10 @@ impl GaiseClientService {
 
 #[async_trait]
 impl GaiseClient for GaiseClientService {
-    async fn instruct(&self, request: &GaiseInstructRequest) -> Result<GaiseInstructResponse, Box<dyn std::error::Error + Send + Sync>> {
+    async fn instruct(
+        &self,
+        request: &GaiseInstructRequest,
+    ) -> Result<GaiseInstructResponse, Box<dyn std::error::Error + Send + Sync>> {
         let (provider, actual_model) = Self::parse_model(&request.model)?;
         let client = self.get_client(provider).await?;
 
@@ -217,7 +254,16 @@ impl GaiseClient for GaiseClientService {
         &self,
         request: &GaiseInstructRequest,
     ) -> Result<
-        Pin<Box<dyn Stream<Item = Result<GaiseInstructStreamResponse, Box<dyn std::error::Error + Send + Sync>>> + Send>>,
+        Pin<
+            Box<
+                dyn Stream<
+                        Item = Result<
+                            GaiseInstructStreamResponse,
+                            Box<dyn std::error::Error + Send + Sync>,
+                        >,
+                    > + Send,
+            >,
+        >,
         Box<dyn std::error::Error + Send + Sync>,
     > {
         let (provider, actual_model) = Self::parse_model(&request.model)?;
@@ -261,10 +307,10 @@ impl GaiseClient for GaiseClientService {
                             );
                         }
 
-                        if let GaiseStreamChunk::Text(ref t) = resp.chunk {
-                            if t.is_empty() {
-                                return None;
-                            }
+                        if let GaiseStreamChunk::Text(ref t) = resp.chunk
+                            && t.is_empty()
+                        {
+                            return None;
                         }
                         Some(Ok(resp))
                     }
@@ -276,7 +322,10 @@ impl GaiseClient for GaiseClientService {
         Ok(Box::pin(filtered_stream))
     }
 
-    async fn embeddings(&self, request: &GaiseEmbeddingsRequest) -> Result<GaiseEmbeddingsResponse, Box<dyn std::error::Error + Send + Sync>> {
+    async fn embeddings(
+        &self,
+        request: &GaiseEmbeddingsRequest,
+    ) -> Result<GaiseEmbeddingsResponse, Box<dyn std::error::Error + Send + Sync>> {
         let (provider, actual_model) = Self::parse_model(&request.model)?;
         let client = self.get_client(provider).await?;
 

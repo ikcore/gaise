@@ -12,6 +12,15 @@ pub struct OllamaChatRequest {
     pub stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub think: Option<OllamaThink>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum OllamaThink {
+    Enabled(bool),
+    Level(String),
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -23,6 +32,8 @@ pub struct OllamaMessage {
     pub images: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<OllamaToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -51,6 +62,10 @@ pub struct OllamaParameterProperty {
     pub description: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Box<OllamaParameterProperty>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub properties: Option<HashMap<String, OllamaParameterProperty>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

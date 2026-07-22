@@ -9,13 +9,7 @@ pub use google_claims::GoogleClaims;
 
 pub mod models;
 pub use models::{
-    GoogleInstructRequest,
-    GoogleInstance,
-    GoogleParameters,
-    GoogleChatCompletionResponse,
-    GooglePrediction,
-    GoogleCitationMetadata,
-    GoogleSafetyAttributes,
+    GoogleAccessToken, GoogleChatCompletionResponse, GoogleCitationMetadata, GoogleInstance,
+    GoogleInstructRequest, GoogleParameters, GooglePrediction, GoogleSafetyAttributes,
     GoogleSafetyRating,
-    GoogleAccessToken
 };

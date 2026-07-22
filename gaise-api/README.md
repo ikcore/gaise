@@ -33,7 +33,7 @@ cargo run -p gaise-api
 curl -X POST http://localhost:3000/v1/instruct \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "openai::gpt-4o",
+    "model": "openai::gpt-5.6-terra",
     "input": {
       "role": "user",
       "content": {"type": "text", "text": "Hello!"}
@@ -41,7 +41,7 @@ curl -X POST http://localhost:3000/v1/instruct \
   }'
 ```
 
-Change `"model"` to `"anthropic::claude-sonnet-4-6"` or `"gemini::gemini-2.5-flash"` — same endpoint, same format.
+Change `"model"` to `"anthropic::claude-sonnet-5"` or `"gemini::gemini-3.6-flash"` — same endpoint, same format.
 
 ### Live / Realtime (feature = "live")
 

@@ -49,7 +49,9 @@ impl IGaiseLogger for ConsoleGaiseLogger {
         usage: Option<Value>,
     ) {
         let cid = correlation_id.unwrap_or("none");
-        let usage_str = usage.map(|u| u.to_string()).unwrap_or_else(|| "none".to_string());
+        let usage_str = usage
+            .map(|u| u.to_string())
+            .unwrap_or_else(|| "none".to_string());
         println!(
             "[GAISE RESPONSE] CID: {} | Type: {} | Model: {} | Response: {} | Usage: {}",
             cid, request_type, model, response_json, usage_str

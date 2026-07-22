@@ -1,10 +1,10 @@
+use async_trait::async_trait;
+use futures_util::{Stream, StreamExt};
 use gaise_client::{GaiseClientConfig, GaiseClientService};
 use gaise_core::GaiseClient;
 use gaise_core::contracts::{
-    GaiseInstructRequest, GaiseInstructStreamResponse, GaiseStreamChunk, OneOrMany, GaiseMessage,
+    GaiseInstructRequest, GaiseInstructStreamResponse, GaiseMessage, GaiseStreamChunk, OneOrMany,
 };
-use futures_util::{Stream, StreamExt};
-use async_trait::async_trait;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -16,7 +16,16 @@ impl GaiseClient for MockClient {
         &self,
         _request: &GaiseInstructRequest,
     ) -> Result<
-        Pin<Box<dyn Stream<Item = Result<GaiseInstructStreamResponse, Box<dyn std::error::Error + Send + Sync>>> + Send>>,
+        Pin<
+            Box<
+                dyn Stream<
+                        Item = Result<
+                            GaiseInstructStreamResponse,
+                            Box<dyn std::error::Error + Send + Sync>,
+                        >,
+                    > + Send,
+            >,
+        >,
         Box<dyn std::error::Error + Send + Sync>,
     > {
         let chunks = vec![
@@ -40,14 +49,20 @@ impl GaiseClient for MockClient {
     async fn instruct(
         &self,
         _request: &GaiseInstructRequest,
-    ) -> Result<gaise_core::contracts::GaiseInstructResponse, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<
+        gaise_core::contracts::GaiseInstructResponse,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         todo!()
     }
 
     async fn embeddings(
         &self,
         _request: &gaise_core::contracts::GaiseEmbeddingsRequest,
-    ) -> Result<gaise_core::contracts::GaiseEmbeddingsResponse, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<
+        gaise_core::contracts::GaiseEmbeddingsResponse,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         todo!()
     }
 }
@@ -56,7 +71,7 @@ impl GaiseClient for MockClient {
 async fn test_stream_filters_empty_chunks() {
     let config = GaiseClientConfig::default();
     let service = GaiseClientService::new(config);
-    
+
     let mock_client = Arc::new(MockClient);
     service.add_client("mock", mock_client).await;
 
@@ -67,7 +82,7 @@ async fn test_stream_filters_empty_chunks() {
     };
 
     let mut stream = service.instruct_stream(&request).await.unwrap();
-    
+
     let mut received_chunks = Vec::new();
     while let Some(chunk_res) = stream.next().await {
         let chunk = chunk_res.unwrap();

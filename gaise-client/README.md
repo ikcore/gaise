@@ -76,7 +76,7 @@ use gaise_core::contracts::{GaiseInstructRequest, GaiseMessage, GaiseContent, On
 use gaise_core::GaiseClient;
 
 let request = GaiseInstructRequest {
-    model: "openai::gpt-4o".to_string(),
+    model: "openai::gpt-5.6-terra".to_string(),
     input: OneOrMany::One(GaiseMessage {
         role: "user".to_owned(),
         content: Some(OneOrMany::One(GaiseContent::Text { 
@@ -111,7 +111,7 @@ use gaise_core::contracts::*;
 use futures_util::StreamExt;
 
 let config = GaiseLiveConfig {
-    model: "gemini::gemini-2.0-flash-live-001".to_string(),
+    model: "gemini::gemini-3.1-flash-live-preview".to_string(),
     voice: Some("Puck".to_string()),
     modalities: vec![GaiseLiveModality::Audio, GaiseLiveModality::Text],
     ..Default::default()
@@ -136,7 +136,7 @@ while let Some(event) = session.rx.next().await {
 
 ```rust
 let request = GaiseInstructRequest {
-    model: "anthropic::claude-3-5-sonnet-20241022".to_string(),
+    model: "anthropic::claude-sonnet-5".to_string(),
     input: OneOrMany::One(GaiseMessage {
         role: "user".to_owned(),
         content: Some(OneOrMany::One(GaiseContent::Text {
