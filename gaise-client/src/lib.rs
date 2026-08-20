@@ -9,9 +9,11 @@ use gaise_core::{
     GaiseClient,
     contracts::{
         GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseInstructRequest,
-        GaiseInstructResponse, GaiseInstructStreamResponse,
+        GaiseInstructResponse, GaiseInstructStreamResponse, GaiseListModelsRequest,
+        GaiseListModelsResponse, GaiseModel, GaiseProviderError,
     },
     logging::IGaiseLogger,
+    registry::ModelRegistry,
 };
 #[cfg(feature = "live")]
 use gaise_core::{
@@ -204,6 +206,71 @@ impl GaiseClientService {
         clients.insert(provider.to_string(), client);
     }
 
+    /// Provider keys this service can build a client for from its
+    /// configuration, plus any clients registered with [`Self::add_client`].
+    ///
+    /// Ollama and Bedrock have usable defaults (localhost, the AWS provider
+    /// chain) but are only listed when explicitly configured so that an
+    /// aggregate listing does not wait on services that were never set up.
+    pub async fn configured_providers(&self) -> Vec<String> {
+        #[allow(unused_mut)]
+        let mut providers: Vec<String> = Vec::new();
+        #[cfg(feature = "openai")]
+        if self.config.openai_api_key.is_some() {
+            providers.push("openai".into());
+        }
+        #[cfg(feature = "anthropic")]
+        if self.config.anthropic_api_key.is_some() {
+            providers.push("anthropic".into());
+        }
+        #[cfg(feature = "gemini")]
+        if self.config.gemini_api_key.is_some() {
+            providers.push("gemini".into());
+        }
+        #[cfg(feature = "vertexai")]
+        if self.config.vertexai_sa.is_some() && self.config.vertexai_api_url.is_some() {
+            providers.push("vertexai".into());
+        }
+        #[cfg(feature = "bedrock")]
+        if self.config.bedrock_region.is_some() {
+            providers.push("bedrock".into());
+        }
+        #[cfg(feature = "ollama")]
+        if self.config.ollama_url.is_some() {
+            providers.push("ollama".into());
+        }
+        let clients = self.clients.read().await;
+        for key in clients.keys() {
+            if !providers.iter().any(|p| p == key) {
+                providers.push(key.clone());
+            }
+        }
+        providers.sort();
+        providers
+    }
+
+    /// List one provider's models, rewritten to routable `provider::id`
+    /// identifiers and enriched from the bundled registry.
+    pub async fn list_provider_models(
+        &self,
+        provider: &str,
+        request: &GaiseListModelsRequest,
+    ) -> Result<GaiseListModelsResponse, Box<dyn std::error::Error + Send + Sync>> {
+        let client = self.get_client(provider).await?;
+        let mut req = request.clone();
+        req.provider = Some(provider.to_string());
+        // Filter after enrichment: the registry may supply the operations of
+        // models whose provider API reports none.
+        req.operation = None;
+        let mut response = client.list_models(&req).await?;
+        let registry = ModelRegistry::bundled();
+        for model in &mut response.models {
+            finish_model(registry, provider, model);
+        }
+        response.retain_operation(request.operation);
+        Ok(response)
+    }
+
     /// Helper to parse a model string into (provider, model_name).
     /// The expected format is "provider::model_name".
     fn parse_model(model: &str) -> Result<(&str, &str), Box<dyn std::error::Error + Send + Sync>> {
@@ -215,8 +282,74 @@ impl GaiseClientService {
     }
 }
 
+/// Apply the registry overlay and the `provider::id` routing form.
+fn finish_model(registry: &ModelRegistry, provider: &str, model: &mut GaiseModel) {
+    if model.provider.is_empty() {
+        model.provider = provider.to_string();
+    }
+    registry.enrich(model);
+    if !model.id.contains("::") {
+        model.id = format!("{}::{}", model.provider, model.id);
+    }
+}
+
 #[async_trait]
 impl GaiseClient for GaiseClientService {
+    async fn list_models(
+        &self,
+        request: &GaiseListModelsRequest,
+    ) -> Result<GaiseListModelsResponse, Box<dyn std::error::Error + Send + Sync>> {
+        if let Some(logger) = &self.logger {
+            logger.log_request(
+                request.correlation_id.as_deref(),
+                "list_models",
+                request.provider.as_deref().unwrap_or("*"),
+                serde_json::to_value(request).unwrap_or(serde_json::Value::Null),
+            );
+        }
+
+        let response = match &request.provider {
+            // One provider: its failure is the caller's failure.
+            Some(provider) => self.list_provider_models(provider, request).await?,
+            None => {
+                let providers = self.configured_providers().await;
+                let results =
+                    futures_util::future::join_all(providers.iter().map(|p| async move {
+                        (p.clone(), self.list_provider_models(p, request).await)
+                    }))
+                    .await;
+                let mut aggregate = GaiseListModelsResponse::default();
+                for (provider, result) in results {
+                    match result {
+                        Ok(mut part) => {
+                            aggregate.models.append(&mut part.models);
+                            aggregate.errors.append(&mut part.errors);
+                        }
+                        Err(e) => aggregate.errors.push(GaiseProviderError {
+                            provider,
+                            message: e.to_string(),
+                        }),
+                    }
+                }
+                aggregate
+            }
+        };
+
+        if let Some(logger) = &self.logger {
+            logger.log_response(
+                request.correlation_id.as_deref(),
+                "list_models",
+                request.provider.as_deref().unwrap_or("*"),
+                serde_json::json!({
+                    "models": response.models.len(),
+                    "errors": response.errors,
+                }),
+                None,
+            );
+        }
+        Ok(response)
+    }
+
     async fn instruct(
         &self,
         request: &GaiseInstructRequest,

@@ -26,14 +26,14 @@ To use only specific providers, disable default features in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gaise-client = { version = "0.1.0", default-features = false, features = ["openai"] }
+gaise-client = { version = "0.1.2", default-features = false, features = ["openai"] }
 ```
 
 To enable live/realtime sessions:
 
 ```toml
 [dependencies]
-gaise-client = { version = "0.1.0", features = ["live"] }
+gaise-client = { version = "0.1.2", features = ["live"] }
 ```
 
 ## Supported Providers

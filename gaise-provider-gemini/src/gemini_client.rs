@@ -5,9 +5,10 @@ use futures_util::{Stream, StreamExt};
 use gaise_core::GaiseClient;
 use gaise_core::contracts::{
     GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseFunctionCall,
-    GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse, GaiseMessage,
-    GaiseStreamChunk, GaiseTool, GaiseToolCall, GaiseToolParameter, GaiseUsage, OneOrMany,
-    audio_media_type, file_media_type, image_media_type,
+    GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
+    GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseStreamChunk, GaiseTool,
+    GaiseToolCall, GaiseToolParameter, GaiseUsage, OneOrMany, audio_media_type, file_media_type,
+    image_media_type,
 };
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -644,6 +645,28 @@ impl GaiseClientGemini {
         }
     }
 
+    /// One page of `GET /models`.
+    pub async fn list_models_page(
+        &self,
+        page_token: Option<&str>,
+    ) -> Result<GeminiModelList, Box<dyn std::error::Error + Send + Sync>> {
+        let mut url = format!("{}/models?pageSize=1000&key={}", self.api_url, self.api_key);
+        if let Some(token) = page_token {
+            url.push_str("&pageToken=");
+            url.push_str(token);
+        }
+        let response = self.client.get(url).send().await?;
+        if !response.status().is_success() {
+            let err_text = response.text().await?;
+            return Err(format!("Gemini API error: {}", err_text).into());
+        }
+        let body = response.text().await?;
+        serde_json::from_str(&body).map_err(|e| {
+            let snippet: String = body.chars().take(400).collect();
+            format!("failed to parse Gemini models response: {e}; body starts: {snippet}").into()
+        })
+    }
+
     fn map_from_gemini_content(&self, content: &GeminiContent) -> GaiseMessage {
         let role = content
             .role
@@ -709,6 +732,31 @@ impl GaiseClientGemini {
 
 #[async_trait]
 impl GaiseClient for GaiseClientGemini {
+    async fn list_models(
+        &self,
+        request: &GaiseListModelsRequest,
+    ) -> Result<GaiseListModelsResponse, Box<dyn std::error::Error + Send + Sync>> {
+        let mut models = Vec::new();
+        let mut token: Option<String> = None;
+        loop {
+            let page = self.list_models_page(token.as_deref()).await?;
+            models.extend(
+                page.models
+                    .iter()
+                    .map(|m| map_gemini_model(m, request.include_raw)),
+            );
+            match page.next_page_token {
+                Some(next) if !next.is_empty() && token.as_deref() != Some(next.as_str()) => {
+                    token = Some(next)
+                }
+                _ => break,
+            }
+        }
+        let mut response = GaiseListModelsResponse::from_models(models);
+        response.retain_operation(request.operation);
+        Ok(response)
+    }
+
     async fn instruct_stream(
         &self,
         request: &GaiseInstructRequest,

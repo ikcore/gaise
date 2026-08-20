@@ -1,0 +1,447 @@
+# Rust SDK
+
+> Part of the [GAISe wiki](README.md) · [HTTP API](api.md) · [Capabilities](capabilities.md) · [Models](models.md) · [Flows](flows.md) · [Examples](examples.md) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Gemini](vendor-gemini.md) · [Vertex AI](vendor-vertexai.md) · [Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md)
+
+GAISe is consumed as a set of Rust crates. [`gaise`](../gaise-core/) (library name `gaise_core`) defines the provider-neutral contracts and the [`GaiseClient`](../gaise-core/src/lib.rs) / [`GaiseLiveClient`](../gaise-core/src/lib.rs) traits; six `gaise-provider-*` crates implement them; [`gaise-client`](../gaise-client/) routes `provider::model` strings to whichever adapters are compiled in; [`gaise-api`](../gaise-api/) wraps the router in HTTP (see [api.md](api.md)).
+
+## Contents
+
+- [Crates and features](#crates-and-features)
+- [Choosing an entry point](#choosing-an-entry-point)
+- [The router: `GaiseClientService`](#the-router-gaiseclientservice)
+- [Direct provider clients](#direct-provider-clients)
+- [Core contracts](#core-contracts)
+  - [`OneOrMany`](#oneormany) · [Instruct request](#instruct-request) · [Messages](#messages) · [Content](#content) · [Generation config](#generation-config) · [Tools](#tools) · [Responses](#responses) · [Streaming](#streaming) · [Usage](#usage) · [Embeddings](#embeddings) · [Live](#live)
+- [Model discovery](#model-discovery)
+- [Logging](#logging)
+- [Error handling and retries](#error-handling-and-retries)
+- [Testing your integration](#testing-your-integration)
+- [Releasing](#releasing)
+
+## Crates and features
+
+```mermaid
+flowchart TD
+    core["gaise (gaise_core)<br/>contracts · traits · registry · accumulator · logging"]
+    oai[gaise-provider-openai]
+    ant[gaise-provider-anthropic]
+    gem[gaise-provider-gemini]
+    vai[gaise-provider-vertexai]
+    bed[gaise-provider-bedrock]
+    oll[gaise-provider-ollama]
+    client["gaise-client<br/>GaiseClientService router"]
+    api["gaise-api<br/>Axum HTTP / SSE / WS"]
+    bot[gaise-chatbot]
+    core --> oai & ant & gem & vai & bed & oll
+    oai & ant & gem & vai & bed & oll --> client
+    core --> client
+    client --> api
+    client --> bot
+```
+
+| Crate | Path | Purpose |
+|---|---|---|
+| `gaise` | [`gaise-core/`](../gaise-core/) | Contracts ([`contracts/`](../gaise-core/src/contracts/)), traits ([`lib.rs`](../gaise-core/src/lib.rs)), bundled model registry ([`registry.rs`](../gaise-core/src/registry.rs), [`model-registry.toml`](../gaise-core/model-registry.toml)), stream accumulator, logging |
+| `gaise-client` | [`gaise-client/`](../gaise-client/) | Feature-gated router, `GaiseClientConfig`, aggregate `list_models` |
+| `gaise-provider-openai` | [`gaise-provider-openai/`](../gaise-provider-openai/) | Chat Completions, Embeddings, Realtime (`live`) — [vendor page](vendor-openai.md) |
+| `gaise-provider-anthropic` | [`gaise-provider-anthropic/`](../gaise-provider-anthropic/) | Messages — [vendor page](vendor-anthropic.md) |
+| `gaise-provider-gemini` | [`gaise-provider-gemini/`](../gaise-provider-gemini/) | generateContent, Embeddings, Live (`live`) — [vendor page](vendor-gemini.md) |
+| `gaise-provider-vertexai` | [`gaise-provider-vertexai/`](../gaise-provider-vertexai/) | Vertex generateContent, Embeddings — [vendor page](vendor-vertexai.md) |
+| `gaise-provider-bedrock` | [`gaise-provider-bedrock/`](../gaise-provider-bedrock/) | Converse/ConverseStream, InvokeModel embeddings — [vendor page](vendor-bedrock.md) |
+| `gaise-provider-ollama` | [`gaise-provider-ollama/`](../gaise-provider-ollama/) | Local chat and embeddings — [vendor page](vendor-ollama.md) |
+| `gaise-api` | [`gaise-api/`](../gaise-api/) | HTTP server — [api.md](api.md) |
+| `gaise-chatbot` | [`gaise-chatbot/`](../gaise-chatbot/) | Minimal CLI example |
+
+```toml
+[dependencies]
+gaise-core = { package = "gaise", version = "0.1" }
+gaise-client = { version = "0.1", default-features = false, features = ["openai", "anthropic", "live"] }
+```
+
+[`gaise-client`](../gaise-client/Cargo.toml) enables all six providers by default. The `live` feature adds `GaiseLiveClient` support for whichever of `openai` and `gemini` are also enabled.
+
+| Feature | Pulls in | Surfaces |
+|---|---|---|
+| `openai` | `gaise-provider-openai` | Chat Completions, Embeddings, `GET /v1/models` |
+| `anthropic` | `gaise-provider-anthropic` | Messages, `GET /v1/models` |
+| `gemini` | `gaise-provider-gemini` | generateContent, batchEmbedContents, `models.list` |
+| `vertexai` | `gaise-provider-vertexai` | generateContent, `:predict` embeddings, Model Garden listing |
+| `bedrock` | `gaise-provider-bedrock` | Converse, ConverseStream, InvokeModel, `ListFoundationModels` |
+| `ollama` | `gaise-provider-ollama` | `/api/chat`, `/api/embed`, `/api/tags` |
+| `live` | `openai?/live`, `gemini?/live` | OpenAI Realtime, Gemini Live |
+
+## Choosing an entry point
+
+| Use | When |
+|---|---|
+| [`GaiseClientService`](#the-router-gaiseclientservice) | You pick providers at runtime, want `provider::model` routing, aggregate model listing, and a single logger hook. |
+| [Direct provider client](#direct-provider-clients) | You want the smallest dependency set, raw model IDs, or a provider-specific constructor option (`with_version`, `with_clients`). |
+| [`gaise-api`](api.md) | Non-Rust consumers; the same contracts over JSON/SSE/WebSocket. |
+
+Both entry points implement the same trait:
+
+```rust
+#[async_trait]
+pub trait GaiseClient: Send + Sync {
+    async fn instruct(&self, request: &GaiseInstructRequest) -> Result<GaiseInstructResponse, BoxErr>;
+    async fn instruct_stream(&self, request: &GaiseInstructRequest) -> Result<Pin<Box<dyn Stream<Item = Result<GaiseInstructStreamResponse, BoxErr>> + Send>>, BoxErr>;
+    async fn embeddings(&self, request: &GaiseEmbeddingsRequest) -> Result<GaiseEmbeddingsResponse, BoxErr>;
+    /// Default body returns "not supported" so custom clients keep compiling.
+    async fn list_models(&self, request: &GaiseListModelsRequest) -> Result<GaiseListModelsResponse, BoxErr>;
+}
+```
+
+Source: [`gaise-core/src/lib.rs`](../gaise-core/src/lib.rs).
+
+## The router: `GaiseClientService`
+
+```rust
+use gaise_client::{GaiseClientConfig, GaiseClientService};
+use gaise_core::GaiseClient;
+
+let service = GaiseClientService::new(GaiseClientConfig {
+    openai_api_url: Some("https://api.openai.com/v1".into()),
+    openai_api_key: std::env::var("OPENAI_API_KEY").ok(),
+    anthropic_api_url: Some("https://api.anthropic.com/v1".into()),
+    anthropic_api_key: std::env::var("ANTHROPIC_API_KEY").ok(),
+    gemini_api_url: Some("https://generativelanguage.googleapis.com/v1beta".into()),
+    gemini_api_key: std::env::var("GEMINI_API_KEY").ok(),
+    vertexai_api_url: std::env::var("VERTEXAI_API_URL").ok(),
+    vertexai_sa: service_account, // Option<ServiceAccount>
+    bedrock_region: Some("eu-west-2".into()),
+    ollama_url: Some("http://localhost:11434".into()),
+    logger: None,
+});
+
+let response = service.instruct(&request).await?;
+let stream = service.instruct_stream(&request).await?;
+let embeddings = service.embeddings(&embedding_request).await?;
+let catalog = service.list_models(&GaiseListModelsRequest::default()).await?;
+```
+
+Config fields are conditionally compiled by feature ([`GaiseClientConfig`](../gaise-client/src/lib.rs)). Clients are built lazily on first use and cached per provider key ([`get_client`](../gaise-client/src/lib.rs)); [`add_client`](../gaise-client/src/lib.rs) registers any `Arc<dyn GaiseClient>` under a custom key, which then participates in routing and aggregate listing.
+
+### Routing
+
+```mermaid
+flowchart LR
+    A["request.model = provider::model"] --> B{"split at first ::"}
+    B -->|no separator| X["Err: Model name must be in the format provider::model"]
+    B --> C{"client cached for key?"}
+    C -->|yes| D[Arc client]
+    C -->|no| E{"feature enabled and configured?"}
+    E -->|no| Y["Err: Unknown or disabled provider / not configured"]
+    E -->|yes| F[construct and cache]
+    F --> D
+    D --> G["forward with bare model id"]
+```
+
+| Routed ID | Provider receives |
+|---|---|
+| `openai::gpt-5.6-terra` | `gpt-5.6-terra` |
+| `anthropic::claude-opus-5` | `claude-opus-5` |
+| `gemini::gemini-3.6-flash` | `gemini-3.6-flash` |
+| `vertexai::gemini-3.5-flash` | `gemini-3.5-flash` |
+| `bedrock::us.anthropic.claude-sonnet-5` | `us.anthropic.claude-sonnet-5` |
+| `ollama::qwen3:8b` | `qwen3:8b` |
+
+The router also strips empty text chunks from streams and, when a logger is configured, logs every request, response, stream chunk, and listing. With the `live` feature it implements `GaiseLiveClient` for `openai::gpt-realtime-*` and `gemini::*-live-*` models ([`get_live_client`](../gaise-client/src/lib.rs)).
+
+### Environment variables
+
+[`gaise-api/src/main.rs`](../gaise-api/src/main.rs) shows the canonical mapping from environment to `GaiseClientConfig`:
+
+| Variable | Field | Notes |
+|---|---|---|
+| `OPENAI_API_KEY`, `OPENAI_API_URL` | `openai_api_key`, `openai_api_url` | URL defaults to `https://api.openai.com/v1`; `OPENAI_API_TIER` is read by the provider crate ([vendor-openai](vendor-openai.md#configuration)) |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_API_URL` | `anthropic_api_key`, `anthropic_api_url` | URL defaults to `https://api.anthropic.com/v1` |
+| `GEMINI_API_KEY`, `GEMINI_API_URL` | `gemini_api_key`, `gemini_api_url` | URL defaults to `https://generativelanguage.googleapis.com/v1beta` |
+| `VERTEXAI_SA_PATH`, `VERTEXAI_API_URL` | `vertexai_sa`, `vertexai_api_url` | Service-account JSON path; URL is a `{{MODEL}}` template; `VERTEXAI_API_TIER` optional ([vendor-vertexai](vendor-vertexai.md#configuration)) |
+| `BEDROCK_REGION` | `bedrock_region` | Passed into the SDK builder; credentials from the AWS chain ([vendor-bedrock](vendor-bedrock.md#configuration)) |
+| `OLLAMA_URL` | `ollama_url` | Defaults to `http://localhost:11434` for routing; must be set to be included in aggregate listing |
+
+## Direct provider clients
+
+Direct clients take raw provider model IDs.
+
+```rust
+use gaise_provider_openai::openai_client::GaiseClientOpenAI;
+let openai = GaiseClientOpenAI::new("https://api.openai.com/v1".into(), std::env::var("OPENAI_API_KEY")?);
+
+use gaise_provider_anthropic::anthropic_client::GaiseClientAnthropic;
+let anthropic = GaiseClientAnthropic::new("https://api.anthropic.com/v1".into(), std::env::var("ANTHROPIC_API_KEY")?)
+    .with_version("2023-06-01".into());
+
+use gaise_provider_gemini::gemini_client::GaiseClientGemini;
+let gemini = GaiseClientGemini::new("https://generativelanguage.googleapis.com/v1beta".into(), std::env::var("GEMINI_API_KEY")?);
+
+use gaise_provider_vertexai::{contracts::ServiceAccount, vertexai_client::GaiseClientVertexAI};
+let sa: ServiceAccount = serde_json::from_str(&std::fs::read_to_string(std::env::var("VERTEXAI_SA_PATH")?)?)?;
+let vertex = GaiseClientVertexAI::new(
+    &sa,
+    "https://us-central1-aiplatform.googleapis.com/v1/projects/PROJECT/locations/us-central1/publishers/google/models/{{MODEL}}".into(),
+).await?;
+
+use gaise_provider_bedrock::bedrock_client::GaiseClientBedrock;
+let bedrock = GaiseClientBedrock::new_with_region(Some("eu-west-2".into())).await;
+
+use gaise_provider_ollama::ollama_client::GaiseClientOllama;
+let ollama = GaiseClientOllama::new("http://localhost:11434".into());
+```
+
+Live clients: [`GaiseClientOpenAILive::new(base_url, key)`](../gaise-provider-openai/src/openai_live_client.rs) and [`GaiseClientGeminiLive::new(base_url, key)`](../gaise-provider-gemini/src/gemini_live_client.rs) behind each crate's `live` feature.
+
+Constructor details, extra env vars, and per-provider options are on the vendor pages: [OpenAI](vendor-openai.md#configuration) · [Anthropic](vendor-anthropic.md#configuration) · [Gemini](vendor-gemini.md#configuration) · [Vertex AI](vendor-vertexai.md#configuration) · [Bedrock](vendor-bedrock.md#configuration) · [Ollama](vendor-ollama.md#configuration).
+
+## Core contracts
+
+All types live in [`gaise_core::contracts`](../gaise-core/src/contracts/mod.rs); the usual import is `use gaise_core::contracts::*;`.
+
+### `OneOrMany`
+
+`OneOrMany<T>` ([`mod.rs`](../gaise-core/src/contracts/mod.rs)) accepts a single value or a vector — in JSON, an object or an array — and is used for request messages and message content.
+
+### Instruct request
+
+[`GaiseInstructRequest`](../gaise-core/src/contracts/gaise_instruct_request.rs):
+
+| Field | Type | Notes |
+|---|---|---|
+| `model` | `String` | `provider::model` through the router, bare ID through a direct client |
+| `input` | `OneOrMany<GaiseMessage>` | Ordered conversation |
+| `generation_config` | `Option<GaiseGenerationConfig>` | See [Generation config](#generation-config) |
+| `tools` | `Option<Vec<GaiseTool>>` | See [Tools](#tools) |
+| `tool_config` | `Option<GaiseToolConfig>` | `mode` such as `auto`, `any`/`required`, `none` — mapped per provider |
+| `correlation_id` | `Option<String>` | Echoed to the logger |
+
+### Messages
+
+[`GaiseMessage`](../gaise-core/src/contracts/gaise_message.rs):
+
+| Field | Purpose |
+|---|---|
+| `role` | `system`, `user`, `assistant`, or `tool` |
+| `content` | `OneOrMany<GaiseContent>`, order preserved |
+| `tool_calls` | Assistant-requested function calls (`GaiseToolCall { id, function: { name, arguments }, thought_signature }`) |
+| `tool_call_id` | Provider call ID when this message returns a tool result |
+| `tool_name` | Function name; **required** for Gemini/Vertex function responses, optional elsewhere |
+
+System messages are lifted into each provider's top-level system shape; multiple system blocks keep their order.
+
+### Content
+
+[`GaiseContent`](../gaise-core/src/contracts/gaise_content.rs):
+
+| Variant | Fields | Use |
+|---|---|---|
+| `Text` | `text` | Prompts and returned text |
+| `Image` | `data`, `format` | Image input, or generated image output |
+| `Audio` | `data`, `format` | Audio input, or returned audio where mapped |
+| `File` | `data`, `name` | Documents; MIME inferred from the extension by [`file_media_type`](../gaise-core/src/contracts/gaise_content.rs) |
+| `Reasoning` | `text`, `signature` | Provider-returned thought summary; keep the signature for later turns |
+| `RedactedReasoning` | `data` | Opaque encrypted reasoning — replay unchanged, never display |
+| `Parts` | `parts` | Nesting; adapters flatten recursively in order |
+
+Byte fields serialize as integer arrays in JSON. `format` accepts a MIME type or shorthand (`png`, `jpeg`, `wav`, `mp3`, …) normalized by [`image_media_type`](../gaise-core/src/contracts/gaise_content.rs) / [`audio_media_type`](../gaise-core/src/contracts/gaise_content.rs). What each provider does with each variant is tabulated in [capabilities.md](capabilities.md#modalities-by-provider).
+
+### Generation config
+
+[`GaiseGenerationConfig`](../gaise-core/src/contracts/gaise_generation_config.rs) — every field optional; adapters omit controls the selected model cannot accept rather than sending invalid combinations.
+
+| Field | Meaning | Notes |
+|---|---|---|
+| `temperature`, `top_p`, `top_k` | Sampling | Dropped for fixed-sampling families (Claude Opus 5/4.7/4.8, Sonnet 5, Fable/Mythos 5; Gemini 3.5/3.6) |
+| `max_tokens` | Output budget | OpenAI `max_completion_tokens`, Anthropic `max_tokens`, Gemini `maxOutputTokens`, Ollama `num_predict` |
+| `thinking_tokens` | Manual reasoning budget | Anthropic `budget_tokens`, Gemini 2.5 `thinkingBudget`, Bedrock Claude/Nova budgets |
+| `thinking_effort` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` | OpenAI `reasoning_effort`, Anthropic `output_config.effort`, Gemini 3.x `thinkingLevel`, Ollama GPT-OSS `think` level |
+| `include_thoughts` | Ask for thought summaries | Anthropic `thinking.display`, Gemini `includeThoughts` (defaults on when reasoning requested) |
+| `response_modalities` | `TEXT`, `IMAGE`, `AUDIO` | Gemini/Vertex `responseModalities` |
+| `image_config` | `aspect_ratio`, `image_size` | Gemini/Vertex `responseFormat.image` |
+| `input_image_detail` | `auto`, `low`, `high`, `original` | OpenAI image URL `detail` |
+| `input_media_resolution` | `low`, `medium`, `high`, `MEDIA_RESOLUTION_*` | Gemini/Vertex |
+| `cache_key` | Stable cache hint | OpenAI `prompt_cache_key`; Anthropic uses ephemeral cache control instead |
+
+Per-provider field mappings: [OpenAI](vendor-openai.md#generation-config) · [Anthropic](vendor-anthropic.md#generation-config) · [Gemini](vendor-gemini.md#generation-config) · [Vertex AI](vendor-vertexai.md#generation-config) · [Bedrock](vendor-bedrock.md#generation-config) · [Ollama](vendor-ollama.md#generation-config).
+
+### Tools
+
+[`GaiseTool`](../gaise-core/src/contracts/gaise_tool_parameter.rs) has `name`, `description`, and a recursive [`GaiseToolParameter`](../gaise-core/src/contracts/gaise_tool_parameter.rs) schema (`type`, `description`, `properties: BTreeMap`, `items`, `required`, `enum`) — deterministic ordering, nested objects and arrays.
+
+```rust
+let tool = GaiseTool {
+    name: "lookup".into(),
+    description: Some("Look up an item".into()),
+    parameters: Some(GaiseToolParameter {
+        r#type: Some("object".into()),
+        properties: Some(BTreeMap::from([(
+            "ids".into(),
+            GaiseToolParameter {
+                r#type: Some("array".into()),
+                items: Some(Box::new(GaiseToolParameter { r#type: Some("string".into()), ..Default::default() })),
+                ..Default::default()
+            },
+        )])),
+        required: Some(vec!["ids".into()]),
+        ..Default::default()
+    }),
+};
+```
+
+Tool-call loop:
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant GAISe
+    participant Provider
+    App->>GAISe: instruct(messages, tools)
+    GAISe->>Provider: provider request with mapped schemas
+    Provider-->>GAISe: assistant message with tool_calls
+    GAISe-->>App: GaiseToolCall { id, name, arguments, thought_signature }
+    App->>App: execute function
+    App->>GAISe: instruct(messages + assistant msg + tool msg { tool_call_id, tool_name, content })
+    GAISe->>Provider: function result in provider shape
+    Provider-->>GAISe: final assistant message
+    GAISe-->>App: GaiseInstructResponse
+```
+
+Return results as a `tool` role message carrying both `tool_call_id` and `tool_name`, and replay the assistant message (including `thought_signature`) unchanged.
+
+### Responses
+
+[`GaiseInstructResponse`](../gaise-core/src/contracts/gaise_instruct_response.rs): `output: Vec<GaiseMessage>`, `external_id: Option<String>` (provider response ID), `usage: Option<GaiseUsage>`.
+
+### Streaming
+
+`instruct_stream` yields [`GaiseInstructStreamResponse`](../gaise-core/src/contracts/gaise_instruct_stream_response.rs) items whose `chunk` is a [`GaiseStreamChunk`](../gaise-core/src/contracts/gaise_instruct_stream_response.rs):
+
+| Variant | Payload |
+|---|---|
+| `Text(String)` | Text delta |
+| `Content(GaiseContent)` | Complete reasoning / media part |
+| `ToolCall { index, id, name, arguments, thought_signature }` | Indexed, incrementally assembled function call |
+| `Usage(GaiseUsage)` | Cumulative usage snapshot |
+
+[`GaiseStreamAccumulator`](../gaise-core/src/contracts/gaise_instruct_stream_response.rs) (`new` → `push` → `finish`) preserves order, coalesces adjacent text/reasoning, assembles parallel tool calls by index, and keeps the latest usage counters.
+
+```rust
+use futures_util::StreamExt;
+let mut stream = service.instruct_stream(&request).await?;
+let mut acc = GaiseStreamAccumulator::new();
+while let Some(item) = stream.next().await {
+    let item = item?;
+    if let GaiseStreamChunk::Text(t) = &item.chunk { print!("{t}"); }
+    acc.push(&item);
+}
+let message = acc.finish();
+```
+
+All parsers tolerate SSE/NDJSON frames split across arbitrary byte boundaries ([flows.md#streaming](flows.md#streaming)).
+
+### Usage
+
+[`GaiseUsage`](../gaise-core/src/contracts/gaise_usage.rs) has three independent maps — `input`, `output`, `total` — keyed by provider-native counter names. Values inside a map may overlap (an aggregate includes its modality, reasoning, and cache subsets), so never sum a map. `total_tokens` belongs in `total`. Per-provider counter names: [capabilities.md#usage-counters](capabilities.md#usage-counters).
+
+### Embeddings
+
+[`GaiseEmbeddingsRequest`](../gaise-core/src/contracts/gaise_embeddings_request.rs) (`model`, `input: OneOrMany<String>`, `correlation_id`) → [`GaiseEmbeddingsResponse`](../gaise-core/src/contracts/gaise_embeddings_response.rs) (`output: Vec<Vec<f32>>`, `external_id`, `usage`). The contract is text-only even where a provider sells multimodal embeddings.
+
+### Live
+
+Behind the `live` feature, [`GaiseLiveClient::live_connect`](../gaise-core/src/lib.rs) takes a [`GaiseLiveConfig`](../gaise-core/src/contracts/gaise_live_config.rs) (model, system instruction, voice, `modalities`, tools, generation config, VAD, transcription) and returns a [`GaiseLiveSession`](../gaise-core/src/contracts/gaise_live_session.rs) with a `tx` channel of [`GaiseLiveInput`](../gaise-core/src/contracts/gaise_live_input.rs) and an `rx` stream of [`GaiseLiveEvent`](../gaise-core/src/contracts/gaise_live_event.rs).
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant Session as GaiseLiveSession
+    participant Provider as OpenAI Realtime / Gemini Live
+    App->>Session: live_connect(config)
+    Session->>Provider: WebSocket + session setup
+    Provider-->>App: SessionStarted
+    loop turn
+        App->>Session: tx.send(Audio / Text / Image)
+        Session->>Provider: provider frames
+        Provider-->>App: Transcript / Text / Audio / Reasoning
+        Provider-->>App: ToolCall
+        App->>Session: tx.send(ToolResponse)
+        Provider-->>App: Usage, TurnComplete
+    end
+    App->>Session: tx.send(Close)
+    Provider-->>App: SessionEnded
+```
+
+Inputs: `Text`, `Audio { data, sample_rate }`, `Image`, `ToolResponse`, `ActivityStart`/`ActivityEnd`, `AudioStreamEnd`, `ClearAudio`, `CancelResponse`, `Close`. Events: `session_started`, `text`, `audio`, `transcript`, `reasoning`, `tool_call`, `tool_call_cancelled`, `turn_complete`, `interrupted`, `usage`, `error`, `session_ended`. Operations a provider cannot perform produce an `error` event, never a silent success. Provider differences: [vendor-openai](vendor-openai.md#live--realtime) · [vendor-gemini](vendor-gemini.md#live--realtime); wire examples: [examples.md#live--realtime](examples.md#live--realtime).
+
+## Model discovery
+
+```rust
+use gaise_core::contracts::{GaiseListModelsRequest, GaiseOperation};
+
+// Everything the configured providers can list, enriched and routable.
+let all = service.list_models(&GaiseListModelsRequest::default()).await?;
+for m in &all.models {
+    println!("{:<45} {:?} in={:?} out={:?}", m.id, m.capabilities.operations, m.capabilities.input, m.capabilities.output);
+}
+for e in &all.errors {
+    eprintln!("{}: {}", e.provider, e.message);
+}
+
+// Only embedding models from one provider.
+let embed = service.list_models(&GaiseListModelsRequest {
+    provider: Some("openai".into()),
+    operation: Some(GaiseOperation::Embeddings),
+    ..Default::default()
+}).await?;
+```
+
+[`GaiseModel`](../gaise-core/src/contracts/gaise_model.rs) fields: `id` (routable), `provider`, `display_name`, `description`, `created_at`, `status`, `retires_on`, `retirement_not_before`, `replacement`, `notes`, `capabilities` (`input`, `output`, `operations`, `tools`, `reasoning`, `reasoning_values`, `structured_output`, `sources`), `limits` (`max_input_tokens`, `max_output_tokens`, `embedding_dimensions`), `raw`.
+
+```mermaid
+flowchart LR
+    R[GaiseListModelsRequest] --> P{provider set?}
+    P -->|yes| One[one adapter]
+    P -->|no| Fan["configured_providers() fan-out"]
+    One --> A[adapter list_models]
+    Fan --> A
+    A --> M["bare ids + provider facts<br/>sources: provider, heuristic"]
+    M --> E["registry.enrich()<br/>union modalities, fill unknowns"]
+    E --> Id["id = provider::id"]
+    Id --> F["retain_operation filter"]
+    F --> Out[GaiseListModelsResponse models + errors]
+```
+
+Rules (enforced in [`gaise-client/src/lib.rs`](../gaise-client/src/lib.rs) and [`registry.rs`](../gaise-core/src/registry.rs)):
+
+- `GaiseSupport` is tri-state; empty modality lists mean *unknown*. Check `capabilities.sources` to see whether a claim is provider-reported, registry-filled, or heuristic.
+- The registry may add modalities but never removes one; operations and flags are filled only when unknown (an explicit registry `operations = []` override beats a name heuristic).
+- Aggregate listings never fail because one provider failed — read `errors`. A single-provider request propagates the error.
+- `include_details` triggers extra per-model calls (Ollama `/api/show`); `include_raw` attaches the provider's native record.
+- Direct clients return bare IDs and no registry overlay; call [`gaise_core::registry::enrich`](../gaise-core/src/registry.rs) yourself if you need it.
+
+What each provider API can report is tabulated in [capabilities.md#model-discovery](capabilities.md#model-discovery); the full catalog is in [models.md](models.md).
+
+## Logging
+
+[`IGaiseLogger`](../gaise-core/src/logging.rs) has `log_request`, `log_response`, and `log_stream_chunk`. Pass an `Arc<dyn IGaiseLogger>` in `GaiseClientConfig.logger`; [`ConsoleGaiseLogger`](../gaise-core/src/logging.rs) prints JSON to stdout. Responses log the full payload plus usage; listings log counts and per-provider errors, not the whole catalog.
+
+## Error handling and retries
+
+All trait methods return `Box<dyn std::error::Error + Send + Sync>`. Provider HTTP errors surface with the provider's body text (`"OpenAI API error: …"`, `"Anthropic API error: …"`, Ollama errors reformatted by [`format_ollama_error`](../gaise-provider-ollama/src/ollama_client.rs)). Unsupported content produces an explicit error or an explicit text marker — never silent omission ([flows.md#multimodal-mapping](flows.md#multimodal-mapping)). OpenAI retries 429/5xx and transport errors with backoff ([`send_with_retry`](../gaise-provider-openai/src/openai_client.rs)) and retries the GPT-5.6 function-tool `reasoning_effort` incompatibility once with `none`. Other adapters do not retry.
+
+## Testing your integration
+
+The workspace suite is hermetic — fixtures and serialization tests only:
+
+```powershell
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-targets --all-features
+```
+
+Provider-specific fixture tests live under each crate's `tests/` and `src/contracts/*` modules; routing and listing tests in [`gaise-client/tests/`](../gaise-client/tests/); HTTP route tests in [`gaise-api/tests/`](../gaise-api/tests/). Tests that need credentials or a running Ollama are `#[ignore]`d with a reason — do not run them without authorizing external traffic.
+
+To fake a provider in your own tests, implement `GaiseClient` and register it with `add_client` (see [`list_models_tests.rs`](../gaise-client/tests/list_models_tests.rs)).
+
+## Releasing
+
+Version synchronization, package verification (including the bundled `model-registry.toml`), and the crates.io publish order are in [releasing.md](releasing.md).

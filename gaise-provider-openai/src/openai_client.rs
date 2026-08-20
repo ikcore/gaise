@@ -5,9 +5,9 @@ use futures_util::{Stream, StreamExt};
 use gaise_core::GaiseClient;
 use gaise_core::contracts::{
     GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseFunctionCall,
-    GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse, GaiseMessage,
-    GaiseStreamChunk, GaiseTool, GaiseToolCall, GaiseToolParameter, GaiseUsage, OneOrMany,
-    image_media_type,
+    GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
+    GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseStreamChunk, GaiseTool,
+    GaiseToolCall, GaiseToolParameter, GaiseUsage, OneOrMany, image_media_type,
 };
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -163,6 +163,35 @@ fn openai_audio_format(format: Option<&str>) -> String {
     }
 }
 
+/// GPT-5.6 models currently reject function tools on Chat Completions unless
+/// reasoning is disabled. Keep this workaround surface-specific: these models
+/// support other reasoning efforts when tools are absent, and the Responses API
+/// supports reasoning with tools.
+fn chat_tools_require_none_reasoning(model: &str) -> bool {
+    model == "gpt-5.6"
+        || model
+            .strip_prefix("gpt-5.6")
+            .is_some_and(|suffix| suffix.starts_with('-'))
+}
+
+fn has_function_tools(request: &GaiseInstructRequest) -> bool {
+    request
+        .tools
+        .as_ref()
+        .is_some_and(|tools| !tools.is_empty())
+}
+
+fn chat_reasoning_effort(request: &GaiseInstructRequest) -> Option<String> {
+    if has_function_tools(request) && chat_tools_require_none_reasoning(&request.model) {
+        return Some("none".to_string());
+    }
+
+    request
+        .generation_config
+        .as_ref()
+        .and_then(|config| config.thinking_effort.clone())
+}
+
 fn map_content_parts(content: GaiseContent, image_detail: Option<&str>) -> Vec<OpenAIContentPart> {
     match content {
         GaiseContent::Text { text } => vec![OpenAIContentPart::Text { text }],
@@ -276,10 +305,7 @@ impl From<&GaiseInstructRequest> for OpenAIChatRequest {
                 .generation_config
                 .as_ref()
                 .and_then(|c| c.max_tokens),
-            reasoning_effort: request
-                .generation_config
-                .as_ref()
-                .and_then(|c| c.thinking_effort.clone()),
+            reasoning_effort: chat_reasoning_effort(request),
             prompt_cache_key: request
                 .generation_config
                 .as_ref()
@@ -364,6 +390,37 @@ fn is_transient_status(status: reqwest::StatusCode) -> bool {
     status.as_u16() == 429 || status.is_server_error()
 }
 
+/// Match only OpenAI's structured Chat Completions compatibility error. This
+/// provides a forward-compatible fallback for new model aliases without
+/// retrying unrelated 400 responses or hiding invalid tool schemas.
+fn should_retry_chat_tools_with_none(
+    status: reqwest::StatusCode,
+    error_text: &str,
+    request: &OpenAIChatRequest,
+) -> bool {
+    if status != reqwest::StatusCode::BAD_REQUEST
+        || request.reasoning_effort.as_deref() == Some("none")
+        || request.tools.as_ref().is_none_or(|tools| tools.is_empty())
+    {
+        return false;
+    }
+
+    let Ok(error) = serde_json::from_str::<serde_json::Value>(error_text) else {
+        return false;
+    };
+    let detail = &error["error"];
+    let Some(message) = detail["message"].as_str() else {
+        return false;
+    };
+    let message = message.to_ascii_lowercase();
+
+    detail["type"] == "invalid_request_error"
+        && detail["param"] == "reasoning_effort"
+        && message.contains("function tools")
+        && message.contains("reasoning_effort")
+        && message.contains("none")
+}
+
 impl GaiseClientOpenAI {
     /// Send `builder`, retrying transient failures — 429/5xx responses and
     /// network errors — with exponential backoff. OpenAI's 500 `server_error` is
@@ -413,6 +470,48 @@ impl GaiseClientOpenAI {
             tokio::time::sleep(delay).await;
         }
     }
+
+    fn chat_request_builder(
+        &self,
+        url: &str,
+        request: &OpenAIChatRequest,
+    ) -> reqwest::RequestBuilder {
+        self.client
+            .post(url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(request)
+    }
+
+    /// Send a Chat Completions request and retry once with reasoning disabled
+    /// when OpenAI explicitly reports the function-tools compatibility error.
+    async fn send_chat_with_reasoning_fallback(
+        &self,
+        url: &str,
+        request: &mut OpenAIChatRequest,
+    ) -> Result<reqwest::Response, Box<dyn std::error::Error + Send + Sync>> {
+        let response = self
+            .send_with_retry(self.chat_request_builder(url, request))
+            .await?;
+        if response.status().is_success() {
+            return Ok(response);
+        }
+
+        let status = response.status();
+        let err_text = response.text().await?;
+        if should_retry_chat_tools_with_none(status, &err_text, request) {
+            request.reasoning_effort = Some("none".to_string());
+            let response = self
+                .send_with_retry(self.chat_request_builder(url, request))
+                .await?;
+            if response.status().is_success() {
+                return Ok(response);
+            }
+            let err_text = response.text().await?;
+            return Err(format!("OpenAI API error: {err_text}").into());
+        }
+
+        Err(format!("OpenAI API error: {err_text}").into())
+    }
 }
 
 #[async_trait]
@@ -442,17 +541,9 @@ impl GaiseClient for GaiseClientOpenAI {
         });
         openai_request.service_tier = self.service_tier.clone();
 
-        let builder = self
-            .client
-            .post(url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&openai_request);
-        let response = self.send_with_retry(builder).await?;
-
-        if !response.status().is_success() {
-            let err_text = response.text().await?;
-            return Err(format!("OpenAI API error: {}", err_text).into());
-        }
+        let response = self
+            .send_chat_with_reasoning_fallback(&url, &mut openai_request)
+            .await?;
 
         let stream = response.bytes_stream();
 
@@ -513,17 +604,9 @@ impl GaiseClient for GaiseClientOpenAI {
         let mut openai_request = OpenAIChatRequest::from(request);
         openai_request.service_tier = self.service_tier.clone();
 
-        let builder = self
-            .client
-            .post(url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .json(&openai_request);
-        let response = self.send_with_retry(builder).await?;
-
-        if !response.status().is_success() {
-            let err_text = response.text().await?;
-            return Err(format!("OpenAI API error: {}", err_text).into());
-        }
+        let response = self
+            .send_chat_with_reasoning_fallback(&url, &mut openai_request)
+            .await?;
 
         let openai_response: OpenAIChatResponse = response.json().await?;
 
@@ -602,12 +685,53 @@ impl GaiseClient for GaiseClientOpenAI {
             }),
         })
     }
+
+    async fn list_models(
+        &self,
+        request: &GaiseListModelsRequest,
+    ) -> Result<GaiseListModelsResponse, Box<dyn std::error::Error + Send + Sync>> {
+        let list = self.list_models_raw().await?;
+        let models = list
+            .data
+            .iter()
+            .map(|m| map_openai_model(m, request.include_raw))
+            .collect();
+        let mut response = GaiseListModelsResponse::from_models(models);
+        response.retain_operation(request.operation);
+        Ok(response)
+    }
+}
+
+impl GaiseClientOpenAI {
+    /// `GET /v1/models`. OpenAI reports only identity and lifecycle; the
+    /// mapped capabilities are name heuristics (see `contracts::catalog`).
+    pub async fn list_models_raw(
+        &self,
+    ) -> Result<OpenAIModelList, Box<dyn std::error::Error + Send + Sync>> {
+        let url = format!("{}/models", self.api_url);
+        let builder = self
+            .client
+            .get(url)
+            .header("Authorization", format!("Bearer {}", self.api_key));
+        let response = self.send_with_retry(builder).await?;
+        if !response.status().is_success() {
+            let err_text = response.text().await?;
+            return Err(format!("OpenAI API error: {}", err_text).into());
+        }
+        let body = response.text().await?;
+        serde_json::from_str(&body).map_err(|e| {
+            let snippet: String = body.chars().take(400).collect();
+            format!("failed to parse OpenAI models response: {e}; body starts: {snippet}").into()
+        })
+    }
 }
 
 #[cfg(test)]
 mod retry_tests {
-    use super::{is_transient_status, map_stream_chunk, map_usage};
-    use crate::contracts::{OpenAIChatStreamResponse, OpenAIUsage};
+    use super::{
+        is_transient_status, map_stream_chunk, map_usage, should_retry_chat_tools_with_none,
+    };
+    use crate::contracts::{OpenAIChatRequest, OpenAIChatStreamResponse, OpenAIUsage};
     use gaise_core::contracts::GaiseStreamChunk;
     use reqwest::StatusCode;
 
@@ -623,6 +747,71 @@ mod retry_tests {
         assert!(!is_transient_status(StatusCode::BAD_REQUEST)); // 400
         assert!(!is_transient_status(StatusCode::UNAUTHORIZED)); // 401
         assert!(!is_transient_status(StatusCode::OK)); // 200
+    }
+
+    #[test]
+    fn retries_only_the_structured_function_tool_reasoning_error() {
+        let mut request: OpenAIChatRequest = serde_json::from_value(serde_json::json!({
+            "model": "gpt-future",
+            "messages": [{"role": "user", "content": "Call ping"}],
+            "tools": [{
+                "type": "function",
+                "function": {
+                    "name": "ping",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {},
+                        "required": []
+                    }
+                }
+            }],
+            "reasoning_effort": "high",
+            "stream": false
+        }))
+        .unwrap();
+        let compatibility_error = serde_json::json!({
+            "error": {
+                "message": "Function tools with reasoning_effort are not supported for gpt-future in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'.",
+                "type": "invalid_request_error",
+                "param": "reasoning_effort",
+                "code": null
+            }
+        })
+        .to_string();
+
+        assert!(should_retry_chat_tools_with_none(
+            StatusCode::BAD_REQUEST,
+            &compatibility_error,
+            &request
+        ));
+        assert!(!should_retry_chat_tools_with_none(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            &compatibility_error,
+            &request
+        ));
+
+        request.reasoning_effort = Some("none".to_string());
+        assert!(!should_retry_chat_tools_with_none(
+            StatusCode::BAD_REQUEST,
+            &compatibility_error,
+            &request
+        ));
+
+        request.reasoning_effort = Some("high".to_string());
+        let unrelated_error = serde_json::json!({
+            "error": {
+                "message": "Invalid function schema.",
+                "type": "invalid_request_error",
+                "param": "tools",
+                "code": null
+            }
+        })
+        .to_string();
+        assert!(!should_retry_chat_tools_with_none(
+            StatusCode::BAD_REQUEST,
+            &unrelated_error,
+            &request
+        ));
     }
 
     #[test]

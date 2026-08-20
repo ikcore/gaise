@@ -23,6 +23,20 @@ muse!(gaise_instruct_response, { GaiseInstructResponse });
 muse!(gaise_instruct_stream_response, {GaiseInstructStreamResponse, GaiseStreamChunk, GaiseStreamAccumulator});
 muse!(gaise_embeddings_request, { GaiseEmbeddingsRequest });
 muse!(gaise_embeddings_response, { GaiseEmbeddingsResponse });
+muse!(gaise_model, {
+    GaiseListModelsRequest,
+    GaiseListModelsResponse,
+    GaiseMetadataSource,
+    GaiseModality,
+    GaiseModel,
+    GaiseModelCapabilities,
+    GaiseModelLimits,
+    GaiseModelStatus,
+    GaiseOperation,
+    GaiseProviderError,
+    GaiseSupport,
+    rfc3339_from_unix
+});
 
 muse!(gaise_tool_config, { GaiseToolConfig });
 muse!(gaise_tool_call, {GaiseToolCall, GaiseFunctionCall});

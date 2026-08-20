@@ -423,3 +423,90 @@ fn test_mapping_all_supported_reasoning_effort_values_without_http() {
         assert_eq!(mapped.reasoning_effort.as_deref(), Some(effort));
     }
 }
+
+fn no_argument_tool() -> GaiseTool {
+    GaiseTool {
+        name: "ping".to_string(),
+        description: Some("Return pong.".to_string()),
+        parameters: Some(GaiseToolParameter {
+            r#type: Some("object".to_string()),
+            properties: Some(BTreeMap::new()),
+            required: Some(Vec::new()),
+            ..Default::default()
+        }),
+    }
+}
+
+fn reasoning_tool_request(
+    model: &str,
+    tools: Option<Vec<GaiseTool>>,
+    effort: Option<&str>,
+) -> GaiseInstructRequest {
+    GaiseInstructRequest {
+        model: model.to_string(),
+        input: OneOrMany::One(GaiseMessage {
+            role: "user".to_string(),
+            content: Some(OneOrMany::One(GaiseContent::Text {
+                text: "Call ping.".to_string(),
+            })),
+            ..Default::default()
+        }),
+        tools,
+        generation_config: Some(GaiseGenerationConfig {
+            thinking_effort: effort.map(str::to_string),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn test_gpt_5_6_chat_tools_force_none_reasoning_without_http() {
+    for model in [
+        "gpt-5.6",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.6-luna",
+        "gpt-5.6-terra-2026-07-30",
+        "gpt-5.6-luna-2026-07-30",
+    ] {
+        for effort in [None, Some("high")] {
+            let request = reasoning_tool_request(model, Some(vec![no_argument_tool()]), effort);
+            let mapped = OpenAIChatRequest::from(&request);
+            assert_eq!(
+                mapped.reasoning_effort.as_deref(),
+                Some("none"),
+                "unexpected reasoning effort for {model}"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_chat_tool_reasoning_override_is_narrow_without_http() {
+    let older_model_request =
+        reasoning_tool_request("gpt-5.5", Some(vec![no_argument_tool()]), Some("high"));
+    assert_eq!(
+        OpenAIChatRequest::from(&older_model_request)
+            .reasoning_effort
+            .as_deref(),
+        Some("high")
+    );
+
+    let terra_without_tools = reasoning_tool_request("gpt-5.6-terra", None, Some("high"));
+    assert_eq!(
+        OpenAIChatRequest::from(&terra_without_tools)
+            .reasoning_effort
+            .as_deref(),
+        Some("high")
+    );
+
+    let terra_with_empty_tools =
+        reasoning_tool_request("gpt-5.6-terra", Some(Vec::new()), Some("high"));
+    assert_eq!(
+        OpenAIChatRequest::from(&terra_with_empty_tools)
+            .reasoning_effort
+            .as_deref(),
+        Some("high")
+    );
+}

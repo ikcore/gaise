@@ -1,18 +1,20 @@
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{
         IntoResponse,
         sse::{Event, Sse},
     },
-    routing::post,
+    routing::{get, post},
 };
 use futures_util::StreamExt;
 use gaise_client::GaiseClientService;
 use gaise_core::{
     GaiseClient,
-    contracts::{GaiseEmbeddingsRequest, GaiseInstructRequest},
+    contracts::{
+        GaiseEmbeddingsRequest, GaiseInstructRequest, GaiseListModelsRequest, GaiseOperation,
+    },
 };
 use std::sync::Arc;
 use tracing::error;
@@ -33,7 +35,9 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     let router = Router::new()
         .route("/v1/instruct", post(handle_instruct))
         .route("/v1/instruct/stream", post(handle_instruct_stream))
-        .route("/v1/embeddings", post(handle_embeddings));
+        .route("/v1/embeddings", post(handle_embeddings))
+        .route("/v1/models", get(handle_list_models))
+        .route("/v1/models/:model", get(handle_get_model));
 
     #[cfg(feature = "live")]
     let router = router.route("/v1/live", axum::routing::get(handle_live_ws));
@@ -81,6 +85,95 @@ async fn handle_embeddings(
         Ok(response) => Json(response).into_response(),
         Err(e) => {
             error!("Embeddings error: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+/// Query parameters for `GET /v1/models`.
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct ListModelsQuery {
+    /// Restrict to one provider key.
+    pub provider: Option<String>,
+    /// Keep only models supporting this operation
+    /// (`instruct`, `instruct_stream`, `embeddings`, `live`).
+    pub operation: Option<String>,
+    /// Fetch per-model detail where it costs extra requests (Ollama).
+    #[serde(default)]
+    pub include_details: bool,
+    /// Attach each provider's native record.
+    #[serde(default)]
+    pub include_raw: bool,
+    pub correlation_id: Option<String>,
+}
+
+impl ListModelsQuery {
+    fn into_request(self) -> Result<GaiseListModelsRequest, String> {
+        let operation = match self.operation.as_deref() {
+            None | Some("") => None,
+            Some(value) => Some(
+                GaiseOperation::parse(value)
+                    .ok_or_else(|| format!("unknown operation '{value}'"))?,
+            ),
+        };
+        Ok(GaiseListModelsRequest {
+            provider: self.provider.filter(|p| !p.is_empty()),
+            operation,
+            include_details: self.include_details,
+            include_raw: self.include_raw,
+            correlation_id: self.correlation_id,
+        })
+    }
+}
+
+async fn handle_list_models(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<ListModelsQuery>,
+) -> impl IntoResponse {
+    let request = match query.into_request() {
+        Ok(request) => request,
+        Err(message) => return (StatusCode::BAD_REQUEST, message).into_response(),
+    };
+    match state.client_service.list_models(&request).await {
+        Ok(response) => Json(response).into_response(),
+        Err(e) => {
+            error!("List models error: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+/// `GET /v1/models/{provider}::{id}` — one model from one provider's listing.
+async fn handle_get_model(
+    State(state): State<Arc<AppState>>,
+    Path(model): Path<String>,
+    Query(query): Query<ListModelsQuery>,
+) -> impl IntoResponse {
+    let Some((provider, _)) = model.split_once("::") else {
+        return (
+            StatusCode::BAD_REQUEST,
+            "model must be in the format 'provider::model'".to_string(),
+        )
+            .into_response();
+    };
+    let request = GaiseListModelsRequest {
+        provider: Some(provider.to_string()),
+        operation: None,
+        include_details: query.include_details,
+        include_raw: query.include_raw,
+        correlation_id: query.correlation_id,
+    };
+    match state.client_service.list_models(&request).await {
+        Ok(response) => match response.models.into_iter().find(|m| m.id == model) {
+            Some(found) => Json(found).into_response(),
+            None => (
+                StatusCode::NOT_FOUND,
+                format!("model '{model}' not listed by {provider}"),
+            )
+                .into_response(),
+        },
+        Err(e) => {
+            error!("Get model error: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
         }
     }

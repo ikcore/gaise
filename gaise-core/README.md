@@ -21,10 +21,20 @@ pub trait GaiseClient: Send + Sync {
 
     async fn embeddings(&self, request: &GaiseEmbeddingsRequest)
         -> Result<GaiseEmbeddingsResponse, Box<dyn Error + Send + Sync>>;
+
+    // Default implementation reports "not supported" so custom clients keep compiling.
+    async fn list_models(&self, request: &GaiseListModelsRequest)
+        -> Result<GaiseListModelsResponse, Box<dyn Error + Send + Sync>>;
 }
 ```
 
 Every provider crate implements this trait. Your application depends on `gaise` for the contracts and picks whichever provider crates it needs.
+
+### Model discovery and the bundled registry
+
+`list_models` returns `GaiseModel` records: routable id, lifecycle status and dates, token limits, and a `GaiseModelCapabilities` block with input/output modalities, the GAISe operations that can drive the model (`instruct`, `instruct_stream`, `embeddings`, `live`), tri-state `tools` / `reasoning` / `structured_output` flags, and a `sources` list saying whether each claim came from the provider API, the registry, or a name heuristic. Provider model APIs differ widely in what they report, so `unknown` is a first-class answer.
+
+`gaise_core::registry` compiles `model-registry.toml` into the crate and exposes `ModelRegistry::bundled()`, `find(provider, id)` (exact, alias, `*` glob, dated-snapshot, and Bedrock profile-prefix matching), and `enrich(&mut GaiseModel)`, which fills in what a provider left unknown without overriding provider facts.
 
 ### `GaiseLiveClient` Trait (real-time sessions)
 

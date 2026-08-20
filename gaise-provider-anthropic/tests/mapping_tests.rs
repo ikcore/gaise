@@ -423,6 +423,31 @@ fn test_mapping_model_specific_sampling_rules_without_http() {
     assert_eq!(mapped.top_p, None);
     assert_eq!(mapped.top_k, None);
 
+    // Opus 5 (2026-07-24) follows the Opus 4.7 rules: adaptive-only thinking
+    // and no non-default temperature/top_p/top_k.
+    let opus5_sampling = GaiseInstructRequest {
+        model: "claude-opus-5".to_string(),
+        generation_config: Some(GaiseGenerationConfig {
+            temperature: Some(0.4),
+            top_p: Some(0.8),
+            top_k: Some(20),
+            thinking_effort: Some("xhigh".to_string()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mapped = AnthropicRequest::from(&opus5_sampling);
+    assert_eq!(mapped.temperature, None);
+    assert_eq!(mapped.top_p, None);
+    assert_eq!(mapped.top_k, None);
+    let thinking =
+        serde_json::to_value(mapped.thinking.as_ref().expect("adaptive thinking")).unwrap();
+    assert_eq!(thinking["type"], "adaptive");
+    assert_eq!(
+        serde_json::to_value(mapped.output_config.as_ref().unwrap()).unwrap()["effort"],
+        "xhigh"
+    );
+
     let exclusive_sampling = GaiseInstructRequest {
         model: "claude-sonnet-4-5-20250929".to_string(),
         generation_config: Some(GaiseGenerationConfig {

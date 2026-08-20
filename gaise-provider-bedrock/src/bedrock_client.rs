@@ -4,8 +4,13 @@ use futures_util::Stream;
 use gaise_core::GaiseClient;
 use gaise_core::contracts::{
     GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseFunctionCall,
-    GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse, GaiseMessage,
-    GaiseStreamChunk, GaiseToolCall, GaiseToolParameter, OneOrMany,
+    GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
+    GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseStreamChunk, GaiseToolCall,
+    GaiseToolParameter, OneOrMany,
+};
+
+use crate::catalog::{
+    BedrockInferenceProfile, BedrockModelSummary, map_foundation_model, map_inference_profiles,
 };
 use std::error::Error;
 use std::path::Path;
@@ -147,6 +152,9 @@ fn bedrock_document_name(name: Option<&str>) -> String {
 
 pub struct GaiseClientBedrock {
     client: BedrockClient,
+    /// Control-plane client for `ListFoundationModels` / `ListInferenceProfiles`.
+    /// Absent when the struct was built from a bare runtime client.
+    control: Option<aws_sdk_bedrock::Client>,
 }
 
 impl GaiseClientBedrock {
@@ -177,11 +185,83 @@ impl GaiseClientBedrock {
         }
         let config = loader.load().await;
         let client = BedrockClient::new(&config);
-        Self { client }
+        let control = aws_sdk_bedrock::Client::new(&config);
+        Self {
+            client,
+            control: Some(control),
+        }
     }
 
+    /// Wrap an existing runtime client. Model listing is unavailable unless a
+    /// control-plane client is also supplied via [`Self::with_clients`].
     pub fn with_client(client: BedrockClient) -> Self {
-        Self { client }
+        Self {
+            client,
+            control: None,
+        }
+    }
+
+    pub fn with_clients(client: BedrockClient, control: aws_sdk_bedrock::Client) -> Self {
+        Self {
+            client,
+            control: Some(control),
+        }
+    }
+
+    /// `ListFoundationModels` for the configured region.
+    pub async fn list_foundation_models(
+        &self,
+    ) -> Result<Vec<BedrockModelSummary>, Box<dyn Error + Send + Sync>> {
+        let control = self.control.as_ref().ok_or(
+            "Bedrock model listing requires a control-plane client; construct with new_with_region or with_clients",
+        )?;
+        let output = control
+            .list_foundation_models()
+            .send()
+            .await
+            .map_err(|e| format!("ListFoundationModels failed: {}", e.into_service_error()))?;
+        Ok(output
+            .model_summaries()
+            .iter()
+            .map(BedrockModelSummary::from)
+            .collect())
+    }
+
+    /// `ListInferenceProfiles` (system-defined cross-region profiles).
+    pub async fn list_inference_profiles(
+        &self,
+    ) -> Result<Vec<BedrockInferenceProfile>, Box<dyn Error + Send + Sync>> {
+        let control = self.control.as_ref().ok_or(
+            "Bedrock model listing requires a control-plane client; construct with new_with_region or with_clients",
+        )?;
+        let mut profiles = Vec::new();
+        let mut next_token: Option<String> = None;
+        loop {
+            let mut req = control
+                .list_inference_profiles()
+                .type_equals(aws_sdk_bedrock::types::InferenceProfileType::SystemDefined)
+                .max_results(1000);
+            if let Some(token) = &next_token {
+                req = req.next_token(token);
+            }
+            let output = req
+                .send()
+                .await
+                .map_err(|e| format!("ListInferenceProfiles failed: {}", e.into_service_error()))?;
+            profiles.extend(
+                output
+                    .inference_profile_summaries()
+                    .iter()
+                    .map(BedrockInferenceProfile::from),
+            );
+            match output.next_token() {
+                Some(token) if next_token.as_deref() != Some(token) => {
+                    next_token = Some(token.to_string())
+                }
+                _ => break,
+            }
+        }
+        Ok(profiles)
     }
 
     fn to_document(value: &serde_json::Value) -> aws_smithy_types::Document {
@@ -251,6 +331,7 @@ impl GaiseClientBedrock {
         let adaptive_only_claude = [
             "anthropic.claude-mythos-5",
             "anthropic.claude-fable-5",
+            "anthropic.claude-opus-5",
             "anthropic.claude-opus-4-8",
             "anthropic.claude-opus-4-7",
             "anthropic.claude-sonnet-5",
@@ -338,6 +419,7 @@ impl GaiseClientBedrock {
             "anthropic.claude-fable-5",
             "anthropic.claude-mythos-5",
             "anthropic.claude-mythos-preview",
+            "anthropic.claude-opus-5",
             "anthropic.claude-opus-4-7",
             "anthropic.claude-opus-4-8",
             "anthropic.claude-sonnet-5",
@@ -647,6 +729,36 @@ impl GaiseClientBedrock {
 
 #[async_trait]
 impl GaiseClient for GaiseClientBedrock {
+    async fn list_models(
+        &self,
+        request: &GaiseListModelsRequest,
+    ) -> Result<GaiseListModelsResponse, Box<dyn Error + Send + Sync>> {
+        let summaries = self.list_foundation_models().await?;
+        let mut models: Vec<gaise_core::contracts::GaiseModel> = summaries
+            .iter()
+            .map(|s| map_foundation_model(s, request.include_raw))
+            .collect();
+        let mut errors = Vec::new();
+        // Profiles are what callers invoke across regions; a failure here
+        // should not hide the foundation-model list.
+        match self.list_inference_profiles().await {
+            Ok(profiles) => {
+                models.extend(map_inference_profiles(
+                    &profiles,
+                    &models,
+                    request.include_raw,
+                ));
+            }
+            Err(e) => errors.push(gaise_core::contracts::GaiseProviderError {
+                provider: "bedrock".to_string(),
+                message: format!("inference profiles unavailable: {e}"),
+            }),
+        }
+        let mut response = GaiseListModelsResponse { models, errors };
+        response.retain_operation(request.operation);
+        Ok(response)
+    }
+
     async fn instruct(
         &self,
         request: &GaiseInstructRequest,
@@ -1212,6 +1324,13 @@ mod tests {
         assert_eq!(fields["thinking"]["type"], "adaptive");
         assert_eq!(fields["thinking"]["display"], "summarized");
         assert!(GaiseClientBedrock::omit_sampling_for_reasoning(&fable));
+
+        // Opus 5 (2026-07-24) follows the Opus 4.7/4.8 rules on Bedrock too.
+        let mut opus5 = request("global.anthropic.claude-opus-5", Some("high"), None);
+        opus5.generation_config.as_mut().unwrap().temperature = Some(0.2);
+        let fields = GaiseClientBedrock::reasoning_request_fields(&opus5).unwrap();
+        assert_eq!(fields["thinking"]["type"], "adaptive");
+        assert!(GaiseClientBedrock::omit_sampling_for_reasoning(&opus5));
 
         let mut manual = request(
             "anthropic.claude-sonnet-4-5-20250929-v1:0",

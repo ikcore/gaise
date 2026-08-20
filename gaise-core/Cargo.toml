@@ -22,6 +22,7 @@ async-trait.workspace = true
 futures-util.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 mockall = "0.14"
+toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }

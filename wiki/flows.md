@@ -1,6 +1,21 @@
-# Request flows
+# Flows
 
-These diagrams describe the current implementation boundaries.
+> Part of the [GAISe wiki](README.md) · [HTTP API](api.md) · [Rust SDK](sdk.md) · [Capabilities](capabilities.md) · [Models](models.md) · [Examples](examples.md) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Gemini](vendor-gemini.md) · [Vertex AI](vendor-vertexai.md) · [Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md)
+
+These diagrams describe the current implementation boundaries. Route-level sequences (one per HTTP endpoint) are in [api.md](api.md); vendor-specific sequences (auth, endpoint paths, event names) are on each vendor page under "Flow".
+
+## Contents
+
+- [Client routing](#client-routing)
+- [Non-streaming instruct](#non-streaming-instruct)
+- [Multimodal mapping](#multimodal-mapping)
+- [Streaming](#streaming)
+- [Tool-call loop](#tool-call-loop)
+- [Usage normalization](#usage-normalization)
+- [Embeddings](#embeddings)
+- [Model discovery](#model-discovery)
+- [Live session](#live-session)
+- [Retry and errors](#retry-and-errors)
 
 ## Client routing
 
@@ -13,8 +28,10 @@ flowchart TD
     D -->|Yes| E[Reuse Arc client]
     D -->|No| F[Initialize from GaiseClientConfig]
     F --> E
-    E --> G[Call instruct, stream, embeddings, or live]
+    E --> G[Call instruct, stream, embeddings, list_models, or live]
 ```
+
+Source: [`GaiseClientService::get_client`](../gaise-client/src/lib.rs). Construction details per provider: [sdk.md#direct-provider-clients](sdk.md#direct-provider-clients).
 
 ## Non-streaming instruct
 
@@ -57,7 +74,7 @@ flowchart LR
     S -->|No valid mapping| E[Return error]
 ```
 
-Adapters do not silently discard unsupported content. Whether they can use a text marker or must fail depends on the provider's valid message schema.
+Adapters do not silently discard unsupported content. Whether they can use a text marker or must fail depends on the provider's valid message schema — see the per-provider table in [capabilities.md#modalities-by-provider](capabilities.md#modalities-by-provider) and MIME helpers in [`gaise_content.rs`](../gaise-core/src/contracts/gaise_content.rs).
 
 ## Streaming
 
@@ -80,7 +97,7 @@ flowchart TD
     A2 --> US[Latest usage counters by key]
 ```
 
-The raw transport chunks are not assumed to align with SSE lines or JSON objects. Buffers retain an incomplete trailing frame until the next network chunk.
+The raw transport chunks are not assumed to align with SSE lines or JSON objects. Buffers retain an incomplete trailing frame until the next network chunk. Chunk variants and the accumulator API: [sdk.md#streaming](sdk.md#streaming); framing per provider: [capabilities.md#streaming](capabilities.md#streaming).
 
 ## Tool-call loop
 
@@ -147,7 +164,50 @@ flowchart LR
     N --> R[GaiseEmbeddingsResponse + available usage]
 ```
 
-Anthropic has no embeddings branch. The common embedding input is currently text-only.
+Anthropic has no embeddings branch. The common embedding input is currently text-only. Models and usage per provider: [capabilities.md#embeddings](capabilities.md#embeddings).
+
+## Model discovery
+
+```mermaid
+flowchart TD
+    Q["GaiseListModelsRequest<br/>provider? operation? include_details? include_raw?"] --> P{provider set?}
+    P -->|yes| ONE["get_client(provider)"]
+    P -->|no| FAN["configured_providers()<br/>credentials present + add_client keys"]
+    FAN --> JOIN["join_all(list_provider_models)"]
+    ONE --> AD
+    JOIN --> AD
+    subgraph AD["adapter list_models — provider facts only"]
+        direction LR
+        OAI["OpenAI GET /models<br/>id, created, shutdown_date<br/>+ name heuristics"]
+        ANT["Anthropic GET /models<br/>capabilities, limits<br/>cursor paging"]
+        GEM["Gemini GET /models<br/>methods to ops, thinking, limits"]
+        VAI["Vertex v1beta1 publishers list<br/>name, launchStage"]
+        BED["Bedrock ListFoundationModels<br/>+ ListInferenceProfiles"]
+        OLL["Ollama /api/tags<br/>+ /api/show when include_details"]
+    end
+    AD --> EN["registry.enrich(model)<br/>union modalities · fill unknowns · lifecycle"]
+    EN --> ID["id = provider::id"]
+    ID --> FIL["retain_operation(filter)"]
+    FIL --> OUT["GaiseListModelsResponse<br/>models + per-provider errors"]
+```
+
+Provider failures inside a fan-out become entries in `errors`; a single-provider request propagates the error. Enrichment runs before the operation filter so registry-supplied operations count. Sources: [`gaise-client/src/lib.rs`](../gaise-client/src/lib.rs), [`gaise-core/src/registry.rs`](../gaise-core/src/registry.rs); semantics: [capabilities.md#model-discovery](capabilities.md#model-discovery); HTTP: [api.md#get-v1models](api.md#get-v1models).
+
+```mermaid
+flowchart LR
+    A["model id"] --> B{"bedrock?"}
+    B -->|yes| C["strip us. eu. apac. ap. jp. au. ca. il. global. us-gov."]
+    B -->|no| D[keep]
+    C --> E
+    D --> E{"exact id or alias?"}
+    E -->|yes| W[entry]
+    E -->|no| F{"glob match?"}
+    F -->|yes| G[longest pattern]
+    F -->|no| H{"snapshot suffix?<br/>-YYYY-MM-DD · -YYYYMMDD · -vN:M · :N"}
+    H -->|yes| W
+    H -->|no| N[no entry]
+    G --> W
+```
 
 ## Live session
 
@@ -175,7 +235,7 @@ sequenceDiagram
     Live-->>App: SessionEnded
 ```
 
-OpenAI uses the current GA nested audio/session shape. Gemini uses `setup`, `realtimeInput`, and `toolResponse`; images are sent as realtime video frames. A setup error or early socket close is surfaced instead of being reported as a started session.
+OpenAI uses the current GA nested audio/session shape. Gemini uses `setup`, `realtimeInput`, and `toolResponse`; images are sent as realtime video frames. A setup error or early socket close is surfaced instead of being reported as a started session. Contracts: [sdk.md#live](sdk.md#live); WebSocket route: [api.md#get-v1live](api.md#get-v1live); providers: [vendor-openai.md#live--realtime](vendor-openai.md#live--realtime), [vendor-gemini.md#live--realtime](vendor-gemini.md#live--realtime).
 
 ## Retry and errors
 
@@ -191,5 +251,5 @@ flowchart TD
     C -->|Invalid shape| H[Return parse error with bounded context]
 ```
 
-Retries are adapter-specific and limited to transient classes. Invalid inputs, authentication failures, and unsupported content are not made to look successful.
+Retries are adapter-specific and limited to transient classes: today only OpenAI retries (429/5xx/transport, plus one retry of the GPT-5.6 function-tool `reasoning_effort` incompatibility — [`send_with_retry`](../gaise-provider-openai/src/openai_client.rs)). Invalid inputs, authentication failures, and unsupported content are not made to look successful. HTTP status mapping: [api.md#errors](api.md#errors).
 
