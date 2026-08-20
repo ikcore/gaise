@@ -2,6 +2,8 @@
 
 The `gaise-api` crate exposes the common GAISe contracts as JSON, Server-Sent Events (SSE), and an optional live WebSocket. The default local address is `http://localhost:3000`.
 
+This file is the short wire-contract summary. The full reference — every route with a sequence diagram, the Rust SDK, per-vendor mapping details, capability matrices, and the complete model catalog — is the [wiki](wiki/README.md): [api.md](wiki/api.md) · [sdk.md](wiki/sdk.md) · [capabilities.md](wiki/capabilities.md) · [models.md](wiki/models.md) · [flows.md](wiki/flows.md) · [examples.md](wiki/examples.md). Ready-to-run requests for every route are in [`gaise_postman_collection.json`](gaise_postman_collection.json).
+
 ## Model routing
 
 HTTP requests use `provider::model-id`:
@@ -13,7 +15,7 @@ HTTP requests use `provider::model-id`:
 - `bedrock::us.anthropic.claude-sonnet-5`
 - `ollama::qwen3:8b`
 
-The router removes the provider prefix before forwarding the request. GAISe does not restrict IDs to a hard-coded allowlist; consult [`model-registry.toml`](model-registry.toml) and the provider catalog for current availability.
+The router removes the provider prefix before forwarding the request. GAISe does not restrict IDs to a hard-coded allowlist; use [`GET /v1/models`](#get-v1models) for live discovery and consult [`gaise-core/model-registry.toml`](gaise-core/model-registry.toml) and the provider catalog for lifecycle guidance.
 
 ## `POST /v1/instruct`
 
@@ -69,7 +71,7 @@ Typical response:
 
 `input`, message `content`, and response `output` use `OneOrMany<T>` and therefore accept either one object or an array.
 
-Usage has independent `input`, `output`, and request-wide `total` maps. Counters in one map can overlap: an aggregate such as `prompt_tokens` includes its `text_tokens`, `image_tokens`, `audio_tokens`, and cached subsets. Do not sum every map value. GAISe returns a modality counter only when the provider reports it; it does not label an undifferentiated prompt as text or infer an image/audio split. See [`developer/wiki/common-contracts.md`](developer/wiki/common-contracts.md#usage) for provider-specific fields.
+Usage has independent `input`, `output`, and request-wide `total` maps. Counters in one map can overlap: an aggregate such as `prompt_tokens` includes its `text_tokens`, `image_tokens`, `audio_tokens`, and cached subsets. Do not sum every map value. GAISe returns a modality counter only when the provider reports it; it does not label an undifferentiated prompt as text or infer an image/audio split. See [`wiki/sdk.md`](wiki/sdk.md#usage) for provider-specific fields.
 
 ### Generation configuration
 
@@ -274,6 +276,73 @@ The Rust `GaiseStreamAccumulator` can collect these chunks into a complete order
 
 The common embeddings contract currently accepts text even where the provider offers multimodal embedding models. Usage is present only when that embedding endpoint reports it; Gemini `batchEmbedContents` and Bedrock Cohere responses currently leave it absent rather than estimating tokens.
 
+## `GET /v1/models`
+
+Lists the models reachable through every configured provider, normalized to the common `GaiseModel` record. IDs are returned in routable `provider::id` form.
+
+| Query parameter | Meaning |
+|---|---|
+| `provider` | Restrict to one provider key (`openai`, `anthropic`, `gemini`, `vertexai`, `bedrock`, `ollama`, or a custom key registered with `add_client`). |
+| `operation` | Keep only models whose `capabilities.operations` include `instruct`, `instruct_stream`, `embeddings`, or `live`. |
+| `include_details` | Fetch per-model detail where that costs extra requests (Ollama `/api/show`). Default `false`. |
+| `include_raw` | Attach each provider's native record as `raw`. Default `false`. |
+| `correlation_id` | Logged with the request. |
+
+```json
+{
+  "models": [
+    {
+      "id": "anthropic::claude-opus-5",
+      "provider": "anthropic",
+      "display_name": "Claude Opus 5",
+      "created_at": "2026-07-24T00:00:00Z",
+      "status": "active",
+      "retirement_not_before": "2027-07-24",
+      "capabilities": {
+        "input": ["text", "image", "file"],
+        "output": ["text"],
+        "operations": ["instruct", "instruct_stream"],
+        "tools": "supported",
+        "reasoning": "supported",
+        "reasoning_values": ["low", "medium", "high", "xhigh", "max"],
+        "structured_output": "supported",
+        "sources": ["provider", "registry"]
+      },
+      "limits": { "max_input_tokens": 1000000, "max_output_tokens": 128000 }
+    },
+    {
+      "id": "openai::text-embedding-3-small",
+      "provider": "openai",
+      "created_at": "2024-01-22T18:43:17Z",
+      "status": "active",
+      "capabilities": {
+        "input": ["text"],
+        "output": ["embedding"],
+        "operations": ["embeddings"],
+        "tools": "unsupported",
+        "reasoning": "unsupported",
+        "structured_output": "unknown",
+        "sources": ["provider", "heuristic", "registry"]
+      },
+      "limits": {}
+    }
+  ],
+  "errors": [
+    { "provider": "ollama", "message": "error sending request for url (http://localhost:11434/api/tags)" }
+  ]
+}
+```
+
+Semantics:
+
+- `tools`, `reasoning`, and `structured_output` are tri-state: `supported`, `unsupported`, or `unknown`. Empty `input`/`output` lists mean *unknown*, never *none*.
+- `operations` lists the GAISe trait methods that can drive the model. Image-generation-only, TTS, and transcription models appear with an empty list.
+- `sources` records where the claims came from: `provider` (the vendor's model API), `registry` (the bundled `model-registry.toml` overlay), `heuristic` (an adapter name rule, used for OpenAI and Vertex AI whose APIs report no capabilities).
+- Without `provider`, the listing covers every provider with credentials in the configuration; providers that fail appear in `errors` and do not hide the others. With `provider`, a failure returns HTTP 500.
+- Bedrock lists both foundation models and system-defined cross-region inference profiles (`us.`, `global.` ...), which inherit the foundation model's capabilities.
+
+`GET /v1/models/{provider}::{id}` returns the single matching record or 404. Unknown `operation` values and IDs without the `::` separator return 400.
+
 ## `GET /v1/live`
 
 When the API is built with live-provider features, this WebSocket route proxies the common live protocol to OpenAI Realtime or Gemini Live. Live sessions are provider- and model-specific and require credentials. They are not exercised by the default test suite.
@@ -282,7 +351,7 @@ Client-to-server input variants are `text`, `audio`, `image`, `tool_response`, `
 
 OpenAI Realtime accepts 24 kHz PCM audio in the common audio path and PNG/JPEG still images. Gemini Live accepts audio and image/video frames through its realtime streams. Manual activity, clear, and cancel operations remain provider-specific; unsupported operations produce an explicit error event rather than a fabricated success.
 
-The full live protocol, wire examples, and provider differences are documented in [`developer/wiki/request-examples.md`](developer/wiki/request-examples.md#live--realtime) and [`developer/wiki/flows.md`](developer/wiki/flows.md#live-session).
+The full live protocol, wire examples, and provider differences are documented in [`wiki/examples.md`](wiki/examples.md#live--realtime) and [`wiki/flows.md`](wiki/flows.md#live-session).
 
 ## Configuration
 

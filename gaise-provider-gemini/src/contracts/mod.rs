@@ -1,4 +1,6 @@
+pub mod catalog;
 pub mod models;
+pub use catalog::*;
 pub use models::*;
 
 #[cfg(feature = "live")]

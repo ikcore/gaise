@@ -7,6 +7,11 @@ pub use service_account_info::ServiceAccountInfo;
 pub mod google_claims;
 pub use google_claims::GoogleClaims;
 
+pub mod catalog;
+pub use catalog::{
+    VertexCatalogEndpoint, VertexPublisherModel, VertexPublisherModelList, map_vertex_model,
+};
+
 pub mod models;
 pub use models::{
     GoogleAccessToken, GoogleChatCompletionResponse, GoogleCitationMetadata, GoogleInstance,

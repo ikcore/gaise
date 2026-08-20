@@ -1,6 +1,18 @@
-# Request examples
+# Examples
 
-These examples use `GaiseClientService`, so model IDs include a provider prefix. With a direct client, remove that prefix. Byte vectors are placeholders; load and validate media in your application.
+> Part of the [GAISe wiki](README.md) · [Rust SDK](sdk.md) · [HTTP API](api.md) · [Capabilities](capabilities.md) · [Models](models.md) · [Flows](flows.md)
+
+Rust examples for every contract surface. They use `GaiseClientService`, so model IDs include a provider prefix; with a [direct client](sdk.md#direct-provider-clients), remove it. Byte vectors are placeholders; load and validate media in your application. The JSON equivalents of these requests are in [api.md](api.md) and, ready to run, in the [Postman collection](../gaise_postman_collection.json).
+
+## Contents
+
+- [Text](#text) · [System instruction and conversation history](#system-instruction-and-conversation-history)
+- [Image input](#image-input) · [Audio input](#audio-input) · [File or document input](#file-or-document-input) · [Nested ordered parts](#nested-ordered-parts)
+- [Reasoning controls](#reasoning-controls) · [Generated image or image edit](#generated-image-or-image-edit)
+- [Tool declaration](#tool-declaration) · [Tool result](#tool-result)
+- [Streaming](#streaming) · [Embeddings](#embeddings) · [Usage inspection](#usage-inspection)
+- [Model discovery](#model-discovery)
+- [Live / realtime](#live--realtime)
 
 ```rust
 use gaise_core::{GaiseClient, GaiseLiveClient};
@@ -340,6 +352,58 @@ if let Some(usage) = response.usage {
 ```
 
 Do not treat a missing modality counter as zero. That provider surface may only return an aggregate.
+
+## Model discovery
+
+```rust
+use gaise_core::contracts::{GaiseListModelsRequest, GaiseModality, GaiseOperation, GaiseSupport};
+
+// Everything every configured provider can list, routable and enriched.
+let catalog = service.list_models(&GaiseListModelsRequest::default()).await?;
+for model in &catalog.models {
+    println!(
+        "{:<48} status={:?} ops={:?} in={:?} out={:?} tools={:?} sources={:?}",
+        model.id,
+        model.status,
+        model.capabilities.operations,
+        model.capabilities.input,
+        model.capabilities.output,
+        model.capabilities.tools,
+        model.capabilities.sources,
+    );
+}
+for error in &catalog.errors {
+    eprintln!("{} could not be listed: {}", error.provider, error.message);
+}
+
+// Vision-capable streaming chat models from one provider, with the raw record attached.
+let vision = service
+    .list_models(&GaiseListModelsRequest {
+        provider: Some("anthropic".into()),
+        operation: Some(GaiseOperation::InstructStream),
+        include_raw: true,
+        ..Default::default()
+    })
+    .await?;
+let ids: Vec<&str> = vision
+    .models
+    .iter()
+    .filter(|m| m.capabilities.input.contains(&GaiseModality::Image))
+    .filter(|m| m.capabilities.tools != GaiseSupport::Unsupported)
+    .map(|m| m.id.as_str())
+    .collect();
+
+// Installed Ollama tags with /api/show detail (one extra call per tag).
+let local = service
+    .list_models(&GaiseListModelsRequest {
+        provider: Some("ollama".into()),
+        include_details: true,
+        ..Default::default()
+    })
+    .await?;
+```
+
+`capabilities.sources` tells you whether a claim came from the provider API, the bundled registry, or a name heuristic; `GaiseSupport::Unknown` and empty modality lists mean "nobody said" — see [capabilities.md#model-discovery](capabilities.md#model-discovery). HTTP equivalent: [`GET /v1/models`](api.md#get-v1models).
 
 ## Live / realtime
 

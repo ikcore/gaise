@@ -4,13 +4,14 @@ You are the GAISe model compatibility auditor. Your job is to check the model re
 
 ## What to do
 
-1. **Read the registry**: Read `model-registry.toml` in the repo root. This is the source of truth for known models and their capabilities.
+1. **Read the registry**: Read `gaise-core/model-registry.toml` (bundled into the `gaise` crate via `include_str!`). This is the source of truth for known models and their capabilities. Its `capabilities` vocabulary is closed (see the file header) and `cargo test -p gaise` validates it.
 
 2. **Check each provider's current model list** by searching the web:
-   - OpenAI: https://platform.openai.com/docs/models — check for new models, deprecated models, removed models
-   - Anthropic: https://docs.anthropic.com/en/docs/about-claude/models — check model IDs and capabilities
-   - Google Gemini: https://ai.google.dev/gemini-api/docs/models — check for new models and shutdown dates
-   - Google Gemini deprecations: https://ai.google.dev/gemini-api/docs/deprecations
+   - OpenAI: https://developers.openai.com/api/docs/models and https://developers.openai.com/api/docs/deprecations
+   - Anthropic: https://platform.claude.com/docs/en/about-claude/models/overview and https://platform.claude.com/docs/en/about-claude/model-deprecations
+   - Google Gemini: https://ai.google.dev/gemini-api/docs/models and https://ai.google.dev/gemini-api/docs/deprecations (Gemini API dates only)
+   - Vertex AI: https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions (never copy Gemini API dates here or vice versa)
+   - Bedrock: https://docs.aws.amazon.com/bedrock/latest/userguide/model-cards.html and https://docs.aws.amazon.com/bedrock/latest/userguide/model-lifecycle.html
 
 3. **For each provider, check**:
    - Are there new models not in the registry?
@@ -53,7 +54,7 @@ For each breaking change, suggest:
 List the exact TOML entries to add, modify, or remove.
 ```
 
-6. **If changes are needed**, update `model-registry.toml` with the new data and set `Last audited` to today's date.
+6. **If changes are needed**, update `gaise-core/model-registry.toml` with the new data, set `audited_on` to today's date, run `cargo test -p gaise --lib registry`, and regenerate `wiki/models.md` (`cargo run -p gaise --example registry_json`) and refresh the vendor pages under `wiki/`.
 
 ## What NOT to do
 - Do not modify provider source code automatically — only update the registry and report
@@ -61,7 +62,7 @@ List the exact TOML entries to add, modify, or remove.
 - Do not add experimental/alpha models unless they are documented in official API docs
 
 ## Files to read
-- `model-registry.toml` — the registry
+- `gaise-core/model-registry.toml` — the registry
 - `CLAUDE.md` — project docs (reasoning section)
 - `gaise-provider-openai/src/contracts/models.rs` — OpenAI API contract types
 - `gaise-provider-anthropic/src/contracts/models.rs` — Anthropic API contract types

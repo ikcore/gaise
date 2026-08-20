@@ -13,6 +13,8 @@ Axum HTTP server for [GAISe](https://crates.io/crates/gaise) — exposes all Gen
 | `POST` | `/v1/instruct` | Non-streaming instruct request |
 | `POST` | `/v1/instruct/stream` | Server-Sent Events streaming |
 | `POST` | `/v1/embeddings` | Generate embedding vectors |
+| `GET` | `/v1/models` | List models across configured providers (`?provider=`, `?operation=`, `?include_details=`, `?include_raw=`) |
+| `GET` | `/v1/models/{provider}::{id}` | One model record |
 | `GET` | `/v1/live` | WebSocket for real-time audio/text sessions (feature = `live`) |
 
 ## Quick Start

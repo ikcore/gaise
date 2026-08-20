@@ -5,9 +5,9 @@ use futures_util::{Stream, StreamExt};
 use gaise_core::GaiseClient;
 use gaise_core::contracts::{
     GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseFunctionCall,
-    GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse, GaiseMessage,
-    GaiseStreamChunk, GaiseTool, GaiseToolCall, GaiseToolParameter, GaiseUsage, OneOrMany,
-    file_media_type, image_media_type,
+    GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
+    GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseStreamChunk, GaiseTool,
+    GaiseToolCall, GaiseToolParameter, GaiseUsage, OneOrMany, file_media_type, image_media_type,
 };
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -181,6 +181,7 @@ fn anthropic_reasoning_config(
     let adaptive_only = [
         "claude-fable-5",
         "claude-mythos-5",
+        "claude-opus-5",
         "claude-opus-4-8",
         "claude-opus-4-7",
         "claude-sonnet-5",
@@ -441,6 +442,7 @@ impl From<&GaiseInstructRequest> for AnthropicRequest {
         let model = request.model.to_ascii_lowercase();
         let fixed_sampling = model.contains("claude-opus-4-7")
             || model.contains("claude-opus-4-8")
+            || model.contains("claude-opus-5")
             || model.contains("claude-sonnet-5")
             || model.contains("claude-fable-5")
             || model.contains("claude-mythos-5")
@@ -508,6 +510,44 @@ impl GaiseClientAnthropic {
     pub fn with_version(mut self, version: String) -> Self {
         self.api_version = version;
         self
+    }
+
+    /// One page of `GET /v1/models`.
+    pub async fn list_models_page(
+        &self,
+        after_id: Option<&str>,
+    ) -> Result<AnthropicModelList, Box<dyn std::error::Error + Send + Sync>> {
+        let mut url = format!("{}/models?limit=1000", self.api_url);
+        if let Some(after) = after_id {
+            // Model ids are URL-safe (`[A-Za-z0-9.:-]`); escape defensively anyway.
+            let escaped: String = after
+                .bytes()
+                .map(|b| match b {
+                    b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                        (b as char).to_string()
+                    }
+                    other => format!("%{other:02X}"),
+                })
+                .collect();
+            url.push_str("&after_id=");
+            url.push_str(&escaped);
+        }
+        let response = self
+            .client
+            .get(url)
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", &self.api_version)
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            let err_text = response.text().await?;
+            return Err(format!("Anthropic API error: {}", err_text).into());
+        }
+        let body = response.text().await?;
+        serde_json::from_str(&body).map_err(|e| {
+            let snippet: String = body.chars().take(400).collect();
+            format!("failed to parse Anthropic models response: {e}; body starts: {snippet}").into()
+        })
     }
 
     fn map_from_anthropic_content(
@@ -795,6 +835,33 @@ impl GaiseClient for GaiseClientAnthropic {
                 total: map_request_usage(u),
             }),
         })
+    }
+
+    async fn list_models(
+        &self,
+        request: &GaiseListModelsRequest,
+    ) -> Result<GaiseListModelsResponse, Box<dyn std::error::Error + Send + Sync>> {
+        let mut models = Vec::new();
+        let mut after_id: Option<String> = None;
+        // Cursor pagination; the page size cap is 1000 so this is normally one call.
+        loop {
+            let page = self.list_models_page(after_id.as_deref()).await?;
+            models.extend(
+                page.data
+                    .iter()
+                    .map(|m| map_anthropic_model(m, request.include_raw)),
+            );
+            if !page.has_more {
+                break;
+            }
+            match page.last_id {
+                Some(id) if after_id.as_deref() != Some(id.as_str()) => after_id = Some(id),
+                _ => break,
+            }
+        }
+        let mut response = GaiseListModelsResponse::from_models(models);
+        response.retain_operation(request.operation);
+        Ok(response)
     }
 
     async fn embeddings(

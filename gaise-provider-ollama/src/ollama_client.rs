@@ -5,8 +5,9 @@ use futures_util::{Stream, StreamExt};
 use gaise_core::GaiseClient;
 use gaise_core::contracts::{
     GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseFunctionCall,
-    GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse, GaiseMessage,
-    GaiseStreamChunk, GaiseTool, GaiseToolCall, GaiseUsage, OneOrMany,
+    GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
+    GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseModel, GaiseStreamChunk,
+    GaiseTool, GaiseToolCall, GaiseUsage, OneOrMany,
 };
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -337,6 +338,48 @@ impl GaiseClientOllama {
         }
     }
 
+    /// `GET /api/tags` — the locally installed catalog.
+    pub async fn list_tags(
+        &self,
+    ) -> Result<OllamaTagList, Box<dyn std::error::Error + Send + Sync>> {
+        let url = format!("{}/api/tags", self.api_url);
+        let response = self.client.get(url).send().await?;
+        if !response.status().is_success() {
+            let err_text = response.text().await?;
+            return Err(format_ollama_error(&err_text).into());
+        }
+        let body = response.text().await?;
+        serde_json::from_str(&body).map_err(|e| {
+            let snippet: String = body.chars().take(400).collect();
+            format!("failed to parse Ollama tags response: {e}; body starts: {snippet}").into()
+        })
+    }
+
+    /// `POST /api/show` — capabilities and model info for one tag.
+    pub async fn show_model(
+        &self,
+        model: &str,
+    ) -> Result<OllamaShowResponse, Box<dyn std::error::Error + Send + Sync>> {
+        let url = format!("{}/api/show", self.api_url);
+        let response = self
+            .client
+            .post(url)
+            .json(&OllamaShowRequest {
+                model: model.to_string(),
+            })
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            let err_text = response.text().await?;
+            return Err(format_ollama_error(&err_text).into());
+        }
+        let body = response.text().await?;
+        serde_json::from_str(&body).map_err(|e| {
+            let snippet: String = body.chars().take(400).collect();
+            format!("failed to parse Ollama show response: {e}; body starts: {snippet}").into()
+        })
+    }
+
     fn map_from_ollama_message(&self, msg: OllamaMessage) -> GaiseMessage {
         let tool_calls = msg.tool_calls.map(|tcs| {
             tcs.into_iter()
@@ -390,6 +433,56 @@ impl GaiseClientOllama {
 
 #[async_trait]
 impl GaiseClient for GaiseClientOllama {
+    async fn list_models(
+        &self,
+        request: &GaiseListModelsRequest,
+    ) -> Result<GaiseListModelsResponse, Box<dyn std::error::Error + Send + Sync>> {
+        let tags = self.list_tags().await?;
+        let mut models: Vec<GaiseModel> = tags
+            .models
+            .iter()
+            .map(|t| map_ollama_tag(t, request.include_raw))
+            .collect();
+        let mut errors = Vec::new();
+
+        if request.include_details {
+            // `/api/show` per tag, a few at a time so a large local catalog
+            // does not hammer the daemon.
+            const CONCURRENCY: usize = 4;
+            let include_raw = request.include_raw;
+            let detailed = futures_util::stream::iter(models)
+                .map(|mut model| async move {
+                    match self.show_model(&model.id).await {
+                        Ok(show) => {
+                            apply_ollama_show(&mut model, &show, include_raw);
+                            (model, None)
+                        }
+                        Err(e) => (
+                            model.clone(),
+                            Some(gaise_core::contracts::GaiseProviderError {
+                                provider: "ollama".to_string(),
+                                message: format!("{}: {e}", model.id),
+                            }),
+                        ),
+                    }
+                })
+                .buffered(CONCURRENCY)
+                .collect::<Vec<_>>()
+                .await;
+            models = Vec::with_capacity(detailed.len());
+            for (model, error) in detailed {
+                models.push(model);
+                if let Some(error) = error {
+                    errors.push(error);
+                }
+            }
+        }
+
+        let mut response = GaiseListModelsResponse { models, errors };
+        response.retain_operation(request.operation);
+        Ok(response)
+    }
+
     async fn instruct_stream(
         &self,
         request: &GaiseInstructRequest,

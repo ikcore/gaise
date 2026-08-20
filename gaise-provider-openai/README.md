@@ -63,6 +63,13 @@ let request = GaiseInstructRequest {
 
 Maps `thinking_effort` to `reasoning_effort` and `max_tokens` to `max_completion_tokens`.
 
+On Chat Completions, the GPT-5.6 family currently requires
+`reasoning_effort: "none"` when function tools are present. The adapter applies
+that value automatically and retries once when a newer model or alias returns
+the same structured compatibility error. Tool-free requests retain the
+configured reasoning effort; use the Responses API when reasoning and tools
+must be combined.
+
 ### Live / Realtime (feature = "live")
 
 Enable the `live` feature to use the OpenAI Realtime API for bidirectional audio and text streaming:

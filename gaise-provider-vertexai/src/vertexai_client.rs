@@ -3,6 +3,9 @@ use std::time::Duration;
 
 use super::contracts::ServiceAccount;
 use super::contracts::google_claims::GoogleClaims;
+use crate::contracts::catalog::{
+    VertexCatalogEndpoint, VertexPublisherModelList, map_vertex_model,
+};
 use crate::contracts::models::{GoogleEmbeddingsRequest, GoogleEmbeddingsResponse};
 use crate::contracts::{GoogleAccessToken, GoogleChatCompletionResponse, GoogleInstructRequest};
 use async_trait::async_trait;
@@ -17,6 +20,8 @@ use gaise_core::{
         GaiseInstructRequest,
         GaiseInstructResponse,
         GaiseInstructStreamResponse,
+        GaiseListModelsRequest,
+        GaiseListModelsResponse,
     },
 };
 
@@ -303,6 +308,34 @@ impl GaiseClient for GaiseClientVertexAI {
         Ok(response_view)
     }
 
+    async fn list_models(
+        &self,
+        request: &GaiseListModelsRequest,
+    ) -> Result<GaiseListModelsResponse, Box<dyn std::error::Error + Send + Sync>> {
+        let endpoint = VertexCatalogEndpoint::from_template(&self.api_url)?;
+        let mut models = Vec::new();
+        let mut token: Option<String> = None;
+        loop {
+            let page = self
+                .list_publisher_models_page(&endpoint, token.as_deref())
+                .await?;
+            models.extend(
+                page.publisher_models
+                    .iter()
+                    .map(|m| map_vertex_model(m, request.include_raw)),
+            );
+            match page.next_page_token {
+                Some(next) if !next.is_empty() && token.as_deref() != Some(next.as_str()) => {
+                    token = Some(next)
+                }
+                _ => break,
+            }
+        }
+        let mut response = GaiseListModelsResponse::from_models(models);
+        response.retain_operation(request.operation);
+        Ok(response)
+    }
+
     async fn embeddings(
         &self,
         request: &GaiseEmbeddingsRequest,
@@ -335,6 +368,36 @@ impl GaiseClient for GaiseClientVertexAI {
         let response_view = response.to_view();
 
         Ok(response_view)
+    }
+}
+
+impl GaiseClientVertexAI {
+    /// One page of Model Garden `publishers.models.list` (v1beta1) for the
+    /// publisher named in the configured URL template.
+    pub async fn list_publisher_models_page(
+        &self,
+        endpoint: &VertexCatalogEndpoint,
+        page_token: Option<&str>,
+    ) -> Result<VertexPublisherModelList, Box<dyn std::error::Error + Send + Sync>> {
+        let token = self
+            .get_token()
+            .await
+            .map_err(|e| format!("no google access token: {e}"))?;
+        let res = self
+            .http
+            .get(endpoint.list_url(page_token))
+            .header("Authorization", "Bearer ".to_owned() + &token)
+            .send()
+            .await
+            .map_err(|e| format!("model list request failed: {e}"))?;
+        let body = checked_text(res, "Vertex AI model list request").await?;
+        serde_json::from_str(&body).map_err(|e| {
+            format!(
+                "model list response parse failed: {e} — body: {}",
+                &body[..body.len().min(500)]
+            )
+            .into()
+        })
     }
 }
 

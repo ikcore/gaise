@@ -4,7 +4,7 @@ This file provides repository guidance for coding agents.
 
 ## Project overview
 
-GAISe is a Rust workspace that translates one provider-neutral contract to OpenAI, Anthropic, Gemini, Vertex AI, Amazon Bedrock, and Ollama. The core `GaiseClient` trait exposes `instruct`, `instruct_stream`, and `embeddings`; `gaise-client` routes `provider::model-id` strings to feature-gated adapters.
+GAISe is a Rust workspace that translates one provider-neutral contract to OpenAI, Anthropic, Gemini, Vertex AI, Amazon Bedrock, and Ollama. The core `GaiseClient` trait exposes `instruct`, `instruct_stream`, `embeddings`, and `list_models`; `gaise-client` routes `provider::model-id` strings to feature-gated adapters.
 
 ## Safe build and test commands
 
@@ -19,7 +19,7 @@ The default suite must remain hermetic. Tests that need credentials, provider AP
 
 ## Workspace layout
 
-- `gaise-core/`: package `gaise`, library crate `gaise_core`; shared contracts, `GaiseClient`, stream accumulator, and logging.
+- `gaise-core/`: package `gaise`, library crate `gaise_core`; shared contracts, `GaiseClient`, stream accumulator, logging, and the bundled `model-registry.toml` (`gaise_core::registry`).
 - `gaise-client/`: feature-gated provider router and environment configuration.
 - `gaise-provider-openai/`: Chat Completions, Embeddings, and Realtime.
 - `gaise-provider-anthropic/`: Messages API.
@@ -29,6 +29,7 @@ The default suite must remain hermetic. Tests that need credentials, provider AP
 - `gaise-provider-ollama/`: local Chat and Embeddings.
 - `gaise-api/`: Axum JSON, SSE, and WebSocket server.
 - `gaise-chatbot/`: example CLI.
+- `wiki/`: the developer wiki — `README.md` index, `api.md`, `sdk.md`, `capabilities.md`, `models.md` (generated from the registry), `flows.md`, `examples.md`, `releasing.md`, and one `vendor-{provider}.md` per adapter. Keep it in step with behaviour changes; every page deep-links to source.
 
 ## Core contracts
 
@@ -49,6 +50,10 @@ Streaming uses `GaiseStreamChunk::{Text, Content, ToolCall, Usage}`. `Content` c
 
 `GaiseGenerationConfig` includes sampling, output limits, reasoning controls, returned-thought selection, output modalities, image configuration, OpenAI image-input detail, and cache keys. Add common fields only when they have a defensible provider-neutral meaning.
 
+### Model discovery
+
+`GaiseClient::list_models` returns `GaiseModel` records (`gaise_model.rs`). Adapters return bare provider IDs and only what the provider API actually reports, tagged `GaiseMetadataSource::Provider`; name-based inferences are tagged `Heuristic`. `GaiseSupport` is tri-state and empty modality lists mean *unknown* — never invent `Unsupported`. The router (`GaiseClientService`) rewrites IDs to `provider::id`, overlays `gaise_core::registry` (modalities are unioned; operations, flags, and lifecycle are filled only when unknown), filters by operation after enrichment, and reports per-provider failures in `errors` rather than dropping them. `operations` means "which GAISe trait methods can drive this model", not what the vendor advertises. Extra per-model requests (Ollama `/api/show`) must stay behind `include_details`. Every adapter's `list_models` needs a JSON-fixture test of the provider payload mapped to `GaiseModel`.
+
 ## Provider-specific boundaries
 
 ### OpenAI
@@ -57,18 +62,23 @@ The instruct adapter targets Chat Completions, not Responses. Chat message conte
 
 `max_tokens` maps to `max_completion_tokens`. Reasoning effort is passed only for reasoning families. Image input uses MIME-aware data URLs and `input_image_detail`, including `original` where the model supports it.
 
+On Chat Completions, GPT-5.6 function-tool requests require
+`reasoning_effort: "none"`. Preserve configured reasoning for tool-free
+requests, preempt the known incompatibility for that family, and retry only the
+matching structured `reasoning_effort` API error for forward compatibility.
+
 ### Anthropic
 
 System messages become the top-level system prompt. Prompt caching applies ephemeral cache control at stable boundaries. PDFs and supported text documents become document blocks; unsupported binary/Office input must remain explicit.
 
 Reasoning is model-aware:
 
-- Fable 5, Mythos 5, Opus 4.8/4.7, and Sonnet 5 use adaptive thinking.
+- Opus 5, Fable 5, Mythos 5, Opus 4.8/4.7, and Sonnet 5 use adaptive thinking.
 - Opus/Sonnet 4.6 support adaptive thinking; manual budgets are deprecated there.
 - Older compatible Claude models use manual `budget_tokens`.
 - Effort maps to `output_config.effort` where supported.
 - `include_thoughts` maps to `thinking.display` (`summarized` or `omitted`).
-- Newer fixed-sampling models must not receive non-default temperature/top-p fields; Claude 4.5 must not receive both temperature and top-p.
+- Newer fixed-sampling models (Opus 5, Opus 4.7/4.8, Sonnet 5, Fable 5, Mythos 5) must not receive non-default temperature/top-p fields; Claude 4.5 must not receive both temperature and top-p.
 
 ### Gemini and Vertex AI
 
@@ -80,7 +90,7 @@ Gemini API and Vertex AI have separate model lifecycles. Do not copy retirement 
 
 ### Bedrock
 
-Use Converse/ConverseStream for chat and InvokeModel for supported embedding families. A Bedrock document block must be accompanied by a text block. Model IDs and inference profiles are region-specific; avoid hard-coded global allowlists and rely on AWS lifecycle/discovery APIs.
+Use Converse/ConverseStream for chat and InvokeModel for supported embedding families. A Bedrock document block must be accompanied by a text block. Model IDs and inference profiles are region-specific; avoid hard-coded global allowlists and rely on AWS lifecycle/discovery APIs (`ListFoundationModels` / `ListInferenceProfiles` via the `aws-sdk-bedrock` control-plane client; the runtime client alone cannot list).
 
 Do not mutate process-wide AWS environment variables in request routing. Pass region configuration into the SDK builder.
 
@@ -97,8 +107,8 @@ The installed catalog is dynamic (`GET /api/tags`). Thinking is usually a boolea
 - Add split-frame fixtures for stream parsers.
 - Use `#[serde(skip_serializing_if = "Option::is_none")]` on optional outbound fields so unsupported parameters are omitted rather than serialized as `null`.
 - Keep usage counters provider-named inside the common input/output maps.
-- Treat `model-registry.toml` as advisory; arbitrary model IDs are intentional for forward compatibility.
+- Treat `gaise-core/model-registry.toml` as advisory; arbitrary model IDs are intentional for forward compatibility. Its `capabilities` vocabulary is closed (see the file header) and `cargo test -p gaise` fails on unknown terms or unmapped statuses.
 
 ## Model references
 
-Model names and lifecycle dates change independently of the crate. Before updating hard-coded model behavior, verify the official sources linked from `model-registry.toml` and update both that registry and `audit-report.md` when appropriate.
+Model names and lifecycle dates change independently of the crate. Before updating hard-coded model behavior, verify the official sources linked from `gaise-core/model-registry.toml` and update that registry, regenerate `wiki/models.md` (`cargo run -p gaise --example registry_json` feeds the tables), refresh the affected `wiki/vendor-*.md` page, and update the audit report when appropriate.
