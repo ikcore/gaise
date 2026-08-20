@@ -190,15 +190,21 @@ Embeddings ([`#L1214-L1224`](../gaise-provider-bedrock/src/bedrock_client.rs#L12
 
 ## Embeddings
 
-[`embeddings`](../gaise-provider-bedrock/src/bedrock_client.rs#L1149-L1231) issues **one `InvokeModel` call per input string** with `contentType: application/json`.
+[`embeddings`](../gaise-provider-bedrock/src/bedrock_client.rs) issues **one `InvokeModel` call per input string** with `contentType: application/json`, using the bodies from [`embedding_bodies`](../gaise-provider-bedrock/src/bedrock_client.rs). Requests go through the shared resolver described in [embeddings.md](embeddings.md#how-a-request-is-resolved): the model's `[models.embedding]` profile in [`model-registry.toml`](../gaise-core/model-registry.toml) decides how `task`, `dimensions`, and `normalize` are expressed, and the [generated matrix](embeddings.md#model-matrix) shows the wire result per model.
 
 | Model ID contains | Request body | Response field read | Usage |
 |---|---|---|---|
-| `titan` | `{ "inputText": "<input>" }` | `embedding: [f64]` | `inputTextTokenCount` summed across calls |
-| `cohere` | `{ "texts": ["<input>"], "input_type": "search_document" }` | `embeddings[0]: [f64]` | None |
+| `titan-embed-text-v2` | `{ "inputText", "dimensions"? (256/512/1024), "normalize"? }` | `embedding: [f64]` | `inputTextTokenCount` summed across calls |
+| `titan-embed-image` | `{ "inputText", "embeddingConfig": { "outputEmbeddingLength" }? (256/384/1024) }` | `embedding` | `inputTextTokenCount` |
+| other `titan-embed` | `{ "inputText" }` | `embedding` | `inputTextTokenCount` |
+| `cohere.embed` | `{ "texts": ["<input>"], "input_type", "output_dimension"? (v4: 256/512/1024/1536) }` | `embeddings[0]: [f64]` | None |
+| `nova-2-multimodal-embeddings` | `{ "schemaVersion": "nova-multimodal-embed-v1", "taskType": "SINGLE_EMBEDDING", "singleEmbeddingParams": { "embeddingPurpose", "embeddingDimension"? (256/384/1024/3072), "text": { "truncationMode": "END", "value" } } }` | `embeddings[0].embedding` | None |
 | anything else | — | — | Error `Unsupported embedding model: <id>` |
 
-Values are narrowed to `f32`. `input_type` is fixed to `search_document`; Titan `dimensions`/`normalize` and Cohere `embedding_types`/image input are not mapped. `external_id` is `None`. The `amazon.nova-2-multimodal-embeddings-v1:0` model is not routed (its ID matches neither `titan` nor `cohere`).
+- `task` → Cohere `input_type` (`search_document` default, `search_query` for query-side tasks, `classification`, `clustering`) and Nova `embeddingPurpose` (`GENERIC_INDEX` default, `TEXT_RETRIEVAL` for query-side tasks, `CLASSIFICATION`, `CLUSTERING`; pass `generic_retrieval` / `image_retrieval` as a custom task to search a mixed index). Titan has no task concept.
+- `normalize` is Titan V2's native flag (forwarded as given); elsewhere `normalize: true` and truncated Cohere v4 / Titan image / Nova vectors are L2-normalized locally.
+- Inference-profile prefixes (`us.`, `eu.`, `global.`, …) are stripped before the registry lookup, so `us.cohere.embed-v4:0` resolves to the v4 profile.
+- Values are narrowed to `f32`. Cohere `embedding_types` and image input, Nova image/audio/video input, and Titan image input are not mapped. `external_id` is `None`.
 
 ## Live / realtime
 
@@ -244,11 +250,15 @@ From the 2026-08-20 registry audit; advisory only. Dates are AWS Bedrock lifecyc
 | `anthropic.claude-mythos-5` | — | limited_availability | — | text, image, file | text | — | — | not reachable: Messages API on bedrock-mantle only; Converse and InvokeModel are not supported | us-east-1 preview; requires provider_data_share data retention. |
 | `amazon.nova-2-lite-v1:0` | — | active | — | text, image, video, file | text | instruct, instruct_stream | — | native via Converse | The only Converse-capable Nova 2 model. Client-side tool calling supported; structured outputs not supported; the model… |
 | `amazon.nova-2-sonic-v1:0` | — | active | — | text, audio | text, audio | — | — | not supported: InvokeModelWithBidirectionalStream only | — |
-| `amazon.nova-2-multimodal-embeddings-v1:0` | — | active | — | text, image, audio, video | embedding | embeddings | — | text embeddings via InvokeModel where the region supports synchronous invocation | us-east-1 and us-gov-west-1. Text, image, audio, video, and document input; async invocation for audio/video. |
+| `amazon.nova-2-multimodal-embeddings-v1:0` | — | active | — | text, image, audio, video | embedding | embeddings | — | text embeddings via InvokeModel (SINGLE_EMBEDDING schema); image/audio/video input not mapped | us-east-1 and us-gov-west-1. Text, image, audio, video, and document input; async invocation for audio/video.… |
+| `amazon.titan-embed-text-v2:0` | — | active | — | text | embedding | embeddings | — | native via InvokeModel | In-region only. 8,192 tokens / 50,000 characters per text; one text per call; `normalize` is a native flag. |
+| `amazon.titan-embed-text-v1` | — | active | — | text | embedding | embeddings | — | native via InvokeModel | First-generation Titan text embeddings; fixed 1536 dimensions, one text per call. |
+| `amazon.titan-embed-image-v1` | — | active | — | text, image, audio, video | embedding | embeddings | — | text input via InvokeModel; no image path | Text + image embeddings in one space; 256 text tokens, 25 MB images; one input per call. |
+| `amazon.titan-embed-*` | — | dynamic_active_family | — | text | embedding | embeddings | — | native via InvokeModel | Catch-all for Titan embedding ids not listed above; verify with ListFoundationModels. |
+| `cohere.embed-v4:0` | — | active | — | text, image, audio, video | embedding | embeddings | — | native via InvokeModel | Launched 2025-04-15; text and image input; profiles us., eu., global. `input_type` is required; 96 inputs per… |
+| `cohere.embed-english-v3` | `cohere.embed-multilingual-v3` | active | — | text | embedding | embeddings | — | native via InvokeModel | Fixed 1024 dimensions, 512 tokens per text, 96 texts per call; `input_type` is required. |
+| `cohere.embed-*` | — | dynamic_active_family | — | text | embedding | embeddings | — | native via InvokeModel | Catch-all for other Cohere embed ids; `input_type` is always required. |
 | `amazon.nova-*` | — | dynamic_active_family | — | text, image, video, file | text | instruct, instruct_stream | — | Converse where the regional catalog lists the model | Nova Pro/Lite/Micro (v1) remain Active with regional us./eu./apac. profiles; verify with ListFoundationModels. |
-| `amazon.titan-embed-*` | — | dynamic_active_family | — | text | embedding | embeddings | — | native via InvokeModel | amazon.titan-embed-text-v2:0, amazon.titan-embed-text-v1, and amazon.titan-embed-image-v1 (text+image) are Active, in-r… |
-| `cohere.embed-v4:0` | — | active | — | text, image, audio, video | embedding | embeddings | — | native via InvokeModel | Launched 2025-04-15; text and image input; profiles us., eu., global. |
-| `cohere.embed-*` | — | dynamic_active_family | — | text | embedding | embeddings | — | native via InvokeModel | cohere.embed-english-v3 and cohere.embed-multilingual-v3 remain listed. |
 | `anthropic.claude-opus-4-1-20250805-v1:0` | — | legacy | shutdown 2027-01-08 | unknown | unknown | — | — | — | Legacy since 2026-07-08; public extended access (higher pricing) from 2026-10-08. us. profile only. |
 | `anthropic.claude-sonnet-4-20250514-v1:0` | — | legacy | shutdown 2026-10-14 | unknown | unknown | — | — | — | Legacy since 2026-04-14; extended-access pricing applies since 2026-07-14. |
 | `anthropic.claude-3-haiku-20240307-v1:0` | — | legacy | shutdown 2026-09-10 | unknown | unknown | — | — | — | — |

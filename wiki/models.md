@@ -14,12 +14,12 @@ The tables below are generated from the registry with [`cargo run -p gaise --exa
 ## Contents
 
 
-- [OpenAI](#openai) — 32 entries
+- [OpenAI](#openai) — 33 entries
 - [Anthropic](#anthropic) — 15 entries
 - [Google Gemini API](#gemini) — 24 entries
-- [Google Vertex AI](#vertexai) — 18 entries
-- [Amazon Bedrock](#bedrock) — 26 entries
-- [Ollama](#ollama) — 5 entries
+- [Google Vertex AI](#vertexai) — 19 entries
+- [Amazon Bedrock](#bedrock) — 30 entries
+- [Ollama](#ollama) — 16 entries
 - [ElevenLabs](#elevenlabs) — 9 entries
 - [Maintaining the registry](#maintaining-the-registry)
 - [Lifecycle calendar](#lifecycle-calendar)
@@ -49,6 +49,7 @@ Instruct uses **Chat Completions**; Responses-only models (GPT-5.5 Pro, gpt-5.6-
 | `gpt-5.4-nano` | — | `active` | — | text, image | text | IS | ✓ | ✓ (none, low, medium, high, xhigh) | chat-compatible features |
 | `text-embedding-3-large` | — | `active` | — | text | embedding | E | ✗ | ✗ | native |
 | `text-embedding-3-small` | — | `active` | — | text | embedding | E | ✗ | ✗ | native |
+| `text-embedding-ada-002` | — | `active` | — | text | embedding | E | ✗ | ✗ | native — Previous generation; fixed 1536 dimensions, no retirement date published. |
 | `gpt-realtime-2.1` | — | `active` | — | text, image, audio | text, audio | L | ✓ | ✓ (minimal, low, medium, high, xhigh) | realtime transport — OpenAI documents configurable reasoning effort without enumerating values for 2.1; the l… |
 | `gpt-realtime-2.1-mini` | — | `active` | — | text, image, audio | text, audio | L | ✓ | ✓ (minimal, low, medium, high, xhigh) | realtime transport |
 | `gpt-realtime-2` | — | `active` | — | text, image, audio | text, audio | L | ✓ | ✓ (minimal, low, medium, high, xhigh) | realtime transport |
@@ -198,8 +199,9 @@ Google Cloud lifecycle only. Model Garden listing returns names, versions, and l
 | `gemini-3.1-flash-lite-image` | — | `short_term_active` | — | text, image, video, file | text, image | IS | ✗ | ✓ | native image output through generateContent — GA 2026-06-30; no retirement date announced. Function calling i… |
 | `gemini-3-pro-image` | — | `active` | not before 2027-05-28 | text, image, file | text, image | IS | ✗ | ✓ | native image output through generateContent — Function calling is not supported; video input is not supported… |
 | `gemini-embedding-2` | `gemini-embedding-2-preview` | `active` | — | text, image, audio, video | embedding | — | ✗ | ✗ | not yet: Vertex serves it via :embedContent on the aiplatform.{location}.rep.googleapis.com host, which the a… |
-| `gemini-embedding-001` | — | `active` | not before 2028-05-20 | text | embedding | E | ✗ | ✗ | native — Previous-generation text embedding model; gemini-embedding-2 is current. |
-| `text-embedding-005` | `text-embedding-004`, `text-multilingual-embedding-002`, `multimodalembedding@001` | `active` | not before 2027-04-01 | text | embedding | E | ✗ | ✗ | native for text embeddings — Legacy embedding family; all retire 2027-04-01. |
+| `gemini-embedding-001` | — | `active` | not before 2028-05-20 | text | embedding | E | ✗ | ✗ | native — Previous-generation text embedding model; gemini-embedding-2 is current. Accepts one input text per… |
+| `text-embedding-005` | `text-embedding-004`, `text-multilingual-embedding-002` | `active` | not before 2027-04-01 | text | embedding | E | ✗ | ✗ | native — Legacy text embedding family; all retire 2027-04-01. 768 dimensions, 2,048 tokens, 250 texts per cal… |
+| `multimodalembedding@001` | — | `active` | not before 2027-04-01 | text, image, audio, video | embedding | — | ✗ | ✗ | not yet: uses the image/video embedding request schema — 1408 dimensions (128/256/512 for text+image); 32 tex… |
 | `gemini-live-2.5-flash-native-audio` | — | `active` | shutdown 2026-12-13 | text, image, audio, video | text, audio | — | ✓ | ✗ | not supported: the Vertex AI adapter has no Live transport — GA 2025-12-12. |
 
 #### Deprecated and legacy
@@ -245,11 +247,15 @@ Model IDs, inference profiles, and lifecycle are **region-specific**; entries ar
 | `anthropic.claude-mythos-5` | — | `limited_availability` | — | text, image, file | text | — | ✓ | ✓ adaptive | not reachable: Messages API on bedrock-mantle only; Converse and InvokeModel are not supported — us-east-1 pr… |
 | `amazon.nova-2-lite-v1:0` | — | `active` | — | text, image, video, file | text | IS | ✓ | ✗ | native via Converse — The only Converse-capable Nova 2 model. Client-side tool calling supported; structured… |
 | `amazon.nova-2-sonic-v1:0` | — | `active` | — | text, audio | text, audio | — | ✓ | ✗ | not supported: InvokeModelWithBidirectionalStream only |
-| `amazon.nova-2-multimodal-embeddings-v1:0` | — | `active` | — | text, image, audio, video | embedding | E | ✗ | ✗ | text embeddings via InvokeModel where the region supports synchronous invocation — us-east-1 and us-gov-west-… |
+| `amazon.nova-2-multimodal-embeddings-v1:0` | — | `active` | — | text, image, audio, video | embedding | E | ✗ | ✗ | text embeddings via InvokeModel (SINGLE_EMBEDDING schema); image/audio/video input not mapped — us-east-1 and… |
 | `amazon.nova-*` | — | `dynamic_active_family` | — | text, image, video, file | text | IS | ✓ | ✗ | Converse where the regional catalog lists the model — Nova Pro/Lite/Micro (v1) remain Active with regional us… |
-| `amazon.titan-embed-*` | — | `dynamic_active_family` | — | text | embedding | E | ✗ | ✗ | native via InvokeModel — amazon.titan-embed-text-v2:0, amazon.titan-embed-text-v1, and amazon.titan-embed-ima… |
-| `cohere.embed-v4:0` | — | `active` | — | text, image, audio, video | embedding | E | ✗ | ✗ | native via InvokeModel — Launched 2025-04-15; text and image input; profiles us., eu., global. |
-| `cohere.embed-*` | — | `dynamic_active_family` | — | text | embedding | E | ✗ | ✗ | native via InvokeModel — cohere.embed-english-v3 and cohere.embed-multilingual-v3 remain listed. |
+| `amazon.titan-embed-text-v2:0` | — | `active` | — | text | embedding | E | ✗ | ✗ | native via InvokeModel — In-region only. 8,192 tokens / 50,000 characters per text; one text per call; `norma… |
+| `amazon.titan-embed-text-v1` | — | `active` | — | text | embedding | E | ✗ | ✗ | native via InvokeModel — First-generation Titan text embeddings; fixed 1536 dimensions, one text per call. |
+| `amazon.titan-embed-image-v1` | — | `active` | — | text, image, audio, video | embedding | E | ✗ | ✗ | text input via InvokeModel; no image path — Text + image embeddings in one space; 256 text tokens, 25 MB imag… |
+| `amazon.titan-embed-*` | — | `dynamic_active_family` | — | text | embedding | E | ✗ | ✗ | native via InvokeModel — Catch-all for Titan embedding ids not listed above; verify with ListFoundationModels. |
+| `cohere.embed-v4:0` | — | `active` | — | text, image, audio, video | embedding | E | ✗ | ✗ | native via InvokeModel — Launched 2025-04-15; text and image input; profiles us., eu., global. `input_type` i… |
+| `cohere.embed-english-v3` | `cohere.embed-multilingual-v3` | `active` | — | text | embedding | E | ✗ | ✗ | native via InvokeModel — Fixed 1024 dimensions, 512 tokens per text, 96 texts per call; `input_type` is requi… |
+| `cohere.embed-*` | — | `dynamic_active_family` | — | text | embedding | E | ✗ | ✗ | native via InvokeModel — Catch-all for other Cohere embed ids; `input_type` is always required. |
 
 #### Deprecated and legacy
 
@@ -288,7 +294,18 @@ The installed catalog is dynamic (`GET /api/tags`); entries are family globs des
 | `gpt-oss:*` | — | `dynamic_local` | — | text | text | IS | ✓ | ✓ (low, medium, high) | native |
 | `deepseek-r1:*` | `deepseek-v3.1:*` | `dynamic_local` | — | text | text | IS | ✗ | ✓ (true, false) | native |
 | `gemma4:*` | — | `dynamic_local` | — | text, image | text | IS | ✗ | ✗ | native when the installed tag advertises vision |
-| `embeddinggemma:*` | `qwen3-embedding:*`, `nomic-embed-text:*`, `mxbai-embed-large:*`, `bge-m3:*`, `bge-large:*`, `all-minilm:*`, `snowflake-arctic-embed:*`, `snowflake-arctic-embed2:*`, `granite-embedding:*`, `paraphrase-multilingual:*` | `dynamic_local` | — | text | embedding | E | ✗ | ✗ | native — Dimensions, context length, and prefix conventions differ per family; see wiki/embeddings.md. `dimen… |
+| `embeddinggemma:*` | — | `dynamic_local` | — | text | embedding | E | ✗ | ✗ | native — EmbeddingGemma 300m; Matryoshka 768/512/256/128; 2,048-token context; Google prompt-instruction conv… |
+| `nomic-embed-text:*` | — | `dynamic_local` | — | text | embedding | E | ✗ | ✗ | native — nomic-embed-text v1.5; Matryoshka 64-768; 8,192-token context (raise num_ctx); prefixes are required… |
+| `nomic-embed-text-v2-moe:*` | — | `dynamic_local` | — | text | embedding | E | ✗ | ✗ | native — Multilingual MoE; Matryoshka 256-768; 512-token context. |
+| `qwen3-embedding:*` | — | `dynamic_local` | — | text | embedding | E | ✗ | ✗ | native — 0.6b/4b/8b = 1024/2560/4096 dimensions (Matryoshka 32-4096); 32k context; queries take an instructio… |
+| `mxbai-embed-large:*` | — | `dynamic_local` | — | text | embedding | E | ✗ | ✗ | native — mixedbread mxbai-embed-large-v1; fixed 1024; 512-token context; queries take an instruction. |
+| `bge-m3:*` | — | `dynamic_local` | — | text | embedding | E | ✗ | ✗ | native — BAAI bge-m3; fixed 1024; 8,192-token context; multilingual; no prefix. |
+| `bge-large:*` | — | `dynamic_local` | — | text | embedding | E | ✗ | ✗ | native — BAAI bge-large-en-v1.5; fixed 1024; 512-token context; optional query instruction. |
+| `all-minilm:*` | — | `dynamic_local` | — | text | embedding | E | ✗ | ✗ | native — all-MiniLM-L6/L12; fixed 384; 256-token context; English. |
+| `snowflake-arctic-embed:*` | — | `dynamic_local` | — | text | embedding | E | ✗ | ✗ | native — Arctic-embed v1 22m-335m; 384-1024 dimensions by tag; 512-token context; queries take an instruction. |
+| `snowflake-arctic-embed2:*` | — | `dynamic_local` | — | text | embedding | E | ✗ | ✗ | native — Arctic-embed 2.0; 1024 dimensions (Matryoshka to 256); 8,192-token context; multilingual; queries ta… |
+| `granite-embedding:*` | — | `dynamic_local` | — | text | embedding | E | ✗ | ✗ | native — IBM Granite 30m (384, English) / 278m (768, 12 languages); 512-token context; no prefix. |
+| `paraphrase-multilingual:*` | — | `dynamic_local` | — | text | embedding | E | ✗ | ✗ | native — paraphrase-multilingual-MiniLM-L12-v2; fixed 768; 128-token context; 50+ languages. |
 
 ## elevenlabs
 

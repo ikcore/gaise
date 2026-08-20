@@ -256,7 +256,7 @@ Errors after the stream has started arrive as an SSE `event: error`. Accumulatio
 }
 ```
 
-`input` is one string or an array. Optional fields: `task` (`document`, `query`, `classification`, `clustering`, `similarity`, `code_query`, `fact_verification`, `question_answering` — mapped to Gemini/Vertex `taskType`, Cohere `input_type`), `dimensions` (Matryoshka truncation where the model supports it, snapped to the model's sizes), and `normalize` (unit-length vectors; native on Titan V2, applied locally elsewhere). The contract is text-only; usage is present only when the provider reports it. Model-by-model guidance: [embeddings.md](embeddings.md).
+`input` is one string or an array. Optional fields: `task` (`document`, `query`, `classification`, `clustering`, `similarity`, `code_query`, `fact_verification`, `question_answering`, their aliases such as `search_query` / `retrieval_document`, or any vendor value passed through as a custom task — resolved per model to Gemini/Vertex `taskType`, Cohere `input_type`, Nova `embeddingPurpose`, a prompt instruction, or a local-model text prefix), `dimensions` (snapped or clamped to what the model offers, dropped for fixed-size models, forwarded for unknown ones), and `normalize` (unit-length vectors; native on Titan V2, applied locally elsewhere; unset repairs truncations the provider leaves raw). The resolution rules and the per-model profiles are in [embeddings.md](embeddings.md#how-a-request-is-resolved); the contract is text-only and usage is present only when the provider reports it.
 
 ## `GET /v1/models`
 

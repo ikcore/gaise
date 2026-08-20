@@ -3,10 +3,11 @@ use aws_sdk_bedrockruntime::Client as BedrockClient;
 use futures_util::Stream;
 use gaise_core::GaiseClient;
 use gaise_core::contracts::{
-    GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseFunctionCall,
-    GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
+    EmbeddingTaskControl, GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse,
+    GaiseFunctionCall, GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
     GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseReasoningEffort,
-    GaiseStreamChunk, GaiseToolCall, GaiseToolParameter, OneOrMany, normalize_l2,
+    GaiseStreamChunk, GaiseToolCall, GaiseToolParameter, OneOrMany, ResolvedEmbedding,
+    normalize_l2, resolve_embedding,
 };
 
 use crate::catalog::{
@@ -315,53 +316,95 @@ impl GaiseClientBedrock {
         }
     }
 
-    /// InvokeModel body for one embedding input, per family. Titan V2 takes
-    /// `dimensions` (256/512/1024) and `normalize`; Cohere needs `input_type`
-    /// (document/query/classification/clustering) and v4 takes
-    /// `output_dimension` (256/512/1024/1536); Titan G1 takes text only.
-    pub fn embedding_body(
+    /// InvokeModel bodies (one per input — Bedrock embedding families take a
+    /// single text per call) built through the shared embedding rules
+    /// (`model-registry.toml` profiles). Titan V2 takes `dimensions`
+    /// (snapped to 256/512/1024) and the native `normalize` flag; Cohere
+    /// needs `input_type` (always sent, `search_document` by default) and v4
+    /// takes `output_dimension` (256/512/1024/1536); Titan G1/image take text
+    /// only; Titan Multimodal G1 takes `embeddingConfig.outputEmbeddingLength`;
+    /// Nova Multimodal Embeddings takes the `SINGLE_EMBEDDING` schema with
+    /// `embeddingPurpose` (always sent, `GENERIC_INDEX` by default) and
+    /// `embeddingDimension`. Returns the resolution so the caller knows
+    /// whether to normalize locally.
+    pub fn embedding_bodies(
         request: &GaiseEmbeddingsRequest,
-        input: &str,
-    ) -> Result<serde_json::Value, Box<dyn Error + Send + Sync>> {
-        use gaise_core::contracts::{GaiseEmbeddingTask as T, snap_dimensions};
+    ) -> Result<(Vec<serde_json::Value>, ResolvedEmbedding), Box<dyn Error + Send + Sync>> {
         let model = request.model.to_ascii_lowercase();
-        if model.contains("titan-embed-text-v2") {
-            let mut body = serde_json::json!({ "inputText": input });
-            if let Some(d) = request
-                .dimensions
-                .and_then(|d| snap_dimensions(d, &[256, 512, 1024]))
-            {
-                body["dimensions"] = serde_json::json!(d);
-            }
-            if let Some(n) = request.normalize {
-                body["normalize"] = serde_json::json!(n);
-            }
-            return Ok(body);
+        let titan_v2 = model.contains("titan-embed-text-v2");
+        let titan_image = model.contains("titan-embed-image");
+        let titan = model.contains("titan-embed");
+        let cohere = model.contains("cohere.embed");
+        let nova = model.contains("nova-2-multimodal-embeddings");
+        if !titan && !cohere && !nova {
+            return Err(format!("Unsupported embedding model: {}", request.model).into());
         }
-        if model.contains("titan-embed") {
-            return Ok(serde_json::json!({ "inputText": input }));
+        let default_control = if cohere {
+            EmbeddingTaskControl::InputType
+        } else if nova {
+            EmbeddingTaskControl::EmbeddingPurpose
+        } else {
+            EmbeddingTaskControl::None
+        };
+        let profile = gaise_core::registry::embedding_profile("bedrock", &request.model);
+        let mut resolved = resolve_embedding(request, profile, &default_control);
+        let bodies = resolved
+            .texts
+            .iter()
+            .map(|input| {
+                if titan_v2 {
+                    let mut body = serde_json::json!({ "inputText": input });
+                    if let Some(d) = resolved.dimensions {
+                        body["dimensions"] = serde_json::json!(d);
+                    }
+                    if let Some(n) = request.normalize {
+                        body["normalize"] = serde_json::json!(n);
+                    }
+                    body
+                } else if titan_image {
+                    let mut body = serde_json::json!({ "inputText": input });
+                    if let Some(d) = resolved.dimensions {
+                        body["embeddingConfig"] = serde_json::json!({ "outputEmbeddingLength": d });
+                    }
+                    body
+                } else if titan {
+                    serde_json::json!({ "inputText": input })
+                } else if nova {
+                    let mut params = serde_json::json!({
+                        "embeddingPurpose": resolved
+                            .wire_task
+                            .clone()
+                            .unwrap_or_else(|| "GENERIC_INDEX".to_string()),
+                        "text": { "truncationMode": "END", "value": input },
+                    });
+                    if let Some(d) = resolved.dimensions {
+                        params["embeddingDimension"] = serde_json::json!(d);
+                    }
+                    serde_json::json!({
+                        "schemaVersion": "nova-multimodal-embed-v1",
+                        "taskType": "SINGLE_EMBEDDING",
+                        "singleEmbeddingParams": params,
+                    })
+                } else {
+                    let mut body = serde_json::json!({
+                        "texts": [input],
+                        "input_type": resolved
+                            .wire_task
+                            .clone()
+                            .unwrap_or_else(|| "search_document".to_string()),
+                    });
+                    if let Some(d) = resolved.dimensions {
+                        body["output_dimension"] = serde_json::json!(d);
+                    }
+                    body
+                }
+            })
+            .collect();
+        if titan_v2 && request.normalize.is_some() {
+            // The native flag covers it.
+            resolved.normalize_locally = false;
         }
-        if model.contains("cohere.embed") {
-            let input_type = match request.task.unwrap_or(T::Document) {
-                T::Query | T::CodeQuery | T::QuestionAnswering => "search_query",
-                T::Classification => "classification",
-                T::Clustering => "clustering",
-                _ => "search_document",
-            };
-            let mut body = serde_json::json!({
-                "texts": [input],
-                "input_type": input_type,
-            });
-            if model.contains("embed-v4")
-                && let Some(d) = request
-                    .dimensions
-                    .and_then(|d| snap_dimensions(d, &[256, 512, 1024, 1536]))
-            {
-                body["output_dimension"] = serde_json::json!(d);
-            }
-            return Ok(body);
-        }
-        Err(format!("Unsupported embedding model: {}", request.model).into())
+        Ok((bodies, resolved))
     }
 
     /// Claude-on-Bedrock family rules (same constraints as the direct Claude
@@ -1352,10 +1395,7 @@ impl GaiseClient for GaiseClientBedrock {
         &self,
         request: &GaiseEmbeddingsRequest,
     ) -> Result<GaiseEmbeddingsResponse, Box<dyn Error + Send + Sync>> {
-        let inputs = match &request.input {
-            OneOrMany::One(s) => vec![s.clone()],
-            OneOrMany::Many(v) => v.clone(),
-        };
+        let (bodies, resolved) = Self::embedding_bodies(request)?;
 
         let mut embeddings = Vec::new();
         // Titan reports this counter for every InvokeModel response. Cohere's
@@ -1363,9 +1403,7 @@ impl GaiseClient for GaiseClientBedrock {
         // `None` instead of estimating it locally.
         let mut input_tokens = request.model.contains("titan").then_some(0usize);
 
-        for input in inputs {
-            let body = Self::embedding_body(request, &input)?;
-
+        for body in bodies {
             let response = self
                 .client
                 .invoke_model()
@@ -1389,10 +1427,11 @@ impl GaiseClient for GaiseClientBedrock {
                         .collect();
                     embeddings.push(vec);
                 }
-            } else if request.model.contains("cohere")
-                && let Some(embeddings_arr) = response_body["embeddings"].as_array()
+            } else if let Some(embeddings_arr) = response_body["embeddings"].as_array()
                 && let Some(first) = embeddings_arr.first()
-                && let Some(embedding) = first.as_array()
+                // Cohere returns `embeddings: [[...]]`; Nova returns
+                // `embeddings: [{ "embedding": [...], "embeddingType": "TEXT" }]`.
+                && let Some(embedding) = first.as_array().or_else(|| first["embedding"].as_array())
             {
                 let vec: Vec<f32> = embedding
                     .iter()
@@ -1402,8 +1441,7 @@ impl GaiseClient for GaiseClientBedrock {
             }
         }
 
-        // Titan V2 normalizes natively when asked; other families do not have a flag.
-        if request.normalize == Some(true) && !request.model.contains("titan-embed-text-v2") {
+        if resolved.normalize_locally {
             embeddings.iter_mut().for_each(|v| normalize_l2(v));
         }
 
@@ -1926,67 +1964,106 @@ mod tests {
             }
         };
         use gaise_core::contracts::GaiseEmbeddingTask as T;
-        let titan2 = GaiseClientBedrock::embedding_body(
-            &req(
-                "amazon.titan-embed-text-v2:0",
-                Some(T::Query),
-                Some(300),
-                Some(true),
-            ),
-            "hi",
-        )
-        .unwrap();
+        let body = |r: &GaiseEmbeddingsRequest| {
+            let (bodies, resolved) = GaiseClientBedrock::embedding_bodies(r).unwrap();
+            assert_eq!(bodies.len(), 1);
+            (bodies.into_iter().next().unwrap(), resolved)
+        };
+        let (titan2, resolved) = body(&req(
+            "amazon.titan-embed-text-v2:0",
+            Some(T::Query),
+            Some(300),
+            Some(true),
+        ));
         assert_eq!(
             titan2,
             serde_json::json!({"inputText": "hi", "dimensions": 256, "normalize": true})
         );
-        let titan1 = GaiseClientBedrock::embedding_body(
-            &req("amazon.titan-embed-text-v1", None, Some(256), None),
-            "hi",
-        )
-        .unwrap();
+        assert!(!resolved.normalize_locally, "native flag covers it");
+        let (titan1, _) = body(&req("amazon.titan-embed-text-v1", None, Some(256), None));
         assert_eq!(
             titan1,
             serde_json::json!({"inputText": "hi"}),
             "G1 has no dimension control"
         );
-        let cohere_q = GaiseClientBedrock::embedding_body(
-            &req(
-                "cohere.embed-multilingual-v3",
-                Some(T::Query),
-                Some(512),
-                None,
-            ),
-            "hi",
-        )
-        .unwrap();
+        let (cohere_q, resolved) = body(&req(
+            "cohere.embed-multilingual-v3",
+            Some(T::Query),
+            Some(512),
+            Some(true),
+        ));
         assert_eq!(
             cohere_q,
             serde_json::json!({"texts": ["hi"], "input_type": "search_query"}),
             "v3 has fixed dimensions"
         );
-        let cohere_v4 = GaiseClientBedrock::embedding_body(
-            &req("us.cohere.embed-v4:0", None, Some(700), None),
-            "hi",
-        )
-        .unwrap();
+        assert!(resolved.normalize_locally, "Cohere has no normalize flag");
+        let (cohere_v4, _) = body(&req("us.cohere.embed-v4:0", None, Some(700), None));
         assert_eq!(
             cohere_v4,
             serde_json::json!({"texts": ["hi"], "input_type": "search_document", "output_dimension": 512})
         );
-        let cohere_c = GaiseClientBedrock::embedding_body(
-            &req("cohere.embed-english-v3", Some(T::Clustering), None, None),
-            "hi",
-        )
-        .unwrap();
+        let (cohere_c, _) = body(&req(
+            "cohere.embed-english-v3",
+            Some(T::Clustering),
+            None,
+            None,
+        ));
         assert_eq!(cohere_c["input_type"], "clustering");
-        assert!(
-            GaiseClientBedrock::embedding_body(
-                &req("amazon.nova-2-lite-v1:0", None, None, None),
-                "hi"
-            )
-            .is_err()
+        let (cohere_new, _) = body(&req("cohere.embed-v9:0", Some(T::Query), Some(999), None));
+        assert_eq!(
+            cohere_new,
+            serde_json::json!({"texts": ["hi"], "input_type": "search_query"}),
+            "catch-all profile: input_type always, fixed dimensions"
         );
+        assert!(
+            GaiseClientBedrock::embedding_bodies(&req("amazon.nova-2-lite-v1:0", None, None, None))
+                .is_err()
+        );
+        let (titan_image, _) = body(&req("amazon.titan-embed-image-v1", None, Some(300), None));
+        assert_eq!(
+            titan_image,
+            serde_json::json!({"inputText": "hi", "embeddingConfig": {"outputEmbeddingLength": 256}})
+        );
+        let (nova_q, _) = body(&req(
+            "us.amazon.nova-2-multimodal-embeddings-v1:0",
+            Some(T::Query),
+            Some(500),
+            None,
+        ));
+        assert_eq!(
+            nova_q,
+            serde_json::json!({
+                "schemaVersion": "nova-multimodal-embed-v1",
+                "taskType": "SINGLE_EMBEDDING",
+                "singleEmbeddingParams": {
+                    "embeddingPurpose": "TEXT_RETRIEVAL",
+                    "embeddingDimension": 384,
+                    "text": { "truncationMode": "END", "value": "hi" }
+                }
+            })
+        );
+        let (nova_d, _) = body(&req(
+            "amazon.nova-2-multimodal-embeddings-v1:0",
+            None,
+            None,
+            None,
+        ));
+        assert_eq!(
+            nova_d["singleEmbeddingParams"]["embeddingPurpose"], "GENERIC_INDEX",
+            "required field gets the index default"
+        );
+        assert!(
+            nova_d["singleEmbeddingParams"]
+                .get("embeddingDimension")
+                .is_none()
+        );
+        let (many, _) = GaiseClientBedrock::embedding_bodies(&GaiseEmbeddingsRequest {
+            input: gaise_core::contracts::OneOrMany::Many(vec!["a".into(), "b".into()]),
+            ..req("amazon.titan-embed-text-v2:0", None, None, None)
+        })
+        .unwrap();
+        assert_eq!(many.len(), 2, "one InvokeModel call per input");
     }
 
     #[test]

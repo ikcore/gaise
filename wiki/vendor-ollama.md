@@ -163,7 +163,12 @@ Keys are provider-named, never renamed to a common vocabulary.
 
 ## Embeddings
 
-[`embeddings`](../gaise-provider-ollama/src/ollama_client.rs#L579) posts [`OllamaEmbedRequest`](../gaise-provider-ollama/src/contracts/models.rs#L110) `{"model","input":[…]}` to `POST /api/embed`. `OneOrMany<String>` input is always sent as an array; `options` is always `None`. The response `embeddings: Vec<Vec<f32>>` is returned as `GaiseEmbeddingsResponse.output` in input order, `external_id: None`, usage as above. There is no dimension, truncation, or task-type control; `keep_alive` is not set. Any installed tag whose `/api/show` capabilities include `embedding` (for example `embeddinggemma`, `nomic-embed-text`, `qwen3-embedding`) works; a chat tag will be rejected by the daemon.
+[`embeddings`](../gaise-provider-ollama/src/ollama_client.rs) builds [`OllamaEmbedRequest`](../gaise-provider-ollama/src/contracts/models.rs) `{"model","input":[…],"dimensions"?,"truncate":true}` with [`ollama_embed_request`](../gaise-provider-ollama/src/ollama_client.rs) and posts it to `POST /api/embed`. `OneOrMany<String>` input is always sent as an array; `options` is always `None`; `keep_alive` is not set. Requests go through the shared resolver described in [embeddings.md](embeddings.md#how-a-request-is-resolved): the model's `[models.embedding]` profile in [`model-registry.toml`](../gaise-core/model-registry.toml) decides how `task`, `dimensions`, and `normalize` are expressed, and the [generated matrix](embeddings.md#model-matrix) shows the wire result per model.
+
+- `task` applies the installed family's documented prefix convention to the text (Ollama adds none itself): nomic `search_query: ` / `search_document: ` / `classification: ` / `clustering: `; mxbai, bge-large and Arctic v1 prepend `Represent this sentence for searching relevant passages: ` to query-side tasks only; Qwen3-Embedding prepends `Instruct: … Query:`; Arctic 2 prepends `query: `; EmbeddingGemma uses Google's `task: search result | query: …` / `title: none | text: …` form. Tags without a convention (bge-m3, all-minilm, granite, paraphrase-multilingual) and unknown tags are sent unchanged; so is every input when `task` is unset.
+- `dimensions` is snapped to the tag's Matryoshka sizes (EmbeddingGemma 128/256/512/768, nomic 64–768, Qwen3 32–4096, Arctic 2 256/1024), dropped for fixed-size tags, and forwarded untouched for unknown tags. Ollama ≥ 0.11.11 truncates and re-normalizes; older servers ignore the field.
+- An untagged name (`nomic-embed-text`) resolves to the `name:*` profile, matching Ollama's own `:latest` default.
+- `/api/embed` returns L2-normalized vectors, so `normalize` is only applied locally for unknown tags. The response `embeddings: Vec<Vec<f32>>` is returned as `GaiseEmbeddingsResponse.output` in input order, `external_id: None`, usage as above. Any installed tag whose `/api/show` capabilities include `embedding` works; a chat tag will be rejected by the daemon.
 
 ## Live / realtime
 
@@ -211,7 +216,18 @@ Registry entries for `ollama` (audited 2026-08-20). Every entry is a family glob
 | `gpt-oss:*` | — | `dynamic_local` | — | text | text | instruct, instruct_stream | `low`, `medium`, `high` | native | tools supported; `think` is sent as a level string, not a boolean |
 | `deepseek-r1:*` | `deepseek-v3.1:*` | `dynamic_local` | — | text | text | instruct, instruct_stream | `true`, `false` | native | reasoning supported, tools unsupported |
 | `gemma4:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | — | native when the installed tag advertises vision | reasoning unsupported, tools unsupported |
-| `embeddinggemma:*` | `qwen3-embedding:*`, `nomic-embed-text:*` | `dynamic_local` | — | text | embedding | embeddings | — | native | — |
+| `embeddinggemma:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | EmbeddingGemma 300m; Matryoshka 768/512/256/128; 2,048-token context; Google prompt-instruction convention. |
+| `nomic-embed-text:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | nomic-embed-text v1.5; Matryoshka 64-768; 8,192-token context (raise num_ctx); prefixes are required for good… |
+| `nomic-embed-text-v2-moe:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | Multilingual MoE; Matryoshka 256-768; 512-token context. |
+| `qwen3-embedding:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | 0.6b/4b/8b = 1024/2560/4096 dimensions (Matryoshka 32-4096); 32k context; queries take an instruction. |
+| `mxbai-embed-large:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | mixedbread mxbai-embed-large-v1; fixed 1024; 512-token context; queries take an instruction. |
+| `bge-m3:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | BAAI bge-m3; fixed 1024; 8,192-token context; multilingual; no prefix. |
+| `bge-large:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | BAAI bge-large-en-v1.5; fixed 1024; 512-token context; optional query instruction. |
+| `all-minilm:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | all-MiniLM-L6/L12; fixed 384; 256-token context; English. |
+| `snowflake-arctic-embed:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | Arctic-embed v1 22m-335m; 384-1024 dimensions by tag; 512-token context; queries take an instruction. |
+| `snowflake-arctic-embed2:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | Arctic-embed 2.0; 1024 dimensions (Matryoshka to 256); 8,192-token context; multilingual; queries take `query… |
+| `granite-embedding:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | IBM Granite 30m (384, English) / 278m (768, 12 languages); 512-token context; no prefix. |
+| `paraphrase-multilingual:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | paraphrase-multilingual-MiniLM-L12-v2; fixed 768; 128-token context; 50+ languages. |
 
 Any other installed tag is accepted as-is (`ollama::<tag>`); the registry is advisory and does not gate requests.
 

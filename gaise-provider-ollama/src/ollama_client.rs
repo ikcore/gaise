@@ -4,11 +4,11 @@ use base64::Engine;
 use futures_util::{Stream, StreamExt};
 use gaise_core::GaiseClient;
 use gaise_core::contracts::{
-    GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseFunctionCall,
-    GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
+    EmbeddingTaskControl, GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse,
+    GaiseFunctionCall, GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
     GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseModel,
     GaiseReasoningEffort, GaiseStreamChunk, GaiseTool, GaiseToolCall, GaiseUsage, OneOrMany,
-    normalize_l2,
+    ResolvedEmbedding, normalize_l2, resolve_embedding,
 };
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -203,6 +203,30 @@ impl From<&GaiseInstructRequest> for OllamaChatRequest {
 /// Map the canonical effort onto Ollama's `think` field. Most models take a
 /// boolean; GPT-OSS accepts `low`/`medium`/`high` (`minimal` → low,
 /// `xhigh`/`max`/`ultra` → high, `auto` → `true`, custom strings forwarded).
+/// Build the `/api/embed` body through the shared embedding rules
+/// (`model-registry.toml` profiles). Each local family's documented prefix
+/// convention is applied from `task` (nomic `search_query: `, mxbai/Arctic
+/// query instructions, EmbeddingGemma's `task: … | query: …`), `dimensions`
+/// is snapped for Matryoshka tags and dropped for fixed-size ones, and
+/// inputs longer than the context are truncated instead of erroring. Unknown
+/// tags pass text and `dimensions` through untouched.
+pub fn ollama_embed_request(
+    request: &GaiseEmbeddingsRequest,
+) -> (OllamaEmbedRequest, ResolvedEmbedding) {
+    let profile = gaise_core::registry::embedding_profile("ollama", &request.model);
+    let resolved = resolve_embedding(request, profile, &EmbeddingTaskControl::None);
+    (
+        OllamaEmbedRequest {
+            model: request.model.clone(),
+            input: resolved.texts.clone(),
+            options: None,
+            dimensions: resolved.dimensions,
+            truncate: Some(true),
+        },
+        resolved,
+    )
+}
+
 pub fn ollama_think(
     model: &str,
     config: &gaise_core::contracts::GaiseGenerationConfig,
@@ -583,19 +607,7 @@ impl GaiseClient for GaiseClientOllama {
         request: &GaiseEmbeddingsRequest,
     ) -> Result<GaiseEmbeddingsResponse, Box<dyn std::error::Error + Send + Sync>> {
         let url = format!("{}/api/embed", self.api_url);
-
-        let inputs = match &request.input {
-            OneOrMany::One(s) => vec![s.clone()],
-            OneOrMany::Many(ss) => ss.clone(),
-        };
-
-        let ollama_request = OllamaEmbedRequest {
-            model: request.model.clone(),
-            input: inputs,
-            options: None,
-            dimensions: request.dimensions,
-            truncate: Some(true),
-        };
+        let (ollama_request, resolved) = ollama_embed_request(request);
 
         let response = self.client.post(url).json(&ollama_request).send().await?;
 
@@ -612,7 +624,7 @@ impl GaiseClient for GaiseClientOllama {
             external_id: None,
             output: {
                 let mut output = ollama_response.embeddings;
-                if request.normalize == Some(true) {
+                if resolved.normalize_locally {
                     output.iter_mut().for_each(|v| normalize_l2(v));
                 }
                 output

@@ -791,74 +791,46 @@ pub struct GoogleEmbeddingsRequest {
 
 impl GoogleEmbeddingsRequest {
     pub fn from(model: &GaiseEmbeddingsRequest) -> GoogleEmbeddingsRequest {
-        // gemini-embedding-2 rejects task_type (the task goes in the prompt);
-        // gemini-embedding-001 and the text-embedding-* family accept it.
-        let task_type = model
-            .task
-            .filter(|_| {
-                !model
-                    .model
-                    .to_ascii_lowercase()
-                    .starts_with("gemini-embedding-2")
-            })
-            .map(|t| vertex_task_type(t).to_string());
-        let lower = model.model.to_ascii_lowercase();
-        let instruct_in_prompt = lower.starts_with("gemini-embedding-2");
-        let texts: Vec<&String> = match &model.input {
-            OneOrMany::One(x) => vec![x],
-            OneOrMany::Many(vx) => vx.iter().collect(),
-        };
-        let instances = texts
-            .into_iter()
-            .map(|x| GoogleInstance {
-                content: Some(match model.task {
-                    Some(task) if instruct_in_prompt => task.gemini_instruction(x),
-                    _ => x.to_string(),
-                }),
-                task_type: task_type.clone(),
-                ..Default::default()
-            })
-            .collect();
+        vertex_embed_request(model).0
+    }
+}
 
-        // Gemini Embedding models go up to 3072 dimensions; the legacy
-        // text-embedding-* / text-multilingual-* family stops at 768.
-        let max_dims = if lower.starts_with("gemini-embedding") {
-            3072
-        } else {
-            768
-        };
+/// Build the `:predict` body through the shared embedding rules
+/// (`model-registry.toml` profiles): `task_type` for `gemini-embedding-001`
+/// and the `text-embedding-*` family, a prompt instruction for
+/// `gemini-embedding-2`, dimensions clamped to the model's range (768 for the
+/// legacy family, 3072 for Gemini Embedding), and `single_input` for
+/// `gemini-embedding-001`, which takes one text per call. Unknown models
+/// default to `task_type` and pass dimensions through.
+pub fn vertex_embed_request(
+    request: &GaiseEmbeddingsRequest,
+) -> (
+    GoogleEmbeddingsRequest,
+    gaise_core::contracts::ResolvedEmbedding,
+) {
+    use gaise_core::contracts::{EmbeddingTaskControl, resolve_embedding};
+    let profile = gaise_core::registry::embedding_profile("vertexai", &request.model);
+    let resolved = resolve_embedding(request, profile, &EmbeddingTaskControl::TaskType);
+    let instances = resolved
+        .texts
+        .iter()
+        .map(|x| GoogleInstance {
+            content: Some(x.clone()),
+            task_type: resolved.wire_task.clone(),
+            ..Default::default()
+        })
+        .collect();
+    (
         GoogleEmbeddingsRequest {
             instances,
             parameters: GoogleParameters {
                 auto_truncate: Some(true),
-                output_dimensionality: model.dimensions.map(|d| d.clamp(1, max_dims)),
+                output_dimensionality: resolved.dimensions,
                 ..Default::default()
             },
-        }
-    }
-}
-
-/// `gemini-embedding-001` on Vertex accepts exactly one input text per
-/// `:predict` call; the other text-embedding models take up to 250.
-pub fn embedding_model_single_input(model: &str) -> bool {
-    model
-        .to_ascii_lowercase()
-        .starts_with("gemini-embedding-001")
-}
-
-/// Vertex `task_type` names for the provider-neutral embedding task.
-pub fn vertex_task_type(task: gaise_core::contracts::GaiseEmbeddingTask) -> &'static str {
-    use gaise_core::contracts::GaiseEmbeddingTask as T;
-    match task {
-        T::Document => "RETRIEVAL_DOCUMENT",
-        T::Query => "RETRIEVAL_QUERY",
-        T::Classification => "CLASSIFICATION",
-        T::Clustering => "CLUSTERING",
-        T::Similarity => "SEMANTIC_SIMILARITY",
-        T::CodeQuery => "CODE_RETRIEVAL_QUERY",
-        T::FactVerification => "FACT_VERIFICATION",
-        T::QuestionAnswering => "QUESTION_ANSWERING",
-    }
+        },
+        resolved,
+    )
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]

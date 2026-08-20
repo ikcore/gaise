@@ -269,32 +269,37 @@ pub struct GeminiEmbedRequest {
     pub output_dimensionality: Option<u32>,
 }
 
-/// Gemini/Vertex `taskType` names for the provider-neutral task.
-pub fn gemini_task_type(task: gaise_core::contracts::GaiseEmbeddingTask) -> &'static str {
-    use gaise_core::contracts::GaiseEmbeddingTask as T;
-    match task {
-        T::Document => "RETRIEVAL_DOCUMENT",
-        T::Query => "RETRIEVAL_QUERY",
-        T::Classification => "CLASSIFICATION",
-        T::Clustering => "CLUSTERING",
-        T::Similarity => "SEMANTIC_SIMILARITY",
-        T::CodeQuery => "CODE_RETRIEVAL_QUERY",
-        T::FactVerification => "FACT_VERIFICATION",
-        T::QuestionAnswering => "QUESTION_ANSWERING",
-    }
-}
-
-/// `gemini-embedding-2` has no `taskType` (the task goes in the prompt);
-/// `gemini-embedding-001` and the legacy `text-embedding-*` models accept it.
-pub fn embedding_model_accepts_task_type(model: &str) -> bool {
-    !model.to_ascii_lowercase().starts_with("gemini-embedding-2")
-}
-
-/// Models that re-normalize truncated (Matryoshka) vectors themselves.
-/// `gemini-embedding-001` does not, so GAISe normalizes locally when a
-/// reduced dimensionality is requested.
-pub fn embedding_model_normalizes_truncation(model: &str) -> bool {
-    model.to_ascii_lowercase().starts_with("gemini-embedding-2")
+/// Build the `batchEmbedContents` body through the shared embedding rules
+/// (`model-registry.toml` profiles). `gemini-embedding-001` gets `taskType`
+/// and raw truncation (normalized locally); `gemini-embedding-2` gets the
+/// task as a prompt instruction and no `taskType`. Unknown models default to
+/// `taskType` and pass `outputDimensionality` through.
+pub fn gemini_embed_request(
+    request: &gaise_core::contracts::GaiseEmbeddingsRequest,
+) -> (
+    GeminiBatchEmbedRequest,
+    gaise_core::contracts::ResolvedEmbedding,
+) {
+    use gaise_core::contracts::{EmbeddingTaskControl, resolve_embedding};
+    let profile = gaise_core::registry::embedding_profile("gemini", &request.model);
+    let resolved = resolve_embedding(request, profile, &EmbeddingTaskControl::TaskType);
+    let requests = resolved
+        .texts
+        .iter()
+        .map(|text| GeminiEmbedRequest {
+            model: format!("models/{}", request.model),
+            content: GeminiContent {
+                role: None,
+                parts: vec![GeminiPart {
+                    text: Some(text.clone()),
+                    ..Default::default()
+                }],
+            },
+            task_type: resolved.wire_task.clone(),
+            output_dimensionality: resolved.dimensions,
+        })
+        .collect();
+    (GeminiBatchEmbedRequest { requests }, resolved)
 }
 
 #[derive(Debug, Serialize, Deserialize)]
