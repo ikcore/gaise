@@ -257,6 +257,44 @@ pub struct GeminiBatchEmbedRequest {
 pub struct GeminiEmbedRequest {
     pub model: String,
     pub content: GeminiContent,
+    /// `RETRIEVAL_DOCUMENT`, `RETRIEVAL_QUERY`, ... — accepted by
+    /// `gemini-embedding-001`; `gemini-embedding-2` rejects it.
+    #[serde(rename = "taskType", skip_serializing_if = "Option::is_none")]
+    pub task_type: Option<String>,
+    /// Matryoshka truncation (128..=3072 on the Gemini embedding models).
+    #[serde(
+        rename = "outputDimensionality",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub output_dimensionality: Option<u32>,
+}
+
+/// Gemini/Vertex `taskType` names for the provider-neutral task.
+pub fn gemini_task_type(task: gaise_core::contracts::GaiseEmbeddingTask) -> &'static str {
+    use gaise_core::contracts::GaiseEmbeddingTask as T;
+    match task {
+        T::Document => "RETRIEVAL_DOCUMENT",
+        T::Query => "RETRIEVAL_QUERY",
+        T::Classification => "CLASSIFICATION",
+        T::Clustering => "CLUSTERING",
+        T::Similarity => "SEMANTIC_SIMILARITY",
+        T::CodeQuery => "CODE_RETRIEVAL_QUERY",
+        T::FactVerification => "FACT_VERIFICATION",
+        T::QuestionAnswering => "QUESTION_ANSWERING",
+    }
+}
+
+/// `gemini-embedding-2` has no `taskType` (the task goes in the prompt);
+/// `gemini-embedding-001` and the legacy `text-embedding-*` models accept it.
+pub fn embedding_model_accepts_task_type(model: &str) -> bool {
+    !model.to_ascii_lowercase().starts_with("gemini-embedding-2")
+}
+
+/// Models that re-normalize truncated (Matryoshka) vectors themselves.
+/// `gemini-embedding-001` does not, so GAISe normalizes locally when a
+/// reduced dimensionality is requested.
+pub fn embedding_model_normalizes_truncation(model: &str) -> bool {
+    model.to_ascii_lowercase().starts_with("gemini-embedding-2")
 }
 
 #[derive(Debug, Serialize, Deserialize)]

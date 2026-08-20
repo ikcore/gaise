@@ -125,6 +125,22 @@ Not mapped: `safetySettings`, `responseMimeType`/`responseSchema` (structured ou
 
 No other model-name rules exist; arbitrary IDs (including `publishers/anthropic` Claude models via the template) are passed through.
 
+### Parameter compatibility (audited 2026-08-20)
+
+[`model_uses_fixed_sampling`](../gaise-provider-vertexai/src/contracts/models.rs), [`thinking_levels_for`](../gaise-provider-vertexai/src/contracts/models.rs), [`normalize_thinking_level`](../gaise-provider-vertexai/src/contracts/models.rs), and [`thinking_budget_for`](../gaise-provider-vertexai/src/contracts/models.rs) enforce the table; [`tests/parameter_matrix_tests.rs`](../gaise-provider-vertexai/tests/parameter_matrix_tests.rs) pins it.
+
+| Family | `temperature` / `topP` / `topK` | Thinking control | Accepted levels / budget | `none` effort |
+|---|---|---|---|---|
+| Gemini 3.7 Flash, 3.1 Pro | never sent (deprecated on all 3.x; 3.6+ ignore or 400) | `thinkingLevel` | LOW, MEDIUM, HIGH (`minimal` → LOW) | → LOW (cannot disable) |
+| Gemini 3.6, 3.5, 3.5-Lite, 3.1-Lite, 3 Flash preview | never sent | `thinkingLevel` | MINIMAL, LOW, MEDIUM, HIGH | → MINIMAL |
+| 3.1 Flash Image, 3.1 Flash-Lite Image | never sent | `thinkingLevel` | MINIMAL, HIGH (LOW → MINIMAL, MEDIUM → HIGH) | → MINIMAL |
+| 3 Pro Image | never sent | `thinkingLevel` | HIGH only | → HIGH |
+| Gemini 2.5 Pro | accepted | `thinkingBudget` | 128–32,768 (cannot disable: 0 → 128) | → 128 |
+| Gemini 2.5 Flash | accepted | `thinkingBudget` | 0–24,576 | → 0 |
+| Gemini 2.5 Flash-Lite | accepted | `thinkingBudget` | 0 or 512–24,576 | → 0 |
+
+On 2.5, an effort without a budget is approximated (`low` 2,048, `medium` 8,192, `high` 24,576, `minimal` 512); `xhigh`/`max` map to HIGH on 3.x. `thinkingLevel` and `thinkingBudget` are never sent together. Sources: Vertex inference reference ("deprecated for all Gemini 3 models"), Vertex thinking page, model cards. The same helpers are duplicated in the Gemini crate.
+
 ## Response mapping
 
 [`GoogleChatCompletionResponse`](../gaise-provider-vertexai/src/contracts/models.rs#L934) deserializes `candidates[]` and `usageMetadata`; [`to_view`](../gaise-provider-vertexai/src/contracts/models.rs#L1008) produces the common response.

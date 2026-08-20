@@ -26,6 +26,11 @@ use gaise_core::{
     GaiseLiveClient,
     contracts::{GaiseLiveConfig, GaiseLiveEvent, GaiseLiveInput},
 };
+#[cfg(feature = "elevenlabs")]
+use gaise_core::{
+    GaiseSpeechClient,
+    contracts::{GaiseSpeechChunk, GaiseSpeechRequest},
+};
 
 pub struct AppState {
     pub client_service: GaiseClientService,
@@ -41,6 +46,12 @@ pub fn create_app(state: Arc<AppState>) -> Router {
 
     #[cfg(feature = "live")]
     let router = router.route("/v1/live", axum::routing::get(handle_live_ws));
+
+    #[cfg(feature = "elevenlabs")]
+    let router = router
+        .route("/v1/speech", post(handle_speech))
+        .route("/v1/speech/stream", post(handle_speech_stream))
+        .route("/v1/speech/audio", post(handle_speech_audio));
 
     router.with_state(state)
 }
@@ -122,6 +133,7 @@ impl ListModelsQuery {
             include_details: self.include_details,
             include_raw: self.include_raw,
             correlation_id: self.correlation_id,
+            connection: None,
         })
     }
 }
@@ -162,6 +174,7 @@ async fn handle_get_model(
         include_details: query.include_details,
         include_raw: query.include_raw,
         correlation_id: query.correlation_id,
+        connection: None,
     };
     match state.client_service.list_models(&request).await {
         Ok(response) => match response.models.into_iter().find(|m| m.id == model) {
@@ -177,6 +190,116 @@ async fn handle_get_model(
             (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
         }
     }
+}
+
+// ── Speech endpoints ───────────────────────────────────────────────
+
+/// `POST /v1/speech` — full clip as JSON (`audio` is a byte array).
+#[cfg(feature = "elevenlabs")]
+async fn handle_speech(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<GaiseSpeechRequest>,
+) -> impl IntoResponse {
+    match state.client_service.speech(&request).await {
+        Ok(response) => Json(response).into_response(),
+        Err(e) => {
+            error!("Speech error: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+/// `POST /v1/speech/stream` — SSE of `GaiseSpeechStreamResponse` (audio,
+/// alignment, usage chunks).
+#[cfg(feature = "elevenlabs")]
+async fn handle_speech_stream(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<GaiseSpeechRequest>,
+) -> impl IntoResponse {
+    match state.client_service.speech_stream(&request).await {
+        Ok(stream) => {
+            let sse_stream = stream.map(|item| match item {
+                Ok(chunk) => Event::default().json_data(chunk),
+                Err(e) => Ok(Event::default().event("error").data(e.to_string())),
+            });
+            Sse::new(sse_stream).into_response()
+        }
+        Err(e) => {
+            error!("Speech stream error: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+/// `POST /v1/speech/audio` — raw audio bytes, chunked as the provider
+/// produces them, with the MIME type in `Content-Type` and the PCM rate in
+/// `X-Gaise-Sample-Rate`. Alignment and usage chunks are dropped.
+#[cfg(feature = "elevenlabs")]
+async fn handle_speech_audio(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<GaiseSpeechRequest>,
+) -> impl IntoResponse {
+    use axum::body::Body;
+    use futures_util::StreamExt as _;
+
+    let mut stream = match state.client_service.speech_stream(&request).await {
+        Ok(stream) => stream,
+        Err(e) => {
+            error!("Speech audio error: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+        }
+    };
+    // Peek the first audio chunk so the headers can carry the real format.
+    let mut first: Option<(Vec<u8>, String, Option<u32>)> = None;
+    while let Some(item) = stream.next().await {
+        match item {
+            Ok(resp) => {
+                if let GaiseSpeechChunk::Audio {
+                    data,
+                    format,
+                    sample_rate,
+                } = resp.chunk
+                {
+                    first = Some((data, format, sample_rate));
+                    break;
+                }
+            }
+            Err(e) => {
+                error!("Speech audio error: {}", e);
+                return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response();
+            }
+        }
+    }
+    let Some((head, format, sample_rate)) = first else {
+        return (
+            StatusCode::BAD_GATEWAY,
+            "provider returned no audio".to_string(),
+        )
+            .into_response();
+    };
+    let rest = stream.filter_map(|item| async move {
+        match item {
+            Ok(resp) => match resp.chunk {
+                GaiseSpeechChunk::Audio { data, .. } => Some(Ok::<_, std::io::Error>(data)),
+                _ => None,
+            },
+            Err(e) => Some(Err(std::io::Error::other(e.to_string()))),
+        }
+    });
+    let body = Body::from_stream(futures_util::stream::once(async move { Ok(head) }).chain(rest));
+    let mut response = axum::response::Response::new(body);
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_str(&format).unwrap_or(axum::http::HeaderValue::from_static(
+            "application/octet-stream",
+        )),
+    );
+    if let Some(rate) = sample_rate
+        && let Ok(value) = axum::http::HeaderValue::from_str(&rate.to_string())
+    {
+        response.headers_mut().insert("x-gaise-sample-rate", value);
+    }
+    response
 }
 
 // ── Live WebSocket endpoint ─────────────────────────────────────────

@@ -343,6 +343,14 @@ Semantics:
 
 `GET /v1/models/{provider}::{id}` returns the single matching record or 404. Unknown `operation` values and IDs without the `::` separator return 400.
 
+## `POST /v1/speech`, `POST /v1/speech/stream`, `POST /v1/speech/audio`
+
+Text-to-speech (ElevenLabs). `/v1/speech` returns `GaiseSpeechResponse` as JSON (`audio` byte array, `format`, `sample_rate`, optional `alignment`, `usage`); `/v1/speech/stream` returns SSE chunks (`audio`, `alignment`, `usage`); `/v1/speech/audio` returns the raw audio body with `Content-Type` and `X-Gaise-Sample-Rate`. A `voice` id is required. Full reference: [`wiki/api.md`](wiki/api.md#post-v1speech).
+
+```json
+{ "model": "elevenlabs::eleven_flash_v2_5", "voice": "<voice_id>", "input": "Hello.", "format": "audio/pcm", "sample_rate": 24000 }
+```
+
 ## `GET /v1/live`
 
 When the API is built with live-provider features, this WebSocket route proxies the common live protocol to OpenAI Realtime or Gemini Live. Live sessions are provider- and model-specific and require credentials. They are not exercised by the default test suite.
@@ -352,6 +360,10 @@ Client-to-server input variants are `text`, `audio`, `image`, `tool_response`, `
 OpenAI Realtime accepts 24 kHz PCM audio in the common audio path and PNG/JPEG still images. Gemini Live accepts audio and image/video frames through its realtime streams. Manual activity, clear, and cancel operations remain provider-specific; unsupported operations produce an explicit error event rather than a fabricated success.
 
 The full live protocol, wire examples, and provider differences are documented in [`wiki/examples.md`](wiki/examples.md#live--realtime) and [`wiki/flows.md`](wiki/flows.md#live-session).
+
+## Per-request connection overrides
+
+Any request body may include `"connection": {"api_url": "...", "api_key": "...", "region": "...", "service_account": {...}}` to override the configured endpoint/credentials for that call; unset fields fall back to the environment. See [`wiki/api.md`](wiki/api.md#per-request-connection-overrides).
 
 ## Configuration
 
@@ -367,4 +379,6 @@ The full live protocol, wire examples, and provider differences are documented i
 | `VERTEXAI_API_URL` | Vertex endpoint override | none |
 | `BEDROCK_REGION` | AWS region | AWS SDK resolution |
 | `OLLAMA_URL` | Ollama endpoint | `http://localhost:11434` |
+| `ELEVENLABS_API_KEY` | ElevenLabs credential | none |
+| `ELEVENLABS_API_URL` | ElevenLabs base URL | `https://api.elevenlabs.io` |
 | `GAISE_PORT` | HTTP listen port | `3000` |

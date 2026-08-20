@@ -6,9 +6,9 @@ use gaise_core::GaiseClient;
 use gaise_core::contracts::{
     GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseFunctionCall,
     GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
-    GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseStreamChunk, GaiseTool,
-    GaiseToolCall, GaiseToolParameter, GaiseUsage, OneOrMany, audio_media_type, file_media_type,
-    image_media_type,
+    GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseReasoningEffort,
+    GaiseStreamChunk, GaiseTool, GaiseToolCall, GaiseToolParameter, GaiseUsage, OneOrMany,
+    audio_media_type, file_media_type, image_media_type, normalize_l2,
 };
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -79,13 +79,112 @@ pub struct GaiseClientGemini {
     client: reqwest::Client,
 }
 
-fn model_uses_thinking_level(model: &str) -> bool {
+/// Gemini family rules for `generationConfig`, audited 2026-08-20 against
+/// the Gemini API and Vertex AI thinking/model pages (see
+/// `wiki/vendor-gemini.md#model-family-rules`). Gemini 3.x uses
+/// `thinkingLevel`, 2.5 uses `thinkingBudget`; sampling parameters are
+/// deprecated (ignored or rejected) on every Gemini 3.x model.
+pub fn model_uses_thinking_level(model: &str) -> bool {
     model.to_ascii_lowercase().starts_with("gemini-3")
 }
 
-fn model_uses_fixed_sampling(model: &str) -> bool {
-    let model = model.to_ascii_lowercase();
-    model.starts_with("gemini-3.5-flash") || model.starts_with("gemini-3.6-flash")
+pub fn model_uses_fixed_sampling(model: &str) -> bool {
+    model.to_ascii_lowercase().starts_with("gemini-3")
+}
+
+const LEVELS_ALL: &[&str] = &["MINIMAL", "LOW", "MEDIUM", "HIGH"];
+const LEVELS_NO_MINIMAL: &[&str] = &["LOW", "MEDIUM", "HIGH"];
+const LEVELS_IMAGE: &[&str] = &["MINIMAL", "HIGH"];
+const LEVELS_HIGH_ONLY: &[&str] = &["HIGH"];
+
+/// `thinkingLevel` values a Gemini 3.x family accepts.
+pub fn thinking_levels_for(model: &str) -> &'static [&'static str] {
+    let m = model.to_ascii_lowercase();
+    if m.contains("pro-image") {
+        LEVELS_HIGH_ONLY
+    } else if m.contains("-image") {
+        LEVELS_IMAGE
+    } else if m.starts_with("gemini-3.7")
+        || m.contains("gemini-3.1-pro")
+        || m.contains("gemini-3-pro")
+    {
+        LEVELS_NO_MINIMAL
+    } else {
+        LEVELS_ALL
+    }
+}
+
+/// Resolve a provider-neutral effort onto the family's `thinkingLevel` set
+/// through the canonical vocabulary ([`GaiseReasoningEffort`]). Thinking
+/// cannot be disabled on Gemini 3.x, so `none` becomes the lowest level;
+/// `xhigh`/`max`/`ultra` become the highest; `auto` returns `None` (the
+/// thinking block is sent without a level so the model picks); custom
+/// strings are forwarded upper-cased.
+pub fn normalize_thinking_level(model: &str, effort: &str) -> Option<String> {
+    let accepted: Vec<GaiseReasoningEffort> = thinking_levels_for(model)
+        .iter()
+        .map(|l| GaiseReasoningEffort::parse(l))
+        .collect();
+    match GaiseReasoningEffort::parse(effort) {
+        GaiseReasoningEffort::Auto => None,
+        GaiseReasoningEffort::Custom(raw) => Some(raw.to_ascii_uppercase()),
+        level => Some(level.clamp_to(&accepted).as_str().to_ascii_uppercase()),
+    }
+}
+
+/// Map a manual token budget onto a 3.x `thinkingLevel`.
+pub fn thinking_level_from_tokens(model: &str, tokens: usize) -> String {
+    let level = match tokens {
+        0..=2_000 => "low",
+        2_001..=12_000 => "medium",
+        _ => "high",
+    };
+    normalize_thinking_level(model, level).unwrap_or_else(|| "HIGH".to_string())
+}
+
+/// `thinkingBudget` for Gemini 2.5, clamped to the family's documented range:
+/// Pro 128–32,768 (cannot be disabled), Flash 0–24,576, Flash-Lite 0 or
+/// 512–24,576. `None` when neither a budget nor an effort was requested.
+pub fn thinking_budget_for(
+    model: &str,
+    tokens: Option<usize>,
+    effort: Option<&str>,
+) -> Option<i64> {
+    let m = model.to_ascii_lowercase();
+    let (min_on, max, can_disable) = if m.contains("gemini-2.5-pro") {
+        (128, 32_768, false)
+    } else if m.contains("flash-lite") {
+        (512, 24_576, true)
+    } else if m.contains("gemini-2.5") {
+        (1, 24_576, true)
+    } else {
+        // Unknown older family: forward the budget untouched.
+        return tokens.map(|t| t as i64);
+    };
+    let requested = match (tokens, effort.map(GaiseReasoningEffort::parse)) {
+        (Some(t), _) => t,
+        // `auto` is Gemini's dynamic budget (-1): the model decides.
+        (None, Some(GaiseReasoningEffort::Auto)) => return Some(-1),
+        (None, Some(GaiseReasoningEffort::None)) => 0,
+        (None, Some(GaiseReasoningEffort::Minimal)) => min_on.max(512),
+        (None, Some(GaiseReasoningEffort::Low)) => 2_048,
+        (None, Some(GaiseReasoningEffort::Medium)) => 8_192,
+        (None, Some(GaiseReasoningEffort::High)) => max.min(24_576),
+        (
+            None,
+            Some(
+                GaiseReasoningEffort::XHigh
+                | GaiseReasoningEffort::Max
+                | GaiseReasoningEffort::Ultra,
+            ),
+        ) => max,
+        (None, Some(GaiseReasoningEffort::Custom(_))) | (None, None) => return None,
+    };
+    Some(if requested == 0 {
+        if can_disable { 0 } else { min_on as i64 }
+    } else {
+        requested.clamp(min_on, max) as i64
+    })
 }
 
 fn normalize_media_resolution(resolution: &str) -> String {
@@ -95,15 +194,6 @@ fn normalize_media_resolution(resolution: &str) -> String {
     } else {
         format!("MEDIA_RESOLUTION_{upper}")
     }
-}
-
-fn thinking_level_from_tokens(tokens: usize) -> String {
-    match tokens {
-        0..=2_000 => "LOW",
-        2_001..=12_000 => "MEDIUM",
-        _ => "HIGH",
-    }
-    .to_string()
 }
 
 fn supports_inline_file(media_type: &str) -> bool {
@@ -572,17 +662,25 @@ impl From<&GaiseInstructRequest> for GeminiRequest {
         let generation_config = request.generation_config.as_ref().map(|gc| {
             let thinking_config = if model_uses_thinking_level(&request.model) {
                 gc.thinking_effort
-                    .as_ref()
-                    .map(|effort| effort.to_uppercase())
-                    .or_else(|| gc.thinking_tokens.map(thinking_level_from_tokens))
+                    .as_deref()
+                    .map(|effort| normalize_thinking_level(&request.model, effort))
+                    .or_else(|| {
+                        gc.thinking_tokens
+                            .map(|tokens| Some(thinking_level_from_tokens(&request.model, tokens)))
+                    })
                     .map(|thinking_level| GeminiThinkingConfig {
                         thinking_budget: None,
-                        thinking_level: Some(thinking_level),
+                        thinking_level,
                         include_thoughts: Some(gc.include_thoughts.unwrap_or(true)),
                     })
             } else {
-                gc.thinking_tokens.map(|tokens| GeminiThinkingConfig {
-                    thinking_budget: Some(tokens as i64),
+                thinking_budget_for(
+                    &request.model,
+                    gc.thinking_tokens,
+                    gc.thinking_effort.as_deref(),
+                )
+                .map(|budget| GeminiThinkingConfig {
+                    thinking_budget: Some(budget),
                     thinking_level: None,
                     include_thoughts: Some(gc.include_thoughts.unwrap_or(true)),
                 })
@@ -874,10 +972,20 @@ impl GaiseClient for GaiseClientGemini {
             self.api_url, request.model, self.api_key
         );
 
-        let inputs = match &request.input {
+        let inputs: Vec<String> = match &request.input {
             OneOrMany::One(s) => vec![s.clone()],
             OneOrMany::Many(ss) => ss.clone(),
         };
+        // gemini-embedding-2 takes the task as a prompt instruction instead of
+        // `taskType`; apply Google's documented convention.
+        let instruct_in_prompt = !embedding_model_accepts_task_type(&request.model);
+        let inputs: Vec<String> = inputs
+            .into_iter()
+            .map(|text| match request.task {
+                Some(task) if instruct_in_prompt => task.gemini_instruction(&text),
+                _ => text,
+            })
+            .collect();
 
         let batch_request = GeminiBatchEmbedRequest {
             requests: inputs
@@ -891,6 +999,11 @@ impl GaiseClient for GaiseClientGemini {
                             ..Default::default()
                         }],
                     },
+                    task_type: request
+                        .task
+                        .filter(|_| embedding_model_accepts_task_type(&request.model))
+                        .map(|t| gemini_task_type(t).to_string()),
+                    output_dimensionality: request.dimensions.map(|d| d.clamp(128, 3072)),
                 })
                 .collect(),
         };
@@ -904,13 +1017,20 @@ impl GaiseClient for GaiseClientGemini {
 
         let gemini_response: GeminiBatchEmbedResponse = response.json().await?;
 
+        let mut output: Vec<Vec<f32>> = gemini_response
+            .embeddings
+            .into_iter()
+            .map(|e| e.values)
+            .collect();
+        // gemini-embedding-001 does not re-normalize truncated vectors.
+        let truncated =
+            request.dimensions.is_some() && !embedding_model_normalizes_truncation(&request.model);
+        if request.normalize == Some(true) || (truncated && request.normalize != Some(false)) {
+            output.iter_mut().for_each(|v| normalize_l2(v));
+        }
         Ok(GaiseEmbeddingsResponse {
             external_id: None,
-            output: gemini_response
-                .embeddings
-                .into_iter()
-                .map(|e| e.values)
-                .collect(),
+            output,
             usage: None,
         })
     }

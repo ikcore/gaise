@@ -6,8 +6,9 @@ use gaise_core::GaiseClient;
 use gaise_core::contracts::{
     GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseFunctionCall,
     GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
-    GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseModel, GaiseStreamChunk,
-    GaiseTool, GaiseToolCall, GaiseUsage, OneOrMany,
+    GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseModel,
+    GaiseReasoningEffort, GaiseStreamChunk, GaiseTool, GaiseToolCall, GaiseUsage, OneOrMany,
+    normalize_l2,
 };
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -191,46 +192,47 @@ impl From<&GaiseInstructRequest> for OllamaChatRequest {
                 .as_ref()
                 .map(|ts| ts.iter().map(|t| OllamaTool::from(t.clone())).collect()),
             format: None,
-            think: request.generation_config.as_ref().and_then(|config| {
-                if request.model.to_ascii_lowercase().contains("gpt-oss") {
-                    config
-                        .thinking_effort
-                        .as_ref()
-                        .map(|effort| match effort.to_ascii_lowercase().as_str() {
-                            "false" | "none" | "off" | "disabled" | "0" => {
-                                OllamaThink::Enabled(false)
-                            }
-                            effort => OllamaThink::Level(effort.to_string()),
-                        })
-                        .or_else(|| {
-                            config.thinking_tokens.map(|tokens| {
-                                if tokens == 0 {
-                                    OllamaThink::Enabled(false)
-                                } else {
-                                    OllamaThink::Level("medium".into())
-                                }
-                            })
-                        })
-                } else {
-                    config
-                        .thinking_effort
-                        .as_ref()
-                        .map(|effort| {
-                            let enabled = !matches!(
-                                effort.to_ascii_lowercase().as_str(),
-                                "false" | "none" | "off" | "disabled" | "0"
-                            );
-                            OllamaThink::Enabled(enabled)
-                        })
-                        .or_else(|| {
-                            config
-                                .thinking_tokens
-                                .map(|tokens| OllamaThink::Enabled(tokens > 0))
-                        })
-                }
-            }),
+            think: request
+                .generation_config
+                .as_ref()
+                .and_then(|config| ollama_think(&request.model, config)),
         }
     }
+}
+
+/// Map the canonical effort onto Ollama's `think` field. Most models take a
+/// boolean; GPT-OSS accepts `low`/`medium`/`high` (`minimal` → low,
+/// `xhigh`/`max`/`ultra` → high, `auto` → `true`, custom strings forwarded).
+pub fn ollama_think(
+    model: &str,
+    config: &gaise_core::contracts::GaiseGenerationConfig,
+) -> Option<OllamaThink> {
+    const GPT_OSS_LEVELS: &[&str] = &["low", "medium", "high"];
+    let gpt_oss = model.to_ascii_lowercase().contains("gpt-oss");
+    if let Some(effort) = config.reasoning_effort() {
+        return Some(match effort {
+            GaiseReasoningEffort::None => OllamaThink::Enabled(false),
+            GaiseReasoningEffort::Auto => OllamaThink::Enabled(true),
+            GaiseReasoningEffort::Custom(raw) if gpt_oss => OllamaThink::Level(raw),
+            GaiseReasoningEffort::Custom(_) => OllamaThink::Enabled(true),
+            level if gpt_oss => OllamaThink::Level(
+                level
+                    .clamp_to(&GaiseReasoningEffort::levels(GPT_OSS_LEVELS))
+                    .as_str()
+                    .to_string(),
+            ),
+            _ => OllamaThink::Enabled(true),
+        });
+    }
+    config.thinking_tokens.map(|tokens| {
+        if tokens == 0 {
+            OllamaThink::Enabled(false)
+        } else if gpt_oss {
+            OllamaThink::Level("medium".into())
+        } else {
+            OllamaThink::Enabled(true)
+        }
+    })
 }
 
 fn format_ollama_error(err_text: &str) -> String {
@@ -591,6 +593,8 @@ impl GaiseClient for GaiseClientOllama {
             model: request.model.clone(),
             input: inputs,
             options: None,
+            dimensions: request.dimensions,
+            truncate: Some(true),
         };
 
         let response = self.client.post(url).json(&ollama_request).send().await?;
@@ -606,7 +610,13 @@ impl GaiseClient for GaiseClientOllama {
 
         Ok(GaiseEmbeddingsResponse {
             external_id: None,
-            output: ollama_response.embeddings,
+            output: {
+                let mut output = ollama_response.embeddings;
+                if request.normalize == Some(true) {
+                    output.iter_mut().for_each(|v| normalize_l2(v));
+                }
+                output
+            },
             usage,
         })
     }

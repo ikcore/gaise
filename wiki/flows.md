@@ -1,6 +1,6 @@
 # Flows
 
-> Part of the [GAISe wiki](README.md) · [HTTP API](api.md) · [Rust SDK](sdk.md) · [Capabilities](capabilities.md) · [Models](models.md) · [Examples](examples.md) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Gemini](vendor-gemini.md) · [Vertex AI](vendor-vertexai.md) · [Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md)
+> Part of the [GAISe wiki](README.md) · [HTTP API](api.md) · [Rust SDK](sdk.md) · [Capabilities](capabilities.md) · [Models](models.md) · [Examples](examples.md) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Gemini](vendor-gemini.md) · [Vertex AI](vendor-vertexai.md) · [Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md) · [ElevenLabs](vendor-elevenlabs.md)
 
 These diagrams describe the current implementation boundaries. Route-level sequences (one per HTTP endpoint) are in [api.md](api.md); vendor-specific sequences (auth, endpoint paths, event names) are on each vendor page under "Flow".
 
@@ -14,6 +14,7 @@ These diagrams describe the current implementation boundaries. Route-level seque
 - [Usage normalization](#usage-normalization)
 - [Embeddings](#embeddings)
 - [Model discovery](#model-discovery)
+- [Speech](#speech)
 - [Live session](#live-session)
 - [Retry and errors](#retry-and-errors)
 
@@ -209,6 +210,22 @@ flowchart LR
     G --> W
 ```
 
+## Speech
+
+```mermaid
+flowchart LR
+    R["GaiseSpeechRequest<br/>model · voice · input · format"] --> F["resolve output format<br/>MIME + rate → provider format"]
+    F --> B["build provider body<br/>model rules: language_code, speed, seed"]
+    B --> E{mode}
+    E -->|speech| C["POST text-to-speech<br/>(+ with-timestamps)"]
+    E -->|speech_stream| S["POST …/stream<br/>(+ NDJSON timestamps)"]
+    C --> O["GaiseSpeechResponse<br/>audio · format · alignment · usage"]
+    S --> K["Audio / Alignment chunks<br/>then Usage"]
+    K --> H["HTTP: SSE or raw audio body"]
+```
+
+Realtime voice is the [live session](#live-session) flow with text in and audio out ([vendor-elevenlabs.md#live--realtime](vendor-elevenlabs.md#live--realtime)). Sources: [`gaise_speech.rs`](../gaise-core/src/contracts/gaise_speech.rs), [`elevenlabs_client.rs`](../gaise-provider-elevenlabs/src/elevenlabs_client.rs); HTTP: [api.md#post-v1speech](api.md#post-v1speech).
+
 ## Live session
 
 ```mermaid
@@ -235,7 +252,7 @@ sequenceDiagram
     Live-->>App: SessionEnded
 ```
 
-OpenAI uses the current GA nested audio/session shape. Gemini uses `setup`, `realtimeInput`, and `toolResponse`; images are sent as realtime video frames. A setup error or early socket close is surfaced instead of being reported as a started session. Contracts: [sdk.md#live](sdk.md#live); WebSocket route: [api.md#get-v1live](api.md#get-v1live); providers: [vendor-openai.md#live--realtime](vendor-openai.md#live--realtime), [vendor-gemini.md#live--realtime](vendor-gemini.md#live--realtime).
+OpenAI uses the current GA nested audio/session shape. Gemini uses `setup`, `realtimeInput`, and `toolResponse`; images are sent as realtime video frames. ElevenLabs sessions carry text in and audio out over `stream-input` (or text-to-dialogue for `eleven_v3*`). A setup error or early socket close is surfaced instead of being reported as a started session. Contracts: [sdk.md#live](sdk.md#live); WebSocket route: [api.md#get-v1live](api.md#get-v1live); providers: [vendor-openai.md#live--realtime](vendor-openai.md#live--realtime), [vendor-gemini.md#live--realtime](vendor-gemini.md#live--realtime).
 
 ## Retry and errors
 

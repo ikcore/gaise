@@ -4,7 +4,7 @@ use futures_util::{SinkExt, StreamExt};
 use gaise_core::GaiseLiveClient;
 use gaise_core::contracts::{
     GaiseLiveConfig, GaiseLiveEvent, GaiseLiveEventStream, GaiseLiveInput, GaiseLiveModality,
-    GaiseLiveSession, GaiseTool, GaiseToolParameter, GaiseUsage,
+    GaiseLiveSession, GaiseReasoningEffort, GaiseTool, GaiseToolParameter, GaiseUsage,
 };
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -22,11 +22,19 @@ fn live_thinking_level_from_tokens(tokens: usize) -> String {
     .to_string()
 }
 
-fn normalize_live_thinking_level(effort: &str) -> String {
-    match effort.to_ascii_lowercase().as_str() {
-        "none" | "off" | "disabled" => "MINIMAL".to_string(),
-        "xhigh" | "max" => "HIGH".to_string(),
-        other => other.to_ascii_uppercase(),
+/// Live models accept `MINIMAL`…`HIGH`; resolved through the canonical
+/// vocabulary (`none` → MINIMAL, `xhigh`/`max`/`ultra` → HIGH, `auto` → omit).
+fn normalize_live_thinking_level(effort: &str) -> Option<String> {
+    const LIVE_LEVELS: &[&str] = &["minimal", "low", "medium", "high"];
+    match GaiseReasoningEffort::parse(effort) {
+        GaiseReasoningEffort::Auto => None,
+        GaiseReasoningEffort::Custom(raw) => Some(raw.to_ascii_uppercase()),
+        level => Some(
+            level
+                .clamp_to(&GaiseReasoningEffort::levels(LIVE_LEVELS))
+                .as_str()
+                .to_ascii_uppercase(),
+        ),
     }
 }
 
@@ -236,7 +244,7 @@ fn build_setup_message(config: &GaiseLiveConfig, api_model_path: &str) -> Gemini
                     thinking_level: gc
                         .thinking_effort
                         .as_deref()
-                        .map(normalize_live_thinking_level)
+                        .and_then(normalize_live_thinking_level)
                         .or_else(|| gc.thinking_tokens.map(live_thinking_level_from_tokens)),
                     include_thoughts: gc.include_thoughts,
                 }

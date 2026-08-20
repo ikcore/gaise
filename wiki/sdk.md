@@ -1,6 +1,6 @@
 # Rust SDK
 
-> Part of the [GAISe wiki](README.md) · [HTTP API](api.md) · [Capabilities](capabilities.md) · [Models](models.md) · [Flows](flows.md) · [Examples](examples.md) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Gemini](vendor-gemini.md) · [Vertex AI](vendor-vertexai.md) · [Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md)
+> Part of the [GAISe wiki](README.md) · [HTTP API](api.md) · [Capabilities](capabilities.md) · [Models](models.md) · [Flows](flows.md) · [Examples](examples.md) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Gemini](vendor-gemini.md) · [Vertex AI](vendor-vertexai.md) · [Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md) · [ElevenLabs](vendor-elevenlabs.md)
 
 GAISe is consumed as a set of Rust crates. [`gaise`](../gaise-core/) (library name `gaise_core`) defines the provider-neutral contracts and the [`GaiseClient`](../gaise-core/src/lib.rs) / [`GaiseLiveClient`](../gaise-core/src/lib.rs) traits; six `gaise-provider-*` crates implement them; [`gaise-client`](../gaise-client/) routes `provider::model` strings to whichever adapters are compiled in; [`gaise-api`](../gaise-api/) wraps the router in HTTP (see [api.md](api.md)).
 
@@ -11,8 +11,9 @@ GAISe is consumed as a set of Rust crates. [`gaise`](../gaise-core/) (library na
 - [The router: `GaiseClientService`](#the-router-gaiseclientservice)
 - [Direct provider clients](#direct-provider-clients)
 - [Core contracts](#core-contracts)
-  - [`OneOrMany`](#oneormany) · [Instruct request](#instruct-request) · [Messages](#messages) · [Content](#content) · [Generation config](#generation-config) · [Tools](#tools) · [Responses](#responses) · [Streaming](#streaming) · [Usage](#usage) · [Embeddings](#embeddings) · [Live](#live)
+  - [`OneOrMany`](#oneormany) · [Instruct request](#instruct-request) · [Messages](#messages) · [Content](#content) · [Generation config](#generation-config) · [Tools](#tools) · [Responses](#responses) · [Streaming](#streaming) · [Usage](#usage) · [Embeddings](#embeddings) · [Speech](#speech) · [Live](#live)
 - [Model discovery](#model-discovery)
+- [Per-request connection overrides](#per-request-connection-overrides)
 - [Logging](#logging)
 - [Error handling and retries](#error-handling-and-retries)
 - [Testing your integration](#testing-your-integration)
@@ -29,11 +30,12 @@ flowchart TD
     vai[gaise-provider-vertexai]
     bed[gaise-provider-bedrock]
     oll[gaise-provider-ollama]
+    ell[gaise-provider-elevenlabs]
     client["gaise-client<br/>GaiseClientService router"]
     api["gaise-api<br/>Axum HTTP / SSE / WS"]
     bot[gaise-chatbot]
-    core --> oai & ant & gem & vai & bed & oll
-    oai & ant & gem & vai & bed & oll --> client
+    core --> oai & ant & gem & vai & bed & oll & ell
+    oai & ant & gem & vai & bed & oll & ell --> client
     core --> client
     client --> api
     client --> bot
@@ -49,6 +51,7 @@ flowchart TD
 | `gaise-provider-vertexai` | [`gaise-provider-vertexai/`](../gaise-provider-vertexai/) | Vertex generateContent, Embeddings — [vendor page](vendor-vertexai.md) |
 | `gaise-provider-bedrock` | [`gaise-provider-bedrock/`](../gaise-provider-bedrock/) | Converse/ConverseStream, InvokeModel embeddings — [vendor page](vendor-bedrock.md) |
 | `gaise-provider-ollama` | [`gaise-provider-ollama/`](../gaise-provider-ollama/) | Local chat and embeddings — [vendor page](vendor-ollama.md) |
+| `gaise-provider-elevenlabs` | [`gaise-provider-elevenlabs/`](../gaise-provider-elevenlabs/) | Text-to-speech, streaming speech, realtime voice (`live`) — [vendor page](vendor-elevenlabs.md) |
 | `gaise-api` | [`gaise-api/`](../gaise-api/) | HTTP server — [api.md](api.md) |
 | `gaise-chatbot` | [`gaise-chatbot/`](../gaise-chatbot/) | Minimal CLI example |
 
@@ -58,7 +61,7 @@ gaise-core = { package = "gaise", version = "0.1" }
 gaise-client = { version = "0.1", default-features = false, features = ["openai", "anthropic", "live"] }
 ```
 
-[`gaise-client`](../gaise-client/Cargo.toml) enables all six providers by default. The `live` feature adds `GaiseLiveClient` support for whichever of `openai` and `gemini` are also enabled.
+[`gaise-client`](../gaise-client/Cargo.toml) enables all seven providers by default. The `live` feature adds `GaiseLiveClient` support for whichever of `openai` and `gemini` are also enabled.
 
 | Feature | Pulls in | Surfaces |
 |---|---|---|
@@ -68,7 +71,8 @@ gaise-client = { version = "0.1", default-features = false, features = ["openai"
 | `vertexai` | `gaise-provider-vertexai` | generateContent, `:predict` embeddings, Model Garden listing |
 | `bedrock` | `gaise-provider-bedrock` | Converse, ConverseStream, InvokeModel, `ListFoundationModels` |
 | `ollama` | `gaise-provider-ollama` | `/api/chat`, `/api/embed`, `/api/tags` |
-| `live` | `openai?/live`, `gemini?/live` | OpenAI Realtime, Gemini Live |
+| `elevenlabs` | `gaise-provider-elevenlabs` | Text-to-speech, `GET /v1/models`, `GaiseSpeechClient` on the router |
+| `live` | `openai?/live`, `gemini?/live`, `elevenlabs?/live` | OpenAI Realtime, Gemini Live, ElevenLabs realtime voice |
 
 ## Choosing an entry point
 
@@ -89,9 +93,15 @@ pub trait GaiseClient: Send + Sync {
     /// Default body returns "not supported" so custom clients keep compiling.
     async fn list_models(&self, request: &GaiseListModelsRequest) -> Result<GaiseListModelsResponse, BoxErr>;
 }
+
+#[async_trait]
+pub trait GaiseSpeechClient: Send + Sync {
+    async fn speech(&self, request: &GaiseSpeechRequest) -> Result<GaiseSpeechResponse, BoxErr>;
+    async fn speech_stream(&self, request: &GaiseSpeechRequest) -> Result<Pin<Box<dyn Stream<Item = Result<GaiseSpeechStreamResponse, BoxErr>> + Send>>, BoxErr>;
+}
 ```
 
-Source: [`gaise-core/src/lib.rs`](../gaise-core/src/lib.rs).
+Source: [`gaise-core/src/lib.rs`](../gaise-core/src/lib.rs). `GaiseClientService` implements `GaiseSpeechClient` when the `elevenlabs` feature is on.
 
 ## The router: `GaiseClientService`
 
@@ -110,6 +120,8 @@ let service = GaiseClientService::new(GaiseClientConfig {
     vertexai_sa: service_account, // Option<ServiceAccount>
     bedrock_region: Some("eu-west-2".into()),
     ollama_url: Some("http://localhost:11434".into()),
+    elevenlabs_api_key: std::env::var("ELEVENLABS_API_KEY").ok(),
+    elevenlabs_api_url: None,
     logger: None,
 });
 
@@ -117,6 +129,7 @@ let response = service.instruct(&request).await?;
 let stream = service.instruct_stream(&request).await?;
 let embeddings = service.embeddings(&embedding_request).await?;
 let catalog = service.list_models(&GaiseListModelsRequest::default()).await?;
+let clip = service.speech(&speech_request).await?;   // feature = "elevenlabs"
 ```
 
 Config fields are conditionally compiled by feature ([`GaiseClientConfig`](../gaise-client/src/lib.rs)). Clients are built lazily on first use and cached per provider key ([`get_client`](../gaise-client/src/lib.rs)); [`add_client`](../gaise-client/src/lib.rs) registers any `Arc<dyn GaiseClient>` under a custom key, which then participates in routing and aggregate listing.
@@ -159,6 +172,7 @@ The router also strips empty text chunks from streams and, when a logger is conf
 | `VERTEXAI_SA_PATH`, `VERTEXAI_API_URL` | `vertexai_sa`, `vertexai_api_url` | Service-account JSON path; URL is a `{{MODEL}}` template; `VERTEXAI_API_TIER` optional ([vendor-vertexai](vendor-vertexai.md#configuration)) |
 | `BEDROCK_REGION` | `bedrock_region` | Passed into the SDK builder; credentials from the AWS chain ([vendor-bedrock](vendor-bedrock.md#configuration)) |
 | `OLLAMA_URL` | `ollama_url` | Defaults to `http://localhost:11434` for routing; must be set to be included in aggregate listing |
+| `ELEVENLABS_API_KEY`, `ELEVENLABS_API_URL` | `elevenlabs_api_key`, `elevenlabs_api_url` | URL defaults to `https://api.elevenlabs.io`; regional residency hosts allowed ([vendor-elevenlabs](vendor-elevenlabs.md#configuration)) |
 
 ## Direct provider clients
 
@@ -187,11 +201,14 @@ let bedrock = GaiseClientBedrock::new_with_region(Some("eu-west-2".into())).awai
 
 use gaise_provider_ollama::ollama_client::GaiseClientOllama;
 let ollama = GaiseClientOllama::new("http://localhost:11434".into());
+
+use gaise_provider_elevenlabs::elevenlabs_client::GaiseClientElevenLabs;
+let elevenlabs = GaiseClientElevenLabs::new("https://api.elevenlabs.io".into(), std::env::var("ELEVENLABS_API_KEY")?);
 ```
 
 Live clients: [`GaiseClientOpenAILive::new(base_url, key)`](../gaise-provider-openai/src/openai_live_client.rs) and [`GaiseClientGeminiLive::new(base_url, key)`](../gaise-provider-gemini/src/gemini_live_client.rs) behind each crate's `live` feature.
 
-Constructor details, extra env vars, and per-provider options are on the vendor pages: [OpenAI](vendor-openai.md#configuration) · [Anthropic](vendor-anthropic.md#configuration) · [Gemini](vendor-gemini.md#configuration) · [Vertex AI](vendor-vertexai.md#configuration) · [Bedrock](vendor-bedrock.md#configuration) · [Ollama](vendor-ollama.md#configuration).
+Constructor details, extra env vars, and per-provider options are on the vendor pages: [OpenAI](vendor-openai.md#configuration) · [Anthropic](vendor-anthropic.md#configuration) · [Gemini](vendor-gemini.md#configuration) · [Vertex AI](vendor-vertexai.md#configuration) · [Bedrock](vendor-bedrock.md#configuration) · [Ollama](vendor-ollama.md#configuration) · [ElevenLabs](vendor-elevenlabs.md#configuration).
 
 ## Core contracts
 
@@ -213,6 +230,7 @@ All types live in [`gaise_core::contracts`](../gaise-core/src/contracts/mod.rs);
 | `tools` | `Option<Vec<GaiseTool>>` | See [Tools](#tools) |
 | `tool_config` | `Option<GaiseToolConfig>` | `mode` such as `auto`, `any`/`required`, `none` — mapped per provider |
 | `correlation_id` | `Option<String>` | Echoed to the logger |
+| `connection` | `Option<GaiseConnection>` | Per-request endpoint/credential override ([below](#per-request-connection-overrides)) |
 
 ### Messages
 
@@ -250,10 +268,10 @@ Byte fields serialize as integer arrays in JSON. `format` accepts a MIME type or
 
 | Field | Meaning | Notes |
 |---|---|---|
-| `temperature`, `top_p`, `top_k` | Sampling | Dropped for fixed-sampling families (Claude Opus 5/4.7/4.8, Sonnet 5, Fable/Mythos 5; Gemini 3.5/3.6) |
+| `temperature`, `top_p`, `top_k` | Sampling | Dropped where the family rejects them: Claude Opus 5/4.7/4.8, Sonnet 5, Fable/Mythos 5; every Gemini 3.x; GPT-5.x unless effort is `none`; either/or on Claude 4.5 and Nova v1 ([capabilities.md#parameter-compatibility-by-family](capabilities.md#parameter-compatibility-by-family)) |
 | `max_tokens` | Output budget | OpenAI `max_completion_tokens`, Anthropic `max_tokens`, Gemini `maxOutputTokens`, Ollama `num_predict` |
 | `thinking_tokens` | Manual reasoning budget | Anthropic `budget_tokens`, Gemini 2.5 `thinkingBudget`, Bedrock Claude/Nova budgets |
-| `thinking_effort` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` | OpenAI `reasoning_effort`, Anthropic `output_config.effort`, Gemini 3.x `thinkingLevel`, Ollama GPT-OSS `think` level |
+| `thinking_effort` | `none`, `auto`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` (+ aliases such as `off`, `adaptive`, `extra_high`, `ultracode`) | Resolved per family through [`GaiseReasoningEffort`](../gaise-core/src/contracts/gaise_reasoning.rs): `ultra` = the most the model offers, unsupported levels snap to the nearest, custom strings pass through. Full mapping: [reasoning.md](reasoning.md) |
 | `include_thoughts` | Ask for thought summaries | Anthropic `thinking.display`, Gemini `includeThoughts` (defaults on when reasoning requested) |
 | `response_modalities` | `TEXT`, `IMAGE`, `AUDIO` | Gemini/Vertex `responseModalities` |
 | `image_config` | `aspect_ratio`, `image_size` | Gemini/Vertex `responseFormat.image` |
@@ -344,7 +362,33 @@ All parsers tolerate SSE/NDJSON frames split across arbitrary byte boundaries ([
 
 ### Embeddings
 
-[`GaiseEmbeddingsRequest`](../gaise-core/src/contracts/gaise_embeddings_request.rs) (`model`, `input: OneOrMany<String>`, `correlation_id`) → [`GaiseEmbeddingsResponse`](../gaise-core/src/contracts/gaise_embeddings_response.rs) (`output: Vec<Vec<f32>>`, `external_id`, `usage`). The contract is text-only even where a provider sells multimodal embeddings.
+[`GaiseEmbeddingsRequest`](../gaise-core/src/contracts/gaise_embeddings_request.rs) (`model`, `input: OneOrMany<String>`, `task: Option<GaiseEmbeddingTask>`, `dimensions`, `normalize`, `correlation_id`, `connection`) → [`GaiseEmbeddingsResponse`](../gaise-core/src/contracts/gaise_embeddings_response.rs) (`output: Vec<Vec<f32>>`, `external_id`, `usage`). Embed corpus text with `task: Document` and queries with `task: Query`; use `dimensions` for Matryoshka models; set `normalize: true` when you mix dot-product and cosine. The contract is text-only even where a provider sells multimodal embeddings. Per-model limits and practices: [embeddings.md](embeddings.md).
+
+### Speech
+
+[`GaiseSpeechRequest`](../gaise-core/src/contracts/gaise_speech.rs) (`model`, `input`, `voice`, `format`, `sample_rate`, `language`, `voice_settings`, `instructions`, `seed`, `include_alignment`) → [`GaiseSpeechResponse`](../gaise-core/src/contracts/gaise_speech.rs) (`audio` bytes, `format` MIME, `sample_rate`, `external_id`, `alignment`, `usage`). `speech_stream` yields [`GaiseSpeechStreamResponse`](../gaise-core/src/contracts/gaise_speech.rs) items whose `chunk` is `Audio { data, format, sample_rate }`, `Alignment(GaiseSpeechAlignment)`, or `Usage(GaiseUsage)`.
+
+```rust
+use gaise_core::GaiseSpeechClient;
+use gaise_core::contracts::{GaiseSpeechChunk, GaiseSpeechRequest, GaiseVoiceSettings};
+
+let request = GaiseSpeechRequest {
+    model: "elevenlabs::eleven_flash_v2_5".into(),
+    voice: Some(voice_id),
+    input: "Welcome to GAISe.".into(),
+    format: Some("audio/pcm".into()),
+    sample_rate: Some(24_000),
+    voice_settings: Some(GaiseVoiceSettings { stability: Some(0.5), ..Default::default() }),
+    ..Default::default()
+};
+let clip = service.speech(&request).await?;            // clip.audio, clip.format
+let mut stream = service.speech_stream(&request).await?;
+while let Some(item) = stream.next().await {
+    if let GaiseSpeechChunk::Audio { data, .. } = item?.chunk { player.write(&data); }
+}
+```
+
+Realtime text-in/audio-out reuses [Live](#live): `live_connect` with `voice` set, send `GaiseLiveInput::Text` fragments, receive `GaiseLiveEvent::Audio` (+ `Transcript`), send `AudioStreamEnd` to flush. Provider: [vendor-elevenlabs.md](vendor-elevenlabs.md).
 
 ### Live
 
@@ -370,7 +414,7 @@ sequenceDiagram
     Provider-->>App: SessionEnded
 ```
 
-Inputs: `Text`, `Audio { data, sample_rate }`, `Image`, `ToolResponse`, `ActivityStart`/`ActivityEnd`, `AudioStreamEnd`, `ClearAudio`, `CancelResponse`, `Close`. Events: `session_started`, `text`, `audio`, `transcript`, `reasoning`, `tool_call`, `tool_call_cancelled`, `turn_complete`, `interrupted`, `usage`, `error`, `session_ended`. Operations a provider cannot perform produce an `error` event, never a silent success. Provider differences: [vendor-openai](vendor-openai.md#live--realtime) · [vendor-gemini](vendor-gemini.md#live--realtime); wire examples: [examples.md#live--realtime](examples.md#live--realtime).
+Inputs: `Text`, `Audio { data, sample_rate }`, `Image`, `ToolResponse`, `ActivityStart`/`ActivityEnd`, `AudioStreamEnd`, `ClearAudio`, `CancelResponse`, `Close`. ElevenLabs sessions are text-in/audio-out only ([vendor-elevenlabs](vendor-elevenlabs.md#live--realtime)). Events: `session_started`, `text`, `audio`, `transcript`, `reasoning`, `tool_call`, `tool_call_cancelled`, `turn_complete`, `interrupted`, `usage`, `error`, `session_ended`. Operations a provider cannot perform produce an `error` event, never a silent success. Provider differences: [vendor-openai](vendor-openai.md#live--realtime) · [vendor-gemini](vendor-gemini.md#live--realtime); wire examples: [examples.md#live--realtime](examples.md#live--realtime).
 
 ## Model discovery
 
@@ -394,7 +438,7 @@ let embed = service.list_models(&GaiseListModelsRequest {
 }).await?;
 ```
 
-[`GaiseModel`](../gaise-core/src/contracts/gaise_model.rs) fields: `id` (routable), `provider`, `display_name`, `description`, `created_at`, `status`, `retires_on`, `retirement_not_before`, `replacement`, `notes`, `capabilities` (`input`, `output`, `operations`, `tools`, `reasoning`, `reasoning_values`, `structured_output`, `sources`), `limits` (`max_input_tokens`, `max_output_tokens`, `embedding_dimensions`), `raw`.
+[`GaiseModel`](../gaise-core/src/contracts/gaise_model.rs) fields: `id` (routable), `provider`, `display_name`, `description`, `created_at`, `status`, `retires_on`, `retirement_not_before`, `replacement`, `notes`, `capabilities` (`input`, `output`, `operations` — `instruct`, `instruct_stream`, `embeddings`, `speech`, `live` — `tools`, `reasoning`, `reasoning_values`, `structured_output`, `sources`), `limits` (`max_input_tokens`, `max_output_tokens`, `embedding_dimensions`), `raw`.
 
 ```mermaid
 flowchart LR
@@ -419,6 +463,26 @@ Rules (enforced in [`gaise-client/src/lib.rs`](../gaise-client/src/lib.rs) and [
 - Direct clients return bare IDs and no registry overlay; call [`gaise_core::registry::enrich`](../gaise-core/src/registry.rs) yourself if you need it.
 
 What each provider API can report is tabulated in [capabilities.md#model-discovery](capabilities.md#model-discovery); the full catalog is in [models.md](models.md).
+
+## Per-request connection overrides
+
+[`GaiseConnection`](../gaise-core/src/contracts/gaise_connection.rs) (`api_url`, `api_key`, `region`, `service_account`) can be attached to any request as `connection`. `GaiseClientService` resolves `(provider, connection)` to a client — the override wins field-by-field over `GaiseClientConfig`, and distinct connections are cached separately ([`get_client_with`](../gaise-client/src/lib.rs), [`get_live_client_with`](../gaise-client/src/lib.rs), [`get_speech_client_with`](../gaise-client/src/lib.rs)).
+
+```rust
+use gaise_core::contracts::GaiseConnection;
+
+let request = GaiseInstructRequest {
+    model: "anthropic::claude-opus-5".into(),
+    connection: Some(GaiseConnection {
+        api_key: Some(tenant.anthropic_key.clone()),
+        ..Default::default()
+    }),
+    ..request
+};
+let response = service.instruct(&request).await?; // no env vars involved
+```
+
+The service never forwards `connection` to adapters and redacts it in logs ([`redact_secrets`](../gaise-core/src/contracts/gaise_connection.rs)); tests: [`connection_override_tests.rs`](../gaise-client/tests/connection_override_tests.rs). Direct provider clients take the URL and key in their constructors instead.
 
 ## Logging
 

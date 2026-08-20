@@ -12,6 +12,7 @@ Rust examples for every contract surface. They use `GaiseClientService`, so mode
 - [Tool declaration](#tool-declaration) · [Tool result](#tool-result)
 - [Streaming](#streaming) · [Embeddings](#embeddings) · [Usage inspection](#usage-inspection)
 - [Model discovery](#model-discovery)
+- [Speech](#speech)
 - [Live / realtime](#live--realtime)
 
 ```rust
@@ -404,6 +405,48 @@ let local = service
 ```
 
 `capabilities.sources` tells you whether a claim came from the provider API, the bundled registry, or a name heuristic; `GaiseSupport::Unknown` and empty modality lists mean "nobody said" — see [capabilities.md#model-discovery](capabilities.md#model-discovery). HTTP equivalent: [`GET /v1/models`](api.md#get-v1models).
+
+## Speech
+
+```rust
+use gaise_core::GaiseSpeechClient;
+use gaise_core::contracts::{GaiseSpeechChunk, GaiseSpeechRequest, GaiseVoiceSettings};
+
+let request = GaiseSpeechRequest {
+    model: "elevenlabs::eleven_flash_v2_5".into(),
+    voice: Some(std::env::var("ELEVENLABS_VOICE_ID")?), // discover with GaiseClientElevenLabs::list_voices
+    input: "The build is green. Deploying now.".into(),
+    format: Some("audio/pcm".into()),
+    sample_rate: Some(24_000),
+    language: Some("en".into()),
+    voice_settings: Some(GaiseVoiceSettings {
+        stability: Some(0.5),
+        similarity: Some(0.75),
+        ..Default::default()
+    }),
+    include_alignment: true,
+    ..Default::default()
+};
+
+// Whole clip.
+let clip = service.speech(&request).await?;
+std::fs::write("clip.pcm", &clip.audio)?;
+if let Some(alignment) = &clip.alignment {
+    println!("{} characters timed", alignment.characters.len());
+}
+
+// Chunked as rendered.
+let mut stream = service.speech_stream(&request).await?;
+while let Some(item) = stream.next().await {
+    match item?.chunk {
+        GaiseSpeechChunk::Audio { data, .. } => player.write(&data),
+        GaiseSpeechChunk::Alignment(a) => subtitles.push(a),
+        GaiseSpeechChunk::Usage(u) => println!("{u:?}"),
+    }
+}
+```
+
+Realtime voice: open a [live session](#live--realtime) with `model: "elevenlabs::eleven_flash_v2_5"` and `voice` set, send `GaiseLiveInput::Text` fragments as they are produced (for example from an `instruct_stream`), and play `GaiseLiveEvent::Audio` frames (24 kHz PCM). Send `AudioStreamEnd` at the end of a sentence to flush. HTTP equivalents: [`POST /v1/speech`](api.md#post-v1speech), [`/v1/speech/stream`](api.md#post-v1speechstream), [`/v1/speech/audio`](api.md#post-v1speechaudio).
 
 ## Live / realtime
 

@@ -26,8 +26,12 @@ pub struct GaiseGenerationConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_tokens: Option<usize>,
 
-    /// Provider-neutral reasoning effort (`low`, `medium`, `high`, `xhigh`,
-    /// `max`, or a provider-specific value).
+    /// Reasoning effort. Canonical values are `none`, `auto`, `minimal`,
+    /// `low`, `medium`, `high`, `xhigh`, and `max` (aliases such as `off`,
+    /// `adaptive`, `extra_high`, and `maximum` are accepted); any other string
+    /// is forwarded to the provider verbatim. See
+    /// [`GaiseReasoningEffort`](super::GaiseReasoningEffort) for the mapping
+    /// rules each adapter applies.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_effort: Option<String>,
 
@@ -56,4 +60,13 @@ pub struct GaiseGenerationConfig {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_key: Option<String>,
+}
+
+impl GaiseGenerationConfig {
+    /// The requested effort interpreted through the canonical vocabulary.
+    pub fn reasoning_effort(&self) -> Option<super::GaiseReasoningEffort> {
+        self.thinking_effort
+            .as_deref()
+            .map(super::GaiseReasoningEffort::parse)
+    }
 }

@@ -1,13 +1,13 @@
 # Models
 
-> Part of the [GAISe wiki](README.md) · [Capabilities](capabilities.md) · [HTTP API](api.md#get-v1models) · [Rust SDK](sdk.md#model-discovery) · [Flows](flows.md#model-discovery) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Google Gemini API](vendor-gemini.md) · [Google Vertex AI](vendor-vertexai.md) · [Amazon Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md)
+> Part of the [GAISe wiki](README.md) · [Capabilities](capabilities.md) · [HTTP API](api.md#get-v1models) · [Rust SDK](sdk.md#model-discovery) · [Flows](flows.md#model-discovery) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Google Gemini API](vendor-gemini.md) · [Google Vertex AI](vendor-vertexai.md) · [Amazon Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md) · [ElevenLabs](vendor-elevenlabs.md)
 
 This page is the human-readable view of [`gaise-core/model-registry.toml`](../gaise-core/model-registry.toml) (schema 2, audited **2026-08-20**), which is compiled into the `gaise` crate and applied as an overlay by [`list_models`](api.md#get-v1models). It is advisory: GAISe accepts arbitrary model IDs so new releases work before this file is updated, and the provider's own model API (see [Model discovery](capabilities.md#model-discovery)) is always the first source of truth.
 
 The tables below are generated from the registry with [`cargo run -p gaise --example registry_json`](../gaise-core/examples/registry_json.rs). Columns:
 
 - **Input / Output** — modalities classified from the entry's `capabilities` list by [`classify_capabilities`](../gaise-core/src/registry.rs).
-- **Ops** — GAISe operations the entry maps to: `I` instruct, `S` instruct_stream, `E` embeddings, `L` live. Empty means no GAISe surface drives the model (image generation, TTS, bidirectional audio).
+- **Ops** — GAISe operations the entry maps to: `I` instruct, `S` instruct_stream, `E` embeddings, `V` speech (voice), `L` live. Empty means no GAISe surface drives the model (image generation, TTS, bidirectional audio).
 - **Tools / Reasoning** — ✓ supported, ✗ not listed, and the `reasoning_values` the provider documents.
 - **Dates** — `shutdown` is a published retirement date; `not before` is an availability guarantee. Gemini API and Vertex AI dates are **never** interchangeable.
 
@@ -20,6 +20,7 @@ The tables below are generated from the registry with [`cargo run -p gaise --exa
 - [Google Vertex AI](#vertexai) — 18 entries
 - [Amazon Bedrock](#bedrock) — 26 entries
 - [Ollama](#ollama) — 5 entries
+- [ElevenLabs](#elevenlabs) — 9 entries
 - [Maintaining the registry](#maintaining-the-registry)
 - [Lifecycle calendar](#lifecycle-calendar)
 
@@ -196,7 +197,7 @@ Google Cloud lifecycle only. Model Garden listing returns names, versions, and l
 | `gemini-3.1-flash-image` | — | `active` | not before 2027-05-28 | text, image, video, file | text, image | IS | ✗ | ✓ | native image output through generateContent — Video input remains in preview. Function calling is not support… |
 | `gemini-3.1-flash-lite-image` | — | `short_term_active` | — | text, image, video, file | text, image | IS | ✗ | ✓ | native image output through generateContent — GA 2026-06-30; no retirement date announced. Function calling i… |
 | `gemini-3-pro-image` | — | `active` | not before 2027-05-28 | text, image, file | text, image | IS | ✗ | ✓ | native image output through generateContent — Function calling is not supported; video input is not supported… |
-| `gemini-embedding-2` | `gemini-embedding-2-preview` | `active` | — | text, image, audio, video | embedding | E | ✗ | ✗ | native — GA 2026-04-22 (preview alias since 2026-03-10). Text, image, audio, video, and PDF input; 8,192 inpu… |
+| `gemini-embedding-2` | `gemini-embedding-2-preview` | `active` | — | text, image, audio, video | embedding | — | ✗ | ✗ | not yet: Vertex serves it via :embedContent on the aiplatform.{location}.rep.googleapis.com host, which the a… |
 | `gemini-embedding-001` | — | `active` | not before 2028-05-20 | text | embedding | E | ✗ | ✗ | native — Previous-generation text embedding model; gemini-embedding-2 is current. |
 | `text-embedding-005` | `text-embedding-004`, `text-multilingual-embedding-002`, `multimodalembedding@001` | `active` | not before 2027-04-01 | text | embedding | E | ✗ | ✗ | native for text embeddings — Legacy embedding family; all retire 2027-04-01. |
 | `gemini-live-2.5-flash-native-audio` | — | `active` | shutdown 2026-12-13 | text, image, audio, video | text, audio | — | ✓ | ✗ | not supported: the Vertex AI adapter has no Live transport — GA 2025-12-12. |
@@ -287,7 +288,37 @@ The installed catalog is dynamic (`GET /api/tags`); entries are family globs des
 | `gpt-oss:*` | — | `dynamic_local` | — | text | text | IS | ✓ | ✓ (low, medium, high) | native |
 | `deepseek-r1:*` | `deepseek-v3.1:*` | `dynamic_local` | — | text | text | IS | ✗ | ✓ (true, false) | native |
 | `gemma4:*` | — | `dynamic_local` | — | text, image | text | IS | ✗ | ✗ | native when the installed tag advertises vision |
-| `embeddinggemma:*` | `qwen3-embedding:*`, `nomic-embed-text:*` | `dynamic_local` | — | text | embedding | E | ✗ | ✗ | native |
+| `embeddinggemma:*` | `qwen3-embedding:*`, `nomic-embed-text:*`, `mxbai-embed-large:*`, `bge-m3:*`, `bge-large:*`, `all-minilm:*`, `snowflake-arctic-embed:*`, `snowflake-arctic-embed2:*`, `granite-embedding:*`, `paraphrase-multilingual:*` | `dynamic_local` | — | text | embedding | E | ✗ | ✗ | native — Dimensions, context length, and prefix conventions differ per family; see wiki/embeddings.md. `dimen… |
+
+## elevenlabs
+
+### ElevenLabs
+
+Text-to-speech and realtime voice. `GET /v1/models` reports model ids, languages, `can_do_text_to_speech`, style/speaker-boost support, and per-request character limits ([`models.rs`](../gaise-provider-elevenlabs/src/contracts/models.rs)). Voices are account-specific (`GET /v2/voices`) and ElevenLabs default voices expire 2026-12-31, so no voice is hard-coded. `eleven_v3*` realtime goes through the text-to-dialogue WebSocket; other models use `stream-input`.
+
+- Vendor page: [vendor-elevenlabs.md](vendor-elevenlabs.md) · GAISe surface: Text-to-speech, streaming speech, realtime voice WebSocket, and model listing
+- Discovery: GET /v1/models (model_id, languages, can_do_text_to_speech, can_use_style, character limits); GET /v2/voices for voices
+- Official catalog: <https://elevenlabs.io/docs/overview/models> · lifecycle: <https://elevenlabs.io/docs/overview/models>
+- Voices are account-specific and default voices expire 2026-12-31; never hard-code a voice id. Character limits per request are model-specific; the character-cost header reports billing.
+
+#### Current and preview
+
+| Model | Aliases | Status | Dates | Input | Output | Ops | Tools | Reasoning | GAISe support / notes |
+|---|---|---|---|---|---|---|---|---|---|
+| `eleven_v3` | — | `active` | — | text | audio | VL | ✗ | ✗ | speech via /v1/text-to-speech; realtime via the text-to-dialogue WebSocket — Flagship, 70+ languages, 5,000 c… |
+| `eleven_v3_conversational` | — | `active` | — | text | text, audio | L | ✗ | ✗ | realtime only via the text-to-dialogue WebSocket (one voice) — ~280 ms latency variant of v3 for realtime use. |
+| `eleven_multilingual_v2` | — | `active` | — | text | audio | VL | ✗ | ✗ | native — Default model; 29 languages; 10,000 characters per request. Rejects language_code (the adapter omits… |
+| `eleven_flash_v2_5` | — | `active` | — | text | audio | VL | ✗ | ✗ | native — ~75 ms latency, 32 languages, 40,000 characters per request, accepts language_code. Numbers are not… |
+| `eleven_flash_v2` | — | `active` | — | text | audio | VL | ✗ | ✗ | native — English only; 30,000 characters per request. |
+| `eleven_multilingual_sts_v2` | `eleven_english_sts_v2` | `active` | — | audio | audio | — | ✗ | ✗ | not supported: speech-to-speech has no GAISe surface |
+| `scribe_v2` | `scribe_v2_realtime` | `active` | — | text, audio | text | — | ✗ | ✗ | not supported: speech-to-text has no GAISe surface yet — scribe_v1 is deprecated. |
+
+#### Deprecated and legacy
+
+| Model | Aliases | Status | Dates | Input | Output | Ops | Tools | Reasoning | GAISe support / notes |
+|---|---|---|---|---|---|---|---|---|---|
+| `eleven_turbo_v2_5` | — | `deprecated` | — | text | audio | VL | ✗ | ✗ | native while available — Functionally equivalent to eleven_flash_v2_5; no shutdown date published. |
+| `eleven_turbo_v2` | — | `deprecated` | — | text | audio | VL | ✗ | ✗ | native while available |
 
 ## Lifecycle calendar
 

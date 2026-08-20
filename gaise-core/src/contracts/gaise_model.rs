@@ -38,6 +38,8 @@ pub enum GaiseOperation {
     Instruct,
     InstructStream,
     Embeddings,
+    /// Text-to-speech (`speech` / `speech_stream`).
+    Speech,
     Live,
 }
 
@@ -47,6 +49,7 @@ impl GaiseOperation {
             "instruct" => Some(Self::Instruct),
             "instruct_stream" | "stream" | "streaming" => Some(Self::InstructStream),
             "embeddings" | "embedding" | "embed" => Some(Self::Embeddings),
+            "speech" | "tts" | "text_to_speech" => Some(Self::Speech),
             "live" | "realtime" => Some(Self::Live),
             _ => None,
         }
@@ -276,6 +279,10 @@ pub struct GaiseListModelsRequest {
     pub include_raw: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub correlation_id: Option<String>,
+    /// Per-request provider endpoint/credential overrides (take precedence
+    /// over the router configuration for this call only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<super::GaiseConnection>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

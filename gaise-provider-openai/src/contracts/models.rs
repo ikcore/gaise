@@ -221,6 +221,9 @@ pub struct OpenAIStreamFunctionCall {
 pub struct OpenAIEmbedRequest {
     pub model: String,
     pub input: OpenAIEmbedInput,
+    /// Matryoshka shortening; only `text-embedding-3-*` accept it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dimensions: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

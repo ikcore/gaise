@@ -63,6 +63,14 @@ discovery = "ListFoundationModels, GetFoundationModel, and ListInferenceProfiles
 notes = "Model IDs, inference profiles, lifecycle, and availability vary by AWS region. AWS replaced the Converse feature matrix with per-model cards (model-card-*.html) and models-api-compatibility.html in mid-2026."
 
 [[providers]]
+key = "elevenlabs"
+gaise_surface = "Text-to-speech, streaming speech, realtime voice WebSocket, and model listing"
+catalog = "https://elevenlabs.io/docs/overview/models"
+lifecycle = "https://elevenlabs.io/docs/overview/models"
+discovery = "GET /v1/models (model_id, languages, can_do_text_to_speech, can_use_style, character limits); GET /v2/voices for voices"
+notes = "Voices are account-specific and default voices expire 2026-12-31; never hard-code a voice id. Character limits per request are model-specific; the character-cost header reports billing."
+
+[[providers]]
 key = "ollama"
 gaise_surface = "Chat, streaming chat, and Embeddings"
 catalog = "https://ollama.com/search"
@@ -758,7 +766,8 @@ model = "gemini-embedding-2"
 aliases = ["gemini-embedding-2-preview"]
 status = "active"
 capabilities = ["embeddings", "multimodal_embeddings"]
-gaise_support = "native"
+operations = []
+gaise_support = "not yet: Vertex serves it via :embedContent on the aiplatform.{location}.rep.googleapis.com host, which the adapter does not call; use gemini::gemini-embedding-2"
 notes = "GA 2026-04-22 (preview alias since 2026-03-10). Text, image, audio, video, and PDF input; 8,192 input tokens; up to 3,072 dimensions with MRL. No retirement date published."
 
 [[models]]
@@ -1052,6 +1061,85 @@ status = "retired"
 shutdown_date = "2026-08-19"
 notes = "cohere.command-r-v1:0 and cohere.command-r-plus-v1:0."
 
+# ElevenLabs: text-to-speech and realtime voice (API reference audited 2026-08-20)
+
+[[models]]
+provider = "elevenlabs"
+model = "eleven_v3"
+status = "active"
+capabilities = ["speech", "realtime"]
+gaise_support = "speech via /v1/text-to-speech; realtime via the text-to-dialogue WebSocket"
+notes = "Flagship, 70+ languages, 5,000 characters per request. Not supported on the stream-input WebSocket (GAISe uses text-to-dialogue); no request stitching; audio tags in text."
+
+[[models]]
+provider = "elevenlabs"
+model = "eleven_v3_conversational"
+status = "active"
+capabilities = ["text", "speech", "realtime"]
+operations = ["live"]
+gaise_support = "realtime only via the text-to-dialogue WebSocket (one voice)"
+notes = "~280 ms latency variant of v3 for realtime use."
+
+[[models]]
+provider = "elevenlabs"
+model = "eleven_multilingual_v2"
+status = "active"
+capabilities = ["speech", "realtime"]
+gaise_support = "native"
+notes = "Default model; 29 languages; 10,000 characters per request. Rejects language_code (the adapter omits it). style and speaker boost supported."
+
+[[models]]
+provider = "elevenlabs"
+model = "eleven_flash_v2_5"
+status = "active"
+capabilities = ["speech", "realtime"]
+gaise_support = "native"
+notes = "~75 ms latency, 32 languages, 40,000 characters per request, accepts language_code. Numbers are not normalized by default."
+
+[[models]]
+provider = "elevenlabs"
+model = "eleven_flash_v2"
+status = "active"
+capabilities = ["speech", "realtime"]
+gaise_support = "native"
+notes = "English only; 30,000 characters per request."
+
+[[models]]
+provider = "elevenlabs"
+model = "eleven_turbo_v2_5"
+status = "deprecated"
+replacement = "eleven_flash_v2_5"
+capabilities = ["speech", "realtime"]
+gaise_support = "native while available"
+notes = "Functionally equivalent to eleven_flash_v2_5; no shutdown date published."
+
+[[models]]
+provider = "elevenlabs"
+model = "eleven_turbo_v2"
+status = "deprecated"
+replacement = "eleven_flash_v2"
+capabilities = ["speech", "realtime"]
+gaise_support = "native while available"
+
+[[models]]
+provider = "elevenlabs"
+model = "eleven_multilingual_sts_v2"
+aliases = ["eleven_english_sts_v2"]
+status = "active"
+capabilities = ["audio_input", "audio_output"]
+operations = []
+gaise_support = "not supported: speech-to-speech has no GAISe surface"
+
+[[models]]
+provider = "elevenlabs"
+model = "scribe_v2"
+aliases = ["scribe_v2_realtime"]
+status = "active"
+capabilities = ["audio_input", "text"]
+operations = []
+gaise_support = "not supported: speech-to-text has no GAISe surface yet"
+notes = "scribe_v1 is deprecated."
+
 # Ollama: capability families are discovered from the local installation
 
 [[models]]
@@ -1089,7 +1177,19 @@ gaise_support = "native when the installed tag advertises vision"
 [[models]]
 provider = "ollama"
 model = "embeddinggemma:*"
-aliases = ["qwen3-embedding:*", "nomic-embed-text:*"]
+aliases = [
+  "qwen3-embedding:*",
+  "nomic-embed-text:*",
+  "mxbai-embed-large:*",
+  "bge-m3:*",
+  "bge-large:*",
+  "all-minilm:*",
+  "snowflake-arctic-embed:*",
+  "snowflake-arctic-embed2:*",
+  "granite-embedding:*",
+  "paraphrase-multilingual:*",
+]
 status = "dynamic_local"
 capabilities = ["embeddings"]
 gaise_support = "native"
+notes = "Dimensions, context length, and prefix conventions differ per family; see wiki/embeddings.md. `dimensions` is honoured only by Matryoshka-trained tags (embeddinggemma, qwen3-embedding, snowflake-arctic-embed2)."

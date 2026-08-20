@@ -1,6 +1,6 @@
 # HTTP API
 
-> Part of the [GAISe wiki](README.md) · [Rust SDK](sdk.md) · [Capabilities](capabilities.md) · [Models](models.md) · [Flows](flows.md) · [Examples](examples.md) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Gemini](vendor-gemini.md) · [Vertex AI](vendor-vertexai.md) · [Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md)
+> Part of the [GAISe wiki](README.md) · [Rust SDK](sdk.md) · [Capabilities](capabilities.md) · [Models](models.md) · [Flows](flows.md) · [Examples](examples.md) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Gemini](vendor-gemini.md) · [Vertex AI](vendor-vertexai.md) · [Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md) · [ElevenLabs](vendor-elevenlabs.md)
 
 [`gaise-api`](../gaise-api/) exposes the common contracts over JSON, Server-Sent Events, and an optional WebSocket. It is a thin Axum layer over [`GaiseClientService`](sdk.md#the-router-gaiseclientservice): every route deserializes a core contract, calls the router, and serializes the result — no provider logic lives here ([`gaise-api/src/lib.rs`](../gaise-api/src/lib.rs)). The Postman collection [`gaise_postman_collection.json`](../gaise_postman_collection.json) contains a ready-made request for every route and vendor below.
 
@@ -15,6 +15,10 @@
 - [`GET /v1/models`](#get-v1models)
 - [`GET /v1/models/{provider}::{id}`](#get-v1modelsproviderid)
 - [`GET /v1/live`](#get-v1live)
+- [`POST /v1/speech`](#post-v1speech)
+- [`POST /v1/speech/stream`](#post-v1speechstream)
+- [`POST /v1/speech/audio`](#post-v1speechaudio)
+- [Per-request connection overrides](#per-request-connection-overrides)
 - [Wire types](#wire-types)
 - [Errors](#errors)
 - [Configuration](#configuration)
@@ -55,6 +59,7 @@ Every request names a model as `provider::model-id`; the router strips the prefi
 | `vertexai::gemini-3.5-flash` | [Vertex AI](vendor-vertexai.md) |
 | `bedrock::us.anthropic.claude-sonnet-5` | [Bedrock](vendor-bedrock.md) |
 | `ollama::qwen3:8b` | [Ollama](vendor-ollama.md) |
+| `elevenlabs::eleven_flash_v2_5` | [ElevenLabs](vendor-elevenlabs.md) (speech routes and live) |
 
 GAISe does not restrict IDs to an allowlist. Use [`GET /v1/models`](#get-v1models) for live discovery and [models.md](models.md) for lifecycle guidance.
 
@@ -68,6 +73,9 @@ GAISe does not restrict IDs to an allowlist. Use [`GET /v1/models`](#get-v1model
 | `GET` | `/v1/models` | query | `GaiseListModelsResponse` | [`handle_list_models`](../gaise-api/src/lib.rs) |
 | `GET` | `/v1/models/{provider}::{id}` | query | `GaiseModel` | [`handle_get_model`](../gaise-api/src/lib.rs) |
 | `GET` | `/v1/live` | WebSocket | `GaiseLiveEvent` frames | [`handle_live_ws`](../gaise-api/src/lib.rs) (`live` feature) |
+| `POST` | `/v1/speech` | `GaiseSpeechRequest` | `GaiseSpeechResponse` | [`handle_speech`](../gaise-api/src/lib.rs) (`elevenlabs` feature, default) |
+| `POST` | `/v1/speech/stream` | `GaiseSpeechRequest` | SSE of `GaiseSpeechStreamResponse` | [`handle_speech_stream`](../gaise-api/src/lib.rs) |
+| `POST` | `/v1/speech/audio` | `GaiseSpeechRequest` | raw audio bytes | [`handle_speech_audio`](../gaise-api/src/lib.rs) |
 
 ## `POST /v1/instruct`
 
@@ -130,7 +138,7 @@ Response:
 | `temperature`, `top_p`, `top_k` | number | Sampling, dropped for fixed-sampling families |
 | `max_tokens` | integer | Output budget |
 | `thinking_tokens` | integer | Manual reasoning budget where supported |
-| `thinking_effort` | string | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` (per-model sets in [models.md](models.md)) |
+| `thinking_effort` | string | `none`, `auto`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra`, or a vendor value; resolved per model ([reasoning.md](reasoning.md)) |
 | `include_thoughts` | boolean | Request returned thought summaries |
 | `response_modalities` | string[] | e.g. `["TEXT", "IMAGE"]` (Gemini/Vertex) |
 | `image_config.aspect_ratio`, `image_config.image_size` | string | e.g. `16:9`, `2K` |
@@ -248,7 +256,7 @@ Errors after the stream has started arrive as an SSE `event: error`. Accumulatio
 }
 ```
 
-`input` is one string or an array. The contract is text-only; usage is present only when the provider reports it ([capabilities.md#embeddings](capabilities.md#embeddings)).
+`input` is one string or an array. Optional fields: `task` (`document`, `query`, `classification`, `clustering`, `similarity`, `code_query`, `fact_verification`, `question_answering` — mapped to Gemini/Vertex `taskType`, Cohere `input_type`), `dimensions` (Matryoshka truncation where the model supports it, snapped to the model's sizes), and `normalize` (unit-length vectors; native on Titan V2, applied locally elsewhere). The contract is text-only; usage is present only when the provider reports it. Model-by-model guidance: [embeddings.md](embeddings.md).
 
 ## `GET /v1/models`
 
@@ -368,6 +376,96 @@ sequenceDiagram
 
 OpenAI Realtime takes 24 kHz PCM and PNG/JPEG stills; Gemini Live takes audio and image/video frames. Unsupported operations produce an `error` event. Full wire examples: [examples.md#live--realtime](examples.md#live--realtime); provider differences: [capabilities.md#live--realtime](capabilities.md#live--realtime).
 
+## `POST /v1/speech`
+
+Renders a complete clip. Currently served by [ElevenLabs](vendor-elevenlabs.md); the contract is provider-neutral.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as gaise-api
+    participant R as GaiseClientService
+    participant P as Speech adapter
+    C->>A: POST /v1/speech {model, voice, input, format}
+    A->>R: speech(request)
+    R->>P: speech(bare model)
+    P->>P: resolve output format, build body
+    P-->>R: GaiseSpeechResponse {audio, format, sample_rate, usage}
+    R-->>A: response
+    A-->>C: 200 JSON
+```
+
+```json
+{
+  "model": "elevenlabs::eleven_flash_v2_5",
+  "voice": "<voice_id from GET /v2/voices>",
+  "input": "Welcome to GAISe.",
+  "format": "audio/pcm",
+  "sample_rate": 24000,
+  "language": "en",
+  "voice_settings": { "stability": 0.5, "similarity": 0.75, "speed": 1.0 },
+  "include_alignment": true
+}
+```
+
+```json
+{
+  "audio": [0, 0, 12, 255],
+  "format": "audio/pcm",
+  "sample_rate": 24000,
+  "external_id": "req_…",
+  "alignment": { "characters": ["W", "e"], "start_seconds": [0.0, 0.08], "end_seconds": [0.08, 0.15] },
+  "usage": { "input": { "characters": 17 }, "total": { "character_cost": 17 } }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `voice` | Provider voice id — required by ElevenLabs, no default |
+| `format` | MIME (`audio/mpeg`, `audio/pcm`, `audio/wav`, `audio/opus`, `audio/basic`) or provider-native (`mp3_44100_128`, `pcm_16000`); default `audio/mpeg` |
+| `sample_rate` | PCM/WAV rate (8000–48000); default 24000 |
+| `language`, `voice_settings`, `seed`, `instructions` | Mapped where the model supports them ([vendor page](vendor-elevenlabs.md#body)) |
+| `include_alignment` | Request character timing |
+
+## `POST /v1/speech/stream`
+
+Same body; `text/event-stream` of `GaiseSpeechStreamResponse`:
+
+```text
+data: {"chunk":{"audio":{"data":[0,1,2],"format":"audio/pcm","sample_rate":24000}}}
+
+data: {"chunk":{"alignment":{"characters":["W"],"start_seconds":[0.0],"end_seconds":[0.08]}}}
+
+data: {"chunk":{"usage":{"input":{"characters":17},"total":{"character_cost":17}}}}
+```
+
+## `POST /v1/speech/audio`
+
+Same body; the response is the raw audio as it is rendered (chunked transfer), with `Content-Type` set to the resolved MIME type and `X-Gaise-Sample-Rate` for PCM/WAV. Alignment and usage chunks are dropped — use `/v1/speech/stream` when you need them. Errors before the first audio chunk return 500; a provider that returns no audio returns 502.
+
+Realtime text-in/audio-out voice uses [`GET /v1/live`](#get-v1live) with `model: "elevenlabs::eleven_flash_v2_5"` and `voice` set: send `text` frames, receive `audio`/`transcript` frames, send `audio_stream_end` to flush.
+
+## Per-request connection overrides
+
+Every request body (`instruct`, `instruct/stream`, `embeddings`, `speech*`, the live config frame, and `GET /v1/models` via the SDK) accepts an optional `connection` object that overrides the server's configured endpoint and credentials **for that call only**:
+
+```json
+{
+  "model": "openai::gpt-5.6",
+  "connection": { "api_url": "https://eu.gateway.example/v1", "api_key": "sk-tenant-123" },
+  "input": { "role": "user", "content": { "type": "text", "text": "Hello" } }
+}
+```
+
+| Field | Used by |
+|---|---|
+| `api_url` | OpenAI, Anthropic, Gemini, Ollama, ElevenLabs base URL; the Vertex AI `{{MODEL}}` URL template |
+| `api_key` | OpenAI, Anthropic, Gemini, ElevenLabs |
+| `region` | Bedrock (credentials still come from the AWS chain) |
+| `service_account` | Vertex AI service-account JSON (`client_email`, `private_key`) |
+
+Rules: a field set in `connection` wins over the environment; unset fields fall back to the configured value; an empty object is ignored. Clients are cached per distinct connection (hashed — the key itself is never stored), so repeated calls reuse HTTP pools and Vertex/Bedrock credentials. The router masks `api_key` and `service_account.private_key` before anything reaches a logger ([`redact_secrets`](../gaise-core/src/contracts/gaise_connection.rs)). Because the key travels in the request body, only expose `gaise-api` over TLS to callers you trust with that key.
+
 ## Wire types
 
 Every JSON shape is the serde form of a core contract — the field-level reference is [sdk.md#core-contracts](sdk.md#core-contracts). Serialization conventions:
@@ -383,6 +481,7 @@ Every JSON shape is the serde form of a core contract — the field-level refere
 |---|---|
 | `400` | Unknown `operation` query value; `GET /v1/models/{id}` without `::`; malformed JSON (Axum rejection) |
 | `404` | `GET /v1/models/{id}` not present in the provider's listing |
+| `502` | `POST /v1/speech/audio` when the provider returned no audio |
 | `500` | Routing failure (`Model name must be in the format 'provider::model'`, `Unknown or disabled provider`, `… not configured`) or any provider error, with the provider's message as the body |
 | SSE `event: error` | Provider error after a stream has started |
 | WS `{"type":"error"}` | Invalid live config or unsupported live operation |
@@ -400,5 +499,6 @@ Provider error bodies are passed through verbatim (`OpenAI API error: …`, `Ant
 | `VERTEXAI_SA_PATH`, `VERTEXAI_API_URL`, `VERTEXAI_API_TIER` | Service-account JSON path, `{{MODEL}}` URL template, optional tier | none |
 | `BEDROCK_REGION` + AWS credential chain | Region passed into the SDK builder | SDK resolution |
 | `OLLAMA_URL` | Ollama endpoint | `http://localhost:11434` |
+| `ELEVENLABS_API_KEY`, `ELEVENLABS_API_URL` | ElevenLabs credential, base URL (regional hosts allowed) | URL `https://api.elevenlabs.io` |
 
 Per-vendor configuration details are on each [vendor page](README.md#vendors).

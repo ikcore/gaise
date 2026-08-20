@@ -11,8 +11,9 @@ categories.workspace = true
 readme = "README.md"
 
 [features]
-default = []
+default = ["elevenlabs"]
 live = ["gaise-client/live"]
+elevenlabs = ["gaise-client/elevenlabs"]
 
 [dependencies]
 gaise-core.workspace = true

@@ -28,6 +28,9 @@
 | `embeddings` | `/embeddings` | — | `batchEmbedContents` | `:predict` | `InvokeModel` (Titan, Cohere) | `/api/embed` |
 | `live` | Realtime WS (`live` feature) | — | Live WS (`live` feature) | — | — | — |
 | `list_models` | `GET /models` | `GET /models` | `GET /models` | Model Garden `v1beta1` | `ListFoundationModels` + `ListInferenceProfiles` | `/api/tags` (+ `/api/show`) |
+| `speech` / `speech_stream` | — | — | — | — | — | — |
+
+**ElevenLabs** (`elevenlabs`) adds the speech surfaces: `speech` (`POST /v1/text-to-speech/{voice}`), `speech_stream` (`…/stream`), `live` (text-in/audio-out WebSocket), and `list_models` (`GET /v1/models`); it has no instruct or embeddings surface. See [vendor-elevenlabs.md](vendor-elevenlabs.md).
 
 Source: [`gaise-client/src/lib.rs`](../gaise-client/src/lib.rs) and each provider's client module linked from the [vendor pages](README.md#vendors).
 
@@ -61,7 +64,24 @@ MIME normalization lives in [`gaise_content.rs`](../gaise-core/src/contracts/gai
 
 Tool-result messages carry `tool_call_id` and `tool_name`; keep both so the same conversation replays on every provider. Loop diagram: [sdk.md#tools](sdk.md#tools).
 
+## Parameter compatibility by family
+
+Each adapter filters the request to what the model family accepts before serializing it, so callers can send one `GaiseGenerationConfig` everywhere. The per-family tables live on the vendor pages and are pinned by `parameter_matrix_tests` in every provider crate:
+
+| Provider | Rules | Tests |
+|---|---|---|
+| OpenAI | [`max_completion_tokens` always; sampling only with effort `none` on GPT-5.x; effort sets per family; no effort on non-reasoning models; `original` detail only on 5.4/5.5/5.6; Responses-only models rejected](vendor-openai.md#parameter-compatibility-audited-2026-08-20) | [`gaise-provider-openai/tests/parameter_matrix_tests.rs`](../gaise-provider-openai/tests/parameter_matrix_tests.rs) |
+| Anthropic | [adaptive vs manual thinking, always-on families, effort clamping, budget ≥ 1024 and < `max_tokens`, 64k/128k ceilings, fixed and exclusive sampling](vendor-anthropic.md#parameter-compatibility-audited-2026-08-20) | [`gaise-provider-anthropic/tests/parameter_matrix_tests.rs`](../gaise-provider-anthropic/tests/parameter_matrix_tests.rs) |
+| Gemini / Vertex AI | [no sampling on any 3.x; `thinkingLevel` sets per family; 2.5 `thinkingBudget` ranges](vendor-gemini.md#parameter-compatibility-audited-2026-08-20) | [`gemini`](../gaise-provider-gemini/tests/parameter_matrix_tests.rs), [`vertexai`](../gaise-provider-vertexai/tests/parameter_matrix_tests.rs) |
+| Bedrock | [Claude rules as above plus `anthropic_beta` for Opus 4.5 effort; Nova either/or sampling, `topK` via AMRF, `maxTokens` caps](vendor-bedrock.md#parameter-compatibility-audited-2026-08-20) | `bedrock_client.rs` unit tests |
+| Ollama | options forwarded; `think` boolean or GPT-OSS level | — |
+| ElevenLabs | [`language_code` omitted for multilingual_v2; speed 0.7–1.2; v3 realtime via text-to-dialogue](vendor-elevenlabs.md#model-family-rules) | crate unit tests |
+
+Unknown model ids fall back to pass-through profiles so new releases keep working until the registry and rules are updated.
+
 ## Reasoning controls
+
+The provider-neutral vocabulary (`none`, `auto`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, `ultra` + aliases), the clamping rules, and a generated model × level matrix are in [reasoning.md](reasoning.md).
 
 | Provider | Control | `thinking_effort` | `thinking_tokens` | `include_thoughts` | Returned thoughts |
 |---|---|---|---|---|---|
@@ -132,7 +152,7 @@ Protocol: [sdk.md#live](sdk.md#live) · wire: [examples.md#live--realtime](examp
 | Ollama | `POST /api/embed` | any `embedding`-capable tag | `prompt_eval_count` |
 | Anthropic | — | — | — |
 
-The contract is text-only; an absent usage map means the endpoint did not report one — GAISe never estimates.
+The contract is text-only; `task`, `dimensions`, and `normalize` are mapped where the model supports them; an absent usage map means the endpoint did not report one — GAISe never estimates. Per-model limits and practices: [embeddings.md](embeddings.md).
 
 ## Usage counters
 
@@ -162,7 +182,9 @@ Counters keep provider names inside the three maps; an absent modality counter m
 | OpenAI | `GET /v1/models` | id, created, owned_by, `shutdown_date` | — (name heuristics) | — | everything |
 | Vertex AI | `GET …/v1beta1/publishers/{p}/models` | name, versionId, launchStage | — (name heuristics) | — | everything |
 
-Catalog modules: [openai](../gaise-provider-openai/src/contracts/catalog.rs) · [anthropic](../gaise-provider-anthropic/src/contracts/catalog.rs) · [gemini](../gaise-provider-gemini/src/contracts/catalog.rs) · [vertexai](../gaise-provider-vertexai/src/contracts/catalog.rs) · [bedrock](../gaise-provider-bedrock/src/catalog.rs) · [ollama](../gaise-provider-ollama/src/contracts/catalog.rs).
+| ElevenLabs | `GET /v1/models` | model_id, name, description, alpha flag | `can_do_text_to_speech`, `can_do_voice_conversion`, style / speaker-boost flags | characters per request (notes) | lifecycle notes |
+
+Catalog modules: [elevenlabs](../gaise-provider-elevenlabs/src/contracts/models.rs) · [openai](../gaise-provider-openai/src/contracts/catalog.rs) · [anthropic](../gaise-provider-anthropic/src/contracts/catalog.rs) · [gemini](../gaise-provider-gemini/src/contracts/catalog.rs) · [vertexai](../gaise-provider-vertexai/src/contracts/catalog.rs) · [bedrock](../gaise-provider-bedrock/src/catalog.rs) · [ollama](../gaise-provider-ollama/src/contracts/catalog.rs).
 
 ### The common record
 
@@ -214,6 +236,7 @@ classDiagram
         instruct
         instruct_stream
         embeddings
+        speech
         live
     }
     class GaiseSupport {
@@ -267,6 +290,7 @@ Lookup order in [`ModelRegistry::find`](../gaise-core/src/registry.rs): exact id
 | `image_output`, `audio_output` | output modality |
 | `embeddings` | input text, output embedding, `embeddings` operation |
 | `multimodal_embeddings` | adds image/audio/video input to an embeddings entry |
+| `speech` | input text, output audio, `speech` operation |
 | `realtime` | `live` operation (instead of instruct) |
 | `streaming` | `instruct_stream` |
 | `tools` | tools supported (absent ⇒ unsupported when any term is listed) |
@@ -287,7 +311,9 @@ GAISe never silently drops content. Depending on the destination schema an adapt
 | Office/unknown binary to Anthropic | Explicit unsupported marker |
 | Document without text to Bedrock | Companion text block added |
 | Unsupported modality in a tool result | Marker or error per provider |
-| Live operation a provider lacks (Gemini clear/cancel) | `error` event |
+| Live operation a provider lacks (Gemini clear/cancel; any audio/image/tool input on ElevenLabs) | `error` event |
+| Speech request without a voice (ElevenLabs) | Error naming `voice` and `list_voices` |
+| OpenAI Responses-only model on `instruct` | Error naming the Responses API |
 | Model listing on a client without a catalog (custom `add_client`, Bedrock `with_client`) | "not supported" error, reported per provider in aggregate listings |
 
 Per-vendor lists: "Limitations and explicit fallbacks" on each [vendor page](README.md#vendors).
