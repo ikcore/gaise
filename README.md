@@ -37,17 +37,17 @@ GAISe also wraps ElevenLabs for text-to-speech and realtime voice (`POST /v1/spe
 
 ```toml
 [dependencies]
-gaise = "0.1"
-gaise-client = "0.1"
+gaise = "0.2"
+gaise-client = "0.2"
 tokio = { version = "1", features = ["full"] }
 
 # Or depend on individual adapters:
-# gaise-provider-openai = "0.1"
-# gaise-provider-anthropic = "0.1"
-# gaise-provider-gemini = "0.1"
-# gaise-provider-vertexai = "0.1"
-# gaise-provider-bedrock = "0.1"
-# gaise-provider-ollama = "0.1"
+# gaise-provider-openai = "0.2"
+# gaise-provider-anthropic = "0.2"
+# gaise-provider-gemini = "0.2"
+# gaise-provider-vertexai = "0.2"
+# gaise-provider-bedrock = "0.2"
+# gaise-provider-ollama = "0.2"
 ```
 
 ## Router quick start

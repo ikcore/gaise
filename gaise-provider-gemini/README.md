@@ -81,7 +81,7 @@ Enable the `live` feature to use the Gemini Live API for bidirectional audio and
 
 ```toml
 [dependencies]
-gaise-provider-gemini = { version = "0.1", features = ["live"] }
+gaise-provider-gemini = { version = "0.2", features = ["live"] }
 ```
 
 ```rust
