@@ -118,6 +118,7 @@ pub const CAPABILITY_VOCABULARY: &[&str] = &[
     "streaming",
     "tools",
     "realtime",
+    "speech",
 ];
 
 /// Classify a flat capability list into typed modalities and operations.
@@ -127,6 +128,7 @@ pub fn classify_capabilities(terms: &[String]) -> Result<ClassifiedCapabilities,
     let mut embeddings = false;
     let mut realtime = false;
     let mut streaming = false;
+    let mut speech = false;
     for term in terms {
         match term.as_str() {
             "text" => {
@@ -161,6 +163,11 @@ pub fn classify_capabilities(terms: &[String]) -> Result<ClassifiedCapabilities,
             "streaming" => streaming = true,
             "tools" => out.tools = GaiseSupport::Supported,
             "realtime" => realtime = true,
+            "speech" => {
+                speech = true;
+                push(&mut out.input, GaiseModality::Text);
+                push(&mut out.output, GaiseModality::Audio);
+            }
             "image_editing" => out.features.push(term.clone()),
             other => return Err(format!("unknown capability term '{other}'")),
         }
@@ -178,6 +185,9 @@ pub fn classify_capabilities(terms: &[String]) -> Result<ClassifiedCapabilities,
     }
     if embeddings {
         push(&mut out.operations, GaiseOperation::Embeddings);
+    }
+    if speech {
+        push(&mut out.operations, GaiseOperation::Speech);
     }
     if !terms.is_empty() {
         // Terms were enumerated; anything not listed is explicitly absent.
@@ -573,6 +583,7 @@ mod tests {
             "vertexai",
             "bedrock",
             "ollama",
+            "elevenlabs",
         ] {
             assert!(
                 registry.provider(provider).is_some(),
@@ -838,6 +849,27 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
         assert_eq!(find("bedrock", "cohere.embed-v4:0"), "cohere.embed-v4:0");
         assert_eq!(find("bedrock", "cohere.embed-english-v3"), "cohere.embed-*");
         assert_eq!(find("ollama", "gpt-oss:20b"), "gpt-oss:*");
+        assert_eq!(
+            find("elevenlabs", "eleven_english_sts_v2"),
+            "eleven_multilingual_sts_v2"
+        );
+        let v3 = registry
+            .find("elevenlabs", "eleven_v3")
+            .unwrap()
+            .classified()
+            .unwrap();
+        assert_eq!(
+            v3.operations,
+            vec![GaiseOperation::Speech, GaiseOperation::Live]
+        );
+        assert_eq!(v3.input, vec![GaiseModality::Text]);
+        assert_eq!(v3.output, vec![GaiseModality::Audio]);
+        let conversational = registry
+            .find("elevenlabs", "eleven_v3_conversational")
+            .unwrap()
+            .classified()
+            .unwrap();
+        assert_eq!(conversational.operations, vec![GaiseOperation::Live]);
         assert!(registry.find("openai", "gpt-5.6-cyber").is_none());
 
         // Explicit operation overrides: describable but not drivable.

@@ -4,7 +4,8 @@ use futures_util::{SinkExt, StreamExt};
 use gaise_core::GaiseLiveClient;
 use gaise_core::contracts::{
     GaiseFunctionCall, GaiseLiveConfig, GaiseLiveEvent, GaiseLiveEventStream, GaiseLiveInput,
-    GaiseLiveModality, GaiseLiveSession, GaiseTool, GaiseToolParameter, GaiseUsage,
+    GaiseLiveModality, GaiseLiveSession, GaiseReasoningEffort, GaiseTool, GaiseToolParameter,
+    GaiseUsage,
 };
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -107,11 +108,35 @@ fn realtime_reasoning_effort_from_tokens(tokens: usize) -> String {
     .to_string()
 }
 
-fn normalize_realtime_reasoning_effort(effort: &str) -> String {
-    match effort.to_ascii_lowercase().as_str() {
-        "none" | "off" | "disabled" => "minimal".to_string(),
-        "max" => "xhigh".to_string(),
-        other => other.to_string(),
+/// `gpt-realtime-2` and later are reasoning models; `gpt-realtime`,
+/// `gpt-realtime-1.5`, `gpt-realtime-mini`, and the `gpt-4o-*-realtime`
+/// family are not (model pages, audited 2026-08-20).
+pub fn realtime_model_supports_reasoning(model: &str) -> bool {
+    let m = model.to_ascii_lowercase();
+    let Some(rest) = m.strip_prefix("gpt-realtime-") else {
+        return false;
+    };
+    let major: u32 = rest
+        .split(['-', '.'])
+        .next()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    major >= 2
+}
+
+/// Realtime accepts `minimal`…`xhigh`; `none` becomes `minimal`, `max`/`ultra`
+/// become `xhigh`, `auto` omits the field, custom strings pass through.
+fn normalize_realtime_reasoning_effort(effort: &str) -> Option<String> {
+    const REALTIME_LEVELS: &[&str] = &["minimal", "low", "medium", "high", "xhigh"];
+    match GaiseReasoningEffort::parse(effort) {
+        GaiseReasoningEffort::Auto => None,
+        GaiseReasoningEffort::Custom(raw) => Some(raw),
+        level => Some(
+            level
+                .clamp_to(&GaiseReasoningEffort::levels(REALTIME_LEVELS))
+                .as_str()
+                .to_string(),
+        ),
     }
 }
 
@@ -177,7 +202,8 @@ fn build_realtime_tools(tools: &[GaiseTool]) -> Vec<OpenAIRealtimeTool> {
         .collect()
 }
 
-fn build_session_update(config: &GaiseLiveConfig) -> OpenAIRealtimeSessionUpdate {
+/// Build the `session.update` frame for a live config (pure; used by tests).
+pub fn build_session_update(config: &GaiseLiveConfig) -> OpenAIRealtimeSessionUpdate {
     // The GA Realtime API permits exactly one output modality. Audio responses
     // always include a transcript, so prefer audio when callers request both.
     let output_modalities: Vec<String> =
@@ -201,21 +227,29 @@ fn build_session_update(config: &GaiseLiveConfig) -> OpenAIRealtimeSessionUpdate
 
     let tools = config.tools.as_ref().map(|ts| build_realtime_tools(ts));
 
+    // The GA session schema accepts 1..=4096 or "inf".
     let max_output_tokens = config
         .generation_config
         .as_ref()
         .and_then(|gc| gc.max_tokens)
-        .map(serde_json::Value::from);
-    let reasoning = config.generation_config.as_ref().and_then(|gc| {
-        gc.thinking_effort
-            .as_deref()
-            .map(normalize_realtime_reasoning_effort)
-            .or_else(|| {
-                gc.thinking_tokens
-                    .map(realtime_reasoning_effort_from_tokens)
-            })
-            .map(|effort| OpenAIRealtimeReasoning { effort })
-    });
+        .map(|m| serde_json::Value::from(m.clamp(1, 4096)));
+    // Only reasoning-capable Realtime models (gpt-realtime-2, 2.1, 2.1-mini)
+    // accept `reasoning.effort`; legacy gpt-realtime / 1.5 / mini reject it.
+    let reasoning_model = realtime_model_supports_reasoning(&config.model);
+    let reasoning = config
+        .generation_config
+        .as_ref()
+        .filter(|_| reasoning_model)
+        .and_then(|gc| {
+            gc.thinking_effort
+                .as_deref()
+                .and_then(normalize_realtime_reasoning_effort)
+                .or_else(|| {
+                    gc.thinking_tokens
+                        .map(realtime_reasoning_effort_from_tokens)
+                })
+                .map(|effort| OpenAIRealtimeReasoning { effort })
+        });
 
     let transcription = config.transcription.as_ref().filter(|t| t.input).map(|_| {
         OpenAIRealtimeTranscriptionConfig {

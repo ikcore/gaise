@@ -113,6 +113,13 @@ pub struct OllamaEmbedRequest {
     pub input: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub options: Option<OllamaOptions>,
+    /// Matryoshka truncation for models that support it (embeddinggemma,
+    /// qwen3-embedding, ...); ignored by fixed-size models.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dimensions: Option<u32>,
+    /// Truncate inputs longer than the context window instead of erroring.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truncate: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

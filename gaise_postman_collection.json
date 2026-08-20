@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "8d8f6385-2e6a-4b6e-8d51-4e78c8d8c2c8",
 		"name": "GAISe API",
-		"description": "GAISe (Generative AI Service) exposes one provider-neutral contract over OpenAI, Anthropic, Google Gemini, Google Vertex AI, Amazon Bedrock, and Ollama.\n\nRoutes: POST /v1/instruct, POST /v1/instruct/stream (SSE), POST /v1/embeddings, GET /v1/models, GET /v1/models/{provider}::{id}, GET /v1/live (WebSocket; not representable here).\n\nSet the collection variables (base_url and one model per vendor) and configure the server with the provider credentials described in wiki/api.md#configuration. Full reference: wiki/README.md.",
+		"description": "GAISe (Generative AI Service) exposes one provider-neutral contract over OpenAI, Anthropic, Google Gemini, Google Vertex AI, Amazon Bedrock, Ollama, and ElevenLabs (text-to-speech).\n\nRoutes: POST /v1/instruct, POST /v1/instruct/stream (SSE), POST /v1/embeddings, GET /v1/models, GET /v1/models/{provider}::{id}, POST /v1/speech, POST /v1/speech/stream (SSE), POST /v1/speech/audio (raw audio), GET /v1/live (WebSocket; not representable here).\n\nSet the collection variables (base_url and one model per vendor) and configure the server with the provider credentials described in wiki/api.md#configuration. Full reference: wiki/README.md.",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
@@ -501,12 +501,45 @@
 						"description": "Response is text/event-stream."
 					},
 					"response": []
+				},
+				{
+					"name": "Per-request connection override",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							},
+							"raw": "{\n  \"model\": \"{{openai_model}}\",\n  \"connection\": {\n    \"api_url\": \"https://api.openai.com/v1\",\n    \"api_key\": \"{{openai_api_key_override}}\"\n  },\n  \"input\": {\n    \"role\": \"user\",\n    \"content\": {\n      \"type\": \"text\",\n      \"text\": \"Which credentials served this request?\"\n    }\n  }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/instruct",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"v1",
+								"instruct"
+							]
+						},
+						"description": "connection.api_url / api_key / region / service_account override the server configuration for this call only. Keys are redacted in server logs."
+					},
+					"response": []
 				}
 			]
 		},
 		{
 			"name": "Embeddings",
-			"description": "Text embeddings. wiki/capabilities.md#embeddings",
+			"description": "Text embeddings. task (document|query|classification|clustering|similarity|code_query|fact_verification|question_answering), dimensions, and normalize are mapped per provider. wiki/embeddings.md",
 			"item": [
 				{
 					"name": "Single embedding",
@@ -571,6 +604,394 @@
 							]
 						},
 						"description": ""
+					},
+					"response": []
+				},
+				{
+					"name": "Index documents (task=document, 768 dims)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"model\": \"{{gemini_embedding_model}}\",\n  \"task\": \"document\",\n  \"dimensions\": 768,\n  \"input\": [\n    \"GAISe maps one contract onto many providers.\",\n    \"Embeddings turn text into vectors.\"\n  ]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/embeddings",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"v1",
+								"embeddings"
+							]
+						},
+						"description": "Embed corpus text with task=document; dimensions requests Matryoshka truncation where the model supports it."
+					},
+					"response": []
+				},
+				{
+					"name": "Search query (task=query)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"model\": \"{{gemini_embedding_model}}\",\n  \"task\": \"query\",\n  \"dimensions\": 768,\n  \"input\": \"how does gaise route providers?\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/embeddings",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"v1",
+								"embeddings"
+							]
+						},
+						"description": "Embed the query side with task=query — Gemini/Vertex taskType and Cohere input_type differ between documents and queries."
+					},
+					"response": []
+				},
+				{
+					"name": "Bedrock Cohere query (input_type=search_query)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"model\": \"{{bedrock_embedding_model}}\",\n  \"task\": \"query\",\n  \"normalize\": true,\n  \"input\": \"what is the refund policy\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/embeddings",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"v1",
+								"embeddings"
+							]
+						},
+						"description": "task maps to Cohere input_type; normalize requests unit-length vectors (Titan V2 natively, others locally)."
+					},
+					"response": []
+				},
+				{
+					"name": "OpenAI shortened vectors",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"model\": \"{{openai_embedding_model}}\",\n  \"dimensions\": 512,\n  \"input\": [\n    \"short vectors for a cheaper index\"\n  ]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/embeddings",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"v1",
+								"embeddings"
+							]
+						},
+						"description": "text-embedding-3-* accept dimensions; ada-002 does not (ignored)."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Speech",
+			"description": "Text-to-speech via ElevenLabs. Set elevenlabs_voice_id from GET /v2/voices on your account (default voices are account-gated). Reference: wiki/api.md#post-v1speech, wiki/vendor-elevenlabs.md.",
+			"item": [
+				{
+					"name": "Speech (JSON clip)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"model\": \"{{elevenlabs_model}}\",\n  \"voice\": \"{{elevenlabs_voice_id}}\",\n  \"input\": \"Welcome to GAISe. The build is green.\",\n  \"format\": \"audio/pcm\",\n  \"sample_rate\": 24000,\n  \"language\": \"en\",\n  \"voice_settings\": {\n    \"stability\": 0.5,\n    \"similarity\": 0.75,\n    \"speed\": 1.0\n  }\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/speech",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"v1",
+								"speech"
+							]
+						},
+						"description": "Returns GaiseSpeechResponse: audio byte array, format, sample_rate, usage."
+					},
+					"response": []
+				},
+				{
+					"name": "Speech with alignment",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"model\": \"{{elevenlabs_model}}\",\n  \"voice\": \"{{elevenlabs_voice_id}}\",\n  \"input\": \"Welcome to GAISe. The build is green.\",\n  \"format\": \"audio/pcm\",\n  \"sample_rate\": 24000,\n  \"language\": \"en\",\n  \"voice_settings\": {\n    \"stability\": 0.5,\n    \"similarity\": 0.75,\n    \"speed\": 1.0\n  },\n  \"include_alignment\": true\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/speech",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"v1",
+								"speech"
+							]
+						},
+						"description": "Adds character timing (alignment.characters/start_seconds/end_seconds)."
+					},
+					"response": []
+				},
+				{
+					"name": "Speech MP3 default",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"model\": \"{{elevenlabs_model}}\",\n  \"voice\": \"{{elevenlabs_voice_id}}\",\n  \"input\": \"Default format is 44.1 kHz MP3.\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/speech",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"v1",
+								"speech"
+							]
+						},
+						"description": "Omit format for mp3_44100_128."
+					},
+					"response": []
+				},
+				{
+					"name": "Speech stream (SSE)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"model\": \"{{elevenlabs_model}}\",\n  \"voice\": \"{{elevenlabs_voice_id}}\",\n  \"input\": \"Welcome to GAISe. The build is green.\",\n  \"format\": \"audio/pcm\",\n  \"sample_rate\": 24000,\n  \"language\": \"en\",\n  \"voice_settings\": {\n    \"stability\": 0.5,\n    \"similarity\": 0.75,\n    \"speed\": 1.0\n  },\n  \"include_alignment\": true\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/speech/stream",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"v1",
+								"speech",
+								"stream"
+							]
+						},
+						"description": "text/event-stream of audio, alignment, and usage chunks."
+					},
+					"response": []
+				},
+				{
+					"name": "Speech audio (raw bytes)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"model\": \"{{elevenlabs_model}}\",\n  \"voice\": \"{{elevenlabs_voice_id}}\",\n  \"input\": \"Welcome to GAISe. The build is green.\",\n  \"format\": \"audio/pcm\",\n  \"sample_rate\": 24000,\n  \"language\": \"en\",\n  \"voice_settings\": {\n    \"stability\": 0.5,\n    \"similarity\": 0.75,\n    \"speed\": 1.0\n  }\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/speech/audio",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"v1",
+								"speech",
+								"audio"
+							]
+						},
+						"description": "Raw chunked audio body; Content-Type and X-Gaise-Sample-Rate headers. Save the response to a file or pipe to a player."
+					},
+					"response": []
+				},
+				{
+					"name": "Speech eleven_v3",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"model\": \"elevenlabs::eleven_v3\",\n  \"voice\": \"{{elevenlabs_voice_id}}\",\n  \"input\": \"[cheerful] Hello there! [whispers] This is the v3 model.\",\n  \"format\": \"audio/mpeg\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/speech",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"v1",
+								"speech"
+							]
+						},
+						"description": "v3 takes delivery hints as audio tags in the text; max 5,000 characters."
+					},
+					"response": []
+				},
+				{
+					"name": "List ElevenLabs models",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/v1/models?provider=elevenlabs",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"v1",
+								"models"
+							],
+							"query": [
+								{
+									"key": "provider",
+									"value": "elevenlabs"
+								}
+							]
+						},
+						"description": "GET /v1/models reports speech + live operations per model."
+					},
+					"response": []
+				},
+				{
+					"name": "Filter: speech models",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/v1/models?operation=speech",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"v1",
+								"models"
+							],
+							"query": [
+								{
+									"key": "operation",
+									"value": "speech"
+								}
+							]
+						},
+						"description": "Every provider's speech-capable models."
 					},
 					"response": []
 				}
@@ -2525,7 +2946,7 @@
 		},
 		{
 			"name": "Live (WebSocket)",
-			"description": "GET /v1/live is a WebSocket (server built with --features live) and cannot be sent as an HTTP request here. Use Postman's WebSocket request type: connect to ws://localhost:3000/v1/live, send the GaiseLiveConfig JSON as the first text frame, then GaiseLiveInput frames. First frame example:\n\n{\n  \"model\": \"openai::gpt-realtime-2.1\",\n  \"system_instruction\": \"You are a concise voice assistant.\",\n  \"modalities\": [\n    \"text\",\n    \"audio\"\n  ],\n  \"voice\": \"alloy\",\n  \"transcription\": {\n    \"input\": true,\n    \"output\": true\n  }\n}\n\nThen: {\"type\":\"text\",\"text\":\"Hello\"} … {\"type\":\"close\"}. Protocol: wiki/api.md#get-v1live and wiki/examples.md#live--realtime.",
+			"description": "GET /v1/live is a WebSocket (server built with --features live) and cannot be sent as an HTTP request here. Use Postman's WebSocket request type: connect to ws://localhost:3000/v1/live, send the GaiseLiveConfig JSON as the first text frame, then GaiseLiveInput frames. First frame example:\n\n{\n  \"model\": \"openai::gpt-realtime-2.1\",\n  \"system_instruction\": \"You are a concise voice assistant.\",\n  \"modalities\": [\n    \"text\",\n    \"audio\"\n  ],\n  \"voice\": \"alloy\",\n  \"transcription\": {\n    \"input\": true,\n    \"output\": true\n  }\n}\n\nThen: {\"type\":\"text\",\"text\":\"Hello\"} … {\"type\":\"close\"}. Protocol: wiki/api.md#get-v1live and wiki/examples.md#live--realtime.\n\nRealtime voice (ElevenLabs): first frame {\"model\":\"elevenlabs::eleven_flash_v2_5\",\"voice\":\"<voice_id>\"} then {\"type\":\"text\",\"text\":\"Hello there \"} frames; receive {\"type\":\"audio\",...} (24 kHz PCM) and {\"type\":\"transcript\",...}; send {\"type\":\"audio_stream_end\"} to flush and {\"type\":\"close\"} to end.",
 			"item": []
 		}
 	],
@@ -2598,6 +3019,21 @@
 		{
 			"key": "ollama_embedding_model",
 			"value": "ollama::embeddinggemma:latest",
+			"type": "string"
+		},
+		{
+			"key": "elevenlabs_model",
+			"value": "elevenlabs::eleven_flash_v2_5",
+			"type": "string"
+		},
+		{
+			"key": "elevenlabs_voice_id",
+			"value": "REPLACE_WITH_VOICE_ID",
+			"type": "string"
+		},
+		{
+			"key": "openai_api_key_override",
+			"value": "sk-REPLACE",
 			"type": "string"
 		}
 	]

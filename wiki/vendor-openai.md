@@ -102,6 +102,26 @@ Mapped by [`map_content_parts`](../gaise-provider-openai/src/openai_client.rs#L1
 | Reasoning families | none | No allowlist: `reasoning_effort` is sent whenever configured. The catalog heuristics in [`classify_openai_model_id`](../gaise-provider-openai/src/contracts/catalog.rs#L53) recognize `gpt-`, `chatgpt-`, `o1`/`o3`/`o4`, `codex` as Chat but do not gate request fields |
 | Fixed-sampling models | none | `temperature`/`top_p` are never suppressed per model |
 
+### Parameter compatibility (audited 2026-08-20)
+
+[`openai_chat_rules`](../gaise-provider-openai/src/openai_client.rs) drives per-family filtering before a Chat Completions request is serialized; [`tests/parameter_matrix_tests.rs`](../gaise-provider-openai/tests/parameter_matrix_tests.rs) pins every row.
+
+| Family | `max_tokens` | `temperature` / `top_p` | `reasoning_effort` values (default) | `detail: original` | Chat Completions |
+|---|---|---|---|---|---|
+| GPT-5.6 (sol/terra/luna) | always `max_completion_tokens` | only while effective effort is `none` | none, low, medium, high, xhigh, max (medium) | yes | yes; function tools force `none` |
+| GPT-5.5 | ″ | only with `none` | none … xhigh (medium); `max` → `xhigh` | yes | yes |
+| GPT-5.4 | ″ | only with `none` (the default, so accepted unless effort is set) | none … xhigh (none) | yes | yes |
+| GPT-5.4-mini / nano, GPT-5.3, GPT-5.2 | ″ | only with `none` | none … xhigh (none) | → `high` | yes |
+| GPT-5.1 | ″ | only with `none` | none, low, medium, high (none); `minimal` → `none` | → `high` | yes |
+| GPT-5 / mini / nano | ″ | never (no `none` level) | minimal, low, medium, high (medium); `none` → `minimal` | → `high` | yes |
+| o1 / o3 / o4-mini | ″ | never | low, medium, high (medium) | → `high` | yes |
+| `*-codex` | ″ | never | low … xhigh (medium) | → `high` | yes |
+| GPT-4.1, GPT-4o, `*-chat-latest`, `chat-latest`, `gpt-audio*`, fine-tunes of them | ″ | accepted | **never sent** | → `high` | yes |
+| `gpt-5.5-pro`, `gpt-5.2-pro`, `gpt-5-pro`, `o3-pro`, `gpt-5.6-cyber`, `daybreak-*` | — | — | — | — | **no** — `instruct` fails fast with a Responses-API error |
+| Unknown model | ″ | forwarded | forwarded | forwarded | assumed yes |
+
+Realtime: `reasoning.effort` is sent only to `gpt-realtime-2` and later ([`realtime_model_supports_reasoning`](../gaise-provider-openai/src/openai_live_client.rs)); `max_output_tokens` is clamped to 1–4096. Sources: Chat Completions reference, latest-model guide ("parameter compatibility"), model pages, images guide.
+
 ## Response mapping
 
 - `choices[*].message` → one `GaiseMessage` each via [`map_from_openai_message`](../gaise-provider-openai/src/openai_client.rs#L340); `output` is always `OneOrMany::Many`. String content → `OneOrMany::One(Text)`; parts content keeps `text` parts and **drops** `image_url`/`input_audio` parts ([`#L348-L353`](../gaise-provider-openai/src/openai_client.rs#L348-L353)).

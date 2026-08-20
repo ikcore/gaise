@@ -143,6 +143,22 @@ Worked examples (from [`mapping_tests.rs`](../gaise-provider-anthropic/tests/map
 | `claude-opus-5` | effort `xhigh`, temp/top_p/top_k set | `{"type":"adaptive"}` | `{"effort":"xhigh"}` | none |
 | `claude-sonnet-4-5-20250929` | temp 0.4, top_p 0.8 | none | none | `temperature: 0.4` |
 
+### Parameter compatibility (audited 2026-08-20)
+
+[`claude_family_rules`](../gaise-provider-anthropic/src/anthropic_client.rs), [`normalize_effort`](../gaise-provider-anthropic/src/anthropic_client.rs), and [`resolve_output_budget`](../gaise-provider-anthropic/src/anthropic_client.rs) enforce the table below; [`tests/parameter_matrix_tests.rs`](../gaise-provider-anthropic/tests/parameter_matrix_tests.rs) pins it.
+
+| Family | Thinking types | `budget_tokens` | Effort levels | Sampling | `max_tokens` ceiling |
+|---|---|---|---|---|---|
+| Fable 5, Mythos 5 | adaptive, always on (`none` effort → thinking block omitted) | rejected | low … max | never sent | 128k |
+| Mythos Preview | adaptive, always on | — | low, medium, high, max | never sent | 128k |
+| Opus 5, Opus 4.8, Opus 4.7, Sonnet 5 | adaptive only; `none` effort → `disabled` | rejected | low … max | never sent | 128k |
+| Opus 4.6, Sonnet 4.6 | adaptive; `xhigh` → `max` | deprecated (not sent) | low, medium, high, max | kept when thinking is off; with thinking: temperature/top_k dropped, top_p only 0.95–1.0 | 128k |
+| Opus 4.5 | `enabled` + budget; `adaptive` rejected | ≥ 1024, < `max_tokens` (adapter raises `max_tokens`) | low, medium, high (`xhigh`/`max` → high) | either temperature or top_p | 64k |
+| Sonnet 4.5, Haiku 4.5 | `enabled` + budget | as above | none (effort dropped) | either temperature or top_p | 64k |
+| Unknown Claude | manual | as above | forwarded | forwarded | 128k |
+
+`minimal` maps to `low` everywhere; unknown future effort strings are forwarded. Sources: thinking-troubleshooting ("configurations each model rejects"), effort, extended-thinking (budget rules), models overview.
+
 ## Response mapping
 
 Non-streaming responses deserialize into [`AnthropicResponse`](../gaise-provider-anthropic/src/contracts/models.rs#L208) and are mapped by [`map_from_anthropic_content`](../gaise-provider-anthropic/src/anthropic_client.rs#L553) inside [`instruct`](../gaise-provider-anthropic/src/anthropic_client.rs#L792).

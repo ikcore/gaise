@@ -30,6 +30,11 @@ pub struct GaiseLiveConfig {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub correlation_id: Option<String>,
+
+    /// Per-request provider endpoint/credential overrides (take precedence
+    /// over the router configuration for this call only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection: Option<super::GaiseConnection>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone, PartialEq)]

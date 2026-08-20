@@ -6,7 +6,42 @@ use super::contracts::google_claims::GoogleClaims;
 use crate::contracts::catalog::{
     VertexCatalogEndpoint, VertexPublisherModelList, map_vertex_model,
 };
-use crate::contracts::models::{GoogleEmbeddingsRequest, GoogleEmbeddingsResponse};
+use crate::contracts::models::{
+    GoogleEmbeddingsRequest, GoogleEmbeddingsResponse, embedding_model_single_input,
+};
+
+/// Sums provider-named usage counters across the per-text calls that
+/// `gemini-embedding-001` requires.
+#[derive(Default)]
+struct GaiseUsageAccumulator {
+    input: std::collections::HashMap<String, usize>,
+    output: std::collections::HashMap<String, usize>,
+    total: std::collections::HashMap<String, usize>,
+}
+
+impl GaiseUsageAccumulator {
+    fn add(&mut self, usage: &gaise_core::contracts::GaiseUsage) {
+        for (target, source) in [
+            (&mut self.input, &usage.input),
+            (&mut self.output, &usage.output),
+            (&mut self.total, &usage.total),
+        ] {
+            if let Some(map) = source {
+                for (k, v) in map {
+                    *target.entry(k.clone()).or_insert(0) += v;
+                }
+            }
+        }
+    }
+
+    fn finish(self) -> gaise_core::contracts::GaiseUsage {
+        gaise_core::contracts::GaiseUsage {
+            input: (!self.input.is_empty()).then_some(self.input),
+            output: (!self.output.is_empty()).then_some(self.output),
+            total: (!self.total.is_empty()).then_some(self.total),
+        }
+    }
+}
 use crate::contracts::{GoogleAccessToken, GoogleChatCompletionResponse, GoogleInstructRequest};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -22,6 +57,7 @@ use gaise_core::{
         GaiseInstructStreamResponse,
         GaiseListModelsRequest,
         GaiseListModelsResponse,
+        normalize_l2,
     },
 };
 
@@ -340,32 +376,79 @@ impl GaiseClient for GaiseClientVertexAI {
         &self,
         request: &GaiseEmbeddingsRequest,
     ) -> Result<GaiseEmbeddingsResponse, Box<dyn std::error::Error + Send + Sync>> {
+        if request
+            .model
+            .to_ascii_lowercase()
+            .starts_with("gemini-embedding-2")
+        {
+            return Err("Vertex AI serves gemini-embedding-2 through the `:embedContent` method on the `aiplatform.{location}.rep.googleapis.com` host, which the GAISe Vertex adapter does not call yet; use `gemini::gemini-embedding-2` or a Vertex text-embedding model".into());
+        }
         let url = self.api_url.replace("{{MODEL}}", &request.model) + ":predict";
-        let json = serde_json::to_string(&GoogleEmbeddingsRequest::from(request))?;
+
+        // gemini-embedding-001 takes one text per call; the others batch up to 250.
+        let batches: Vec<GaiseEmbeddingsRequest> = if embedding_model_single_input(&request.model) {
+            let texts: Vec<String> = match &request.input {
+                gaise_core::contracts::OneOrMany::One(s) => vec![s.clone()],
+                gaise_core::contracts::OneOrMany::Many(v) => v.clone(),
+            };
+            texts
+                .into_iter()
+                .map(|t| GaiseEmbeddingsRequest {
+                    input: gaise_core::contracts::OneOrMany::One(t),
+                    ..request.clone()
+                })
+                .collect()
+        } else {
+            vec![request.clone()]
+        };
 
         let token = self
             .get_token()
             .await
             .map_err(|e| format!("no google access token: {e}"))?;
 
-        let res = self
-            .http
-            .post(&url)
-            .header("Authorization", "Bearer ".to_owned() + &token)
-            .header("Content-type", "application/json")
-            .body(json)
-            .send()
-            .await
-            .map_err(|e| format!("embeddings request failed: {e}"))?;
+        let mut response_view = GaiseEmbeddingsResponse::default();
+        let mut usage_total: Option<GaiseUsageAccumulator> = None;
+        for batch in &batches {
+            let json = serde_json::to_string(&GoogleEmbeddingsRequest::from(batch))?;
+            let res = self
+                .http
+                .post(&url)
+                .header("Authorization", "Bearer ".to_owned() + &token)
+                .header("Content-type", "application/json")
+                .body(json)
+                .send()
+                .await
+                .map_err(|e| format!("embeddings request failed: {e}"))?;
 
-        let res_json = checked_text(res, "Vertex AI embeddings request").await?;
-        let response: GoogleEmbeddingsResponse = serde_json::from_str(&res_json).map_err(|e| {
-            format!(
-                "embeddings response parse failed: {e} — body: {}",
-                &res_json[..res_json.len().min(500)]
-            )
-        })?;
-        let response_view = response.to_view();
+            let res_json = checked_text(res, "Vertex AI embeddings request").await?;
+            let response: GoogleEmbeddingsResponse =
+                serde_json::from_str(&res_json).map_err(|e| {
+                    format!(
+                        "embeddings response parse failed: {e} — body: {}",
+                        &res_json[..res_json.len().min(500)]
+                    )
+                })?;
+            let part = response.to_view();
+            response_view.output.extend(part.output);
+            response_view.external_id = response_view.external_id.or(part.external_id);
+            if let Some(usage) = part.usage {
+                usage_total.get_or_insert_with(Default::default).add(&usage);
+            }
+        }
+        response_view.usage = usage_total.map(|u| u.finish());
+        // Only gemini-embedding-2 re-normalizes truncated vectors itself.
+        let truncated = request.dimensions.is_some()
+            && !request
+                .model
+                .to_ascii_lowercase()
+                .starts_with("gemini-embedding-2");
+        if request.normalize == Some(true) || (truncated && request.normalize != Some(false)) {
+            response_view
+                .output
+                .iter_mut()
+                .for_each(|v| normalize_l2(v));
+        }
 
         Ok(response_view)
     }

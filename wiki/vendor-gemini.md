@@ -116,6 +116,22 @@ MIME inference for files uses the shared [`file_media_type`](../gaise-core/src/c
 
 No rule gates image input, audio input, tools, or `responseModalities` by model; the API returns its own error for unsupported combinations.
 
+### Parameter compatibility (audited 2026-08-20)
+
+[`model_uses_fixed_sampling`](../gaise-provider-gemini/src/gemini_client.rs), [`thinking_levels_for`](../gaise-provider-gemini/src/gemini_client.rs), [`normalize_thinking_level`](../gaise-provider-gemini/src/gemini_client.rs), and [`thinking_budget_for`](../gaise-provider-gemini/src/gemini_client.rs) enforce the table; [`tests/parameter_matrix_tests.rs`](../gaise-provider-gemini/tests/parameter_matrix_tests.rs) pins it.
+
+| Family | `temperature` / `topP` / `topK` | Thinking control | Accepted levels / budget | `none` effort |
+|---|---|---|---|---|
+| Gemini 3.7 Flash, 3.1 Pro | never sent (deprecated on all 3.x; 3.6+ ignore or 400) | `thinkingLevel` | LOW, MEDIUM, HIGH (`minimal` → LOW) | → LOW (cannot disable) |
+| Gemini 3.6, 3.5, 3.5-Lite, 3.1-Lite, 3 Flash preview | never sent | `thinkingLevel` | MINIMAL, LOW, MEDIUM, HIGH | → MINIMAL |
+| 3.1 Flash Image, 3.1 Flash-Lite Image | never sent | `thinkingLevel` | MINIMAL, HIGH (LOW → MINIMAL, MEDIUM → HIGH) | → MINIMAL |
+| 3 Pro Image | never sent | `thinkingLevel` | HIGH only | → HIGH |
+| Gemini 2.5 Pro | accepted | `thinkingBudget` | 128–32,768 (cannot disable: 0 → 128) | → 128 |
+| Gemini 2.5 Flash | accepted | `thinkingBudget` | 0–24,576 | → 0 |
+| Gemini 2.5 Flash-Lite | accepted | `thinkingBudget` | 0 or 512–24,576 | → 0 |
+
+On 2.5, an effort without a budget is approximated (`low` 2,048, `medium` 8,192, `high` 24,576, `minimal` 512); `xhigh`/`max` map to HIGH on 3.x. `thinkingLevel` and `thinkingBudget` are never sent together. Sources: changelog 2026-07-21, thinking guide, generateContent reference, model pages.
+
 ## Response mapping
 
 [`map_from_gemini_content`](../gaise-provider-gemini/src/gemini_client.rs#L670) converts every candidate that has `content` into one `GaiseMessage`; multiple candidates yield `OneOrMany::Many` ([L848–L859](../gaise-provider-gemini/src/gemini_client.rs#L848)).

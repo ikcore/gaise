@@ -14,6 +14,8 @@ muse!(gaise_content, {
 muse!(gaise_message, { GaiseMessage });
 muse!(gaise_usage, { GaiseUsage });
 
+muse!(gaise_reasoning, { GaiseReasoningEffort });
+muse!(gaise_connection, { GaiseConnection, redact_secrets });
 muse!(gaise_generation_config, {
     GaiseGenerationConfig,
     GaiseImageConfig
@@ -21,7 +23,7 @@ muse!(gaise_generation_config, {
 muse!(gaise_instruct_request, { GaiseInstructRequest });
 muse!(gaise_instruct_response, { GaiseInstructResponse });
 muse!(gaise_instruct_stream_response, {GaiseInstructStreamResponse, GaiseStreamChunk, GaiseStreamAccumulator});
-muse!(gaise_embeddings_request, { GaiseEmbeddingsRequest });
+muse!(gaise_embeddings_request, { GaiseEmbeddingTask, GaiseEmbeddingsRequest, normalize_l2, snap_dimensions });
 muse!(gaise_embeddings_response, { GaiseEmbeddingsResponse });
 muse!(gaise_model, {
     GaiseListModelsRequest,
@@ -41,6 +43,15 @@ muse!(gaise_model, {
 muse!(gaise_tool_config, { GaiseToolConfig });
 muse!(gaise_tool_call, {GaiseToolCall, GaiseFunctionCall});
 muse!(gaise_tool_parameter, {GaiseToolParameter, GaiseTool});
+
+muse!(gaise_speech, {
+    GaiseSpeechAlignment,
+    GaiseSpeechChunk,
+    GaiseSpeechRequest,
+    GaiseSpeechResponse,
+    GaiseSpeechStreamResponse,
+    GaiseVoiceSettings
+});
 
 muse!(gaise_live_config, {GaiseLiveConfig, GaiseLiveModality, GaiseVadConfig, GaiseTranscriptionConfig});
 muse!(gaise_live_event, { GaiseLiveEvent });

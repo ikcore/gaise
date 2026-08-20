@@ -6,8 +6,9 @@ use gaise_core::GaiseClient;
 use gaise_core::contracts::{
     GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseFunctionCall,
     GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
-    GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseStreamChunk, GaiseTool,
-    GaiseToolCall, GaiseToolParameter, GaiseUsage, OneOrMany, file_media_type, image_media_type,
+    GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseReasoningEffort,
+    GaiseStreamChunk, GaiseTool, GaiseToolCall, GaiseToolParameter, GaiseUsage, OneOrMany,
+    file_media_type, image_media_type,
 };
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -170,6 +171,185 @@ fn collect_text(content: &GaiseContent, output: &mut Vec<String>) {
     }
 }
 
+/// Per-family request rules for the Messages API, audited 2026-08-20 against
+/// the thinking-troubleshooting, effort, and model-overview pages. Unknown
+/// Claude models fall back to the most permissive manual-thinking profile so
+/// new releases keep working; known families get exact constraints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClaudeFamilyRules {
+    /// `thinking.type: "enabled"` / `budget_tokens` are rejected (400).
+    pub adaptive_only: bool,
+    /// `thinking.type: "adaptive"` is accepted.
+    pub adaptive: bool,
+    /// Thinking cannot be turned off (`disabled` is rejected).
+    pub always_on: bool,
+    /// `output_config.effort` levels the family accepts, lowest to highest.
+    pub effort_levels: &'static [&'static str],
+    /// Non-default `temperature` / `top_p` / `top_k` are rejected on every request.
+    pub fixed_sampling: bool,
+    /// Only one of `temperature` and `top_p` may be sent (Claude 4.5).
+    pub exclusive_sampling: bool,
+    /// Maximum `max_tokens` the family accepts.
+    pub max_output_tokens: usize,
+}
+
+const EFFORT_FIVE: &[&str] = &["low", "medium", "high", "xhigh", "max"];
+const EFFORT_FOUR_SIX: &[&str] = &["low", "medium", "high", "max"];
+const EFFORT_OPUS_FOUR_FIVE: &[&str] = &["low", "medium", "high"];
+const EFFORT_NONE: &[&str] = &[];
+
+pub fn claude_family_rules(model: &str) -> ClaudeFamilyRules {
+    let model = model.to_ascii_lowercase();
+    let has = |family: &str| model.contains(family);
+    if has("claude-fable-5") || has("claude-mythos-5") {
+        return ClaudeFamilyRules {
+            adaptive_only: true,
+            adaptive: true,
+            always_on: true,
+            effort_levels: EFFORT_FIVE,
+            fixed_sampling: true,
+            exclusive_sampling: false,
+            max_output_tokens: 128_000,
+        };
+    }
+    if has("claude-mythos-preview") {
+        return ClaudeFamilyRules {
+            adaptive_only: false,
+            adaptive: true,
+            always_on: true,
+            effort_levels: EFFORT_FOUR_SIX,
+            fixed_sampling: true,
+            exclusive_sampling: false,
+            max_output_tokens: 128_000,
+        };
+    }
+    if has("claude-opus-5")
+        || has("claude-opus-4-8")
+        || has("claude-opus-4-7")
+        || has("claude-sonnet-5")
+    {
+        return ClaudeFamilyRules {
+            adaptive_only: true,
+            adaptive: true,
+            always_on: false,
+            effort_levels: EFFORT_FIVE,
+            fixed_sampling: true,
+            exclusive_sampling: false,
+            max_output_tokens: 128_000,
+        };
+    }
+    if has("claude-opus-4-6") || has("claude-sonnet-4-6") {
+        return ClaudeFamilyRules {
+            adaptive_only: false,
+            adaptive: true,
+            always_on: false,
+            effort_levels: EFFORT_FOUR_SIX,
+            fixed_sampling: false,
+            exclusive_sampling: false,
+            max_output_tokens: 128_000,
+        };
+    }
+    if has("claude-opus-4-5") {
+        return ClaudeFamilyRules {
+            adaptive_only: false,
+            adaptive: false,
+            always_on: false,
+            effort_levels: EFFORT_OPUS_FOUR_FIVE,
+            fixed_sampling: false,
+            exclusive_sampling: true,
+            max_output_tokens: 64_000,
+        };
+    }
+    if has("claude-sonnet-4-5") || has("claude-haiku-4-5") {
+        return ClaudeFamilyRules {
+            adaptive_only: false,
+            adaptive: false,
+            always_on: false,
+            effort_levels: EFFORT_NONE,
+            fixed_sampling: false,
+            exclusive_sampling: true,
+            max_output_tokens: 64_000,
+        };
+    }
+    // Unknown or older Claude model: manual thinking, effort forwarded as given,
+    // no sampling restrictions. The API reports precise errors if a future
+    // family tightens the rules.
+    ClaudeFamilyRules {
+        adaptive_only: false,
+        adaptive: false,
+        always_on: false,
+        effort_levels: EFFORT_FIVE,
+        fixed_sampling: false,
+        exclusive_sampling: false,
+        max_output_tokens: 128_000,
+    }
+}
+
+/// Smallest `budget_tokens` the API accepts for manual thinking.
+pub const MIN_THINKING_BUDGET: usize = 1024;
+/// Head-room kept between `budget_tokens` and `max_tokens` (the API requires
+/// `budget_tokens < max_tokens`).
+pub const BUDGET_HEADROOM: usize = 1024;
+const DEFAULT_MAX_TOKENS: usize = 4096;
+
+/// What a requested effort means for a Claude family.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClaudeEffort {
+    /// Turn thinking off (`none`, `off`, `disabled`, ...).
+    Disable,
+    /// Thinking on with the provider default depth (`auto`, `adaptive`, ...).
+    Auto,
+    /// A concrete `output_config.effort` value (already clamped to the family).
+    Level(String),
+    /// A custom vendor string to forward unchanged.
+    Custom(String),
+}
+
+/// Interpret a provider-neutral effort for a Claude family using the
+/// canonical vocabulary ([`GaiseReasoningEffort`]): `none` disables,
+/// `auto` enables with the default depth, `ultra` becomes the family's top
+/// level, `minimal` and unsupported levels snap to the nearest accepted level.
+pub fn normalize_effort(rules: &ClaudeFamilyRules, effort: &str) -> ClaudeEffort {
+    match GaiseReasoningEffort::parse(effort) {
+        GaiseReasoningEffort::None => ClaudeEffort::Disable,
+        GaiseReasoningEffort::Auto => ClaudeEffort::Auto,
+        GaiseReasoningEffort::Custom(raw) => ClaudeEffort::Custom(raw),
+        level => {
+            let accepted = GaiseReasoningEffort::levels(rules.effort_levels);
+            ClaudeEffort::Level(level.clamp_to(&accepted).as_str().to_string())
+        }
+    }
+}
+
+/// Budget used for manual-thinking families when `auto` is requested
+/// without `thinking_tokens`.
+pub const AUTO_THINKING_BUDGET: usize = 4096;
+/// Largest budget a level approximation will request on manual families.
+pub const MAX_MANUAL_BUDGET: usize = 32_000;
+
+/// Resolve `max_tokens` and a manual thinking budget so the pair is valid:
+/// budget >= 1024, budget < max_tokens, max_tokens <= family ceiling.
+pub fn resolve_output_budget(
+    rules: &ClaudeFamilyRules,
+    max_tokens: Option<usize>,
+    thinking_tokens: Option<usize>,
+) -> (usize, Option<usize>) {
+    let mut max_tokens = max_tokens
+        .unwrap_or(DEFAULT_MAX_TOKENS)
+        .min(rules.max_output_tokens);
+    let budget = thinking_tokens.map(|t| t.max(MIN_THINKING_BUDGET));
+    if let Some(budget) = budget {
+        if max_tokens <= budget {
+            max_tokens = (budget + BUDGET_HEADROOM).min(rules.max_output_tokens);
+        }
+        if max_tokens <= budget {
+            // Ceiling reached: shrink the budget instead of sending an invalid pair.
+            return (max_tokens, Some(max_tokens - BUDGET_HEADROOM));
+        }
+    }
+    (max_tokens, budget)
+}
+
 fn anthropic_reasoning_config(
     model: &str,
     config: Option<&gaise_core::contracts::GaiseGenerationConfig>,
@@ -177,24 +357,7 @@ fn anthropic_reasoning_config(
     let Some(config) = config else {
         return (None, None);
     };
-    let model = model.to_ascii_lowercase();
-    let adaptive_only = [
-        "claude-fable-5",
-        "claude-mythos-5",
-        "claude-opus-5",
-        "claude-opus-4-8",
-        "claude-opus-4-7",
-        "claude-sonnet-5",
-        "claude-mythos-preview",
-    ]
-    .iter()
-    .any(|family| model.contains(family));
-    let adaptive = adaptive_only
-        || ["claude-opus-4-6", "claude-sonnet-4-6"]
-            .iter()
-            .any(|family| model.contains(family));
-    let supports_effort =
-        adaptive || model.contains("claude-opus-4-5") || model.contains("claude-mythos-preview");
+    let rules = claude_family_rules(model);
     let display = config.include_thoughts.map(|include| {
         if include {
             "summarized".to_string()
@@ -203,16 +366,62 @@ fn anthropic_reasoning_config(
         }
     });
 
-    let output_config = config
+    // Effort through the canonical vocabulary: `none` disables, `auto`
+    // enables with the default depth, levels are clamped per family, custom
+    // strings are forwarded where the family has an effort control at all.
+    let mut disable = false;
+    let mut auto = false;
+    let has_effort_control = !rules.effort_levels.is_empty();
+    let effort = match config
         .thinking_effort
-        .as_ref()
-        .filter(|_| supports_effort)
-        .map(|effort| AnthropicOutputConfig {
-            effort: effort.to_ascii_lowercase(),
-        });
+        .as_deref()
+        .map(|raw| normalize_effort(&rules, raw))
+    {
+        Some(ClaudeEffort::Disable) => {
+            disable = true;
+            None
+        }
+        Some(ClaudeEffort::Auto) => {
+            auto = true;
+            None
+        }
+        Some(ClaudeEffort::Level(level)) if has_effort_control => Some(level),
+        Some(ClaudeEffort::Custom(raw)) if has_effort_control => Some(raw),
+        Some(_) | None => None,
+    };
+    let output_config = effort.map(|effort| AnthropicOutputConfig { effort });
 
-    let thinking = if adaptive
-        && (config.thinking_effort.is_some()
+    if disable {
+        // Always-on families cannot disable thinking; omit the block entirely
+        // (and any effort) rather than sending a rejected `disabled`.
+        if rules.always_on {
+            return (None, None);
+        }
+        return (
+            Some(AnthropicThinking {
+                r#type: "disabled".to_string(),
+                budget_tokens: None,
+                display: None,
+            }),
+            None,
+        );
+    }
+
+    // Manual-budget families: `auto` gets the default budget and a level
+    // without explicit tokens gets a level-scaled budget, so asking for
+    // `high` on Haiku 4.5 still turns thinking on.
+    let level_budget = (!rules.adaptive)
+        .then(|| config.reasoning_effort())
+        .flatten()
+        .and_then(|level| level.approximate_budget(MAX_MANUAL_BUDGET));
+    let manual_tokens = config
+        .thinking_tokens
+        .or_else(|| (auto && !rules.adaptive).then_some(AUTO_THINKING_BUDGET))
+        .or(level_budget);
+    let (_, budget) = resolve_output_budget(&rules, config.max_tokens, manual_tokens);
+    let thinking = if rules.adaptive
+        && (output_config.is_some()
+            || auto
             || config.thinking_tokens.is_some()
             || display.is_some())
     {
@@ -221,8 +430,8 @@ fn anthropic_reasoning_config(
             budget_tokens: None,
             display,
         })
-    } else if model.contains("claude") && !adaptive_only {
-        config.thinking_tokens.map(|tokens| AnthropicThinking {
+    } else if !rules.adaptive_only && model.to_ascii_lowercase().contains("claude") {
+        budget.map(|tokens| AnthropicThinking {
             r#type: "enabled".to_string(),
             budget_tokens: Some(tokens),
             display,
@@ -439,17 +648,23 @@ impl From<&GaiseInstructRequest> for AnthropicRequest {
             }
         }
 
-        let model = request.model.to_ascii_lowercase();
-        let fixed_sampling = model.contains("claude-opus-4-7")
-            || model.contains("claude-opus-4-8")
-            || model.contains("claude-opus-5")
-            || model.contains("claude-sonnet-5")
-            || model.contains("claude-fable-5")
-            || model.contains("claude-mythos-5")
-            || model.contains("claude-mythos-preview");
-        let exclusive_sampling = model.contains("claude-opus-4-5")
-            || model.contains("claude-sonnet-4-5")
-            || model.contains("claude-haiku-4-5");
+        let rules = claude_family_rules(&request.model);
+        let fixed_sampling = rules.fixed_sampling;
+        let exclusive_sampling = rules.exclusive_sampling;
+        // `disabled` is a thinking block, but sampling rules treat it as off.
+        let thinking_enabled =
+            thinking_enabled && thinking.as_ref().is_some_and(|t| t.r#type != "disabled");
+        let (max_tokens, _) = resolve_output_budget(
+            &rules,
+            request
+                .generation_config
+                .as_ref()
+                .and_then(|c| c.max_tokens),
+            thinking
+                .as_ref()
+                .filter(|t| t.r#type == "enabled")
+                .and_then(|t| t.budget_tokens),
+        );
         let requested_temperature = request
             .generation_config
             .as_ref()
@@ -471,11 +686,7 @@ impl From<&GaiseInstructRequest> for AnthropicRequest {
         AnthropicRequest {
             model: request.model.clone(),
             messages: anthropic_messages,
-            max_tokens: request
-                .generation_config
-                .as_ref()
-                .and_then(|c| c.max_tokens)
-                .unwrap_or(4096),
+            max_tokens,
             system,
             temperature: (!fixed_sampling && !thinking_enabled)
                 .then_some(requested_temperature)

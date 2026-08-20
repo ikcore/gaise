@@ -117,6 +117,22 @@ All rules are substring matches on the lower-cased model ID, so inference-profil
 
 Any other model (Titan text, Llama, Mistral, …) receives no `additionalModelRequestFields` and full sampling. The registry notes that the `amazon.nova-2-lite-v1:0` model card lists no reasoning controls; the adapter still emits `reasoningConfig` when an effort is configured, so treat that as forward-compatible rather than verified.
 
+### Parameter compatibility (audited 2026-08-20)
+
+[`claude_rules`](../gaise-provider-bedrock/src/bedrock_client.rs), [`sampling_plan`](../gaise-provider-bedrock/src/bedrock_client.rs), [`resolved_max_tokens`](../gaise-provider-bedrock/src/bedrock_client.rs), and [`additional_request_fields`](../gaise-provider-bedrock/src/bedrock_client.rs) enforce the table; the `claude_family_parameter_matrix_without_aws_client` and `nova_and_claude_sampling_rules_without_aws_client` unit tests pin it.
+
+| Family | `inferenceConfig` sampling | `top_k` | Thinking (`additionalModelRequestFields`) | Effort | `maxTokens` cap |
+|---|---|---|---|---|---|
+| Claude Opus 5, Fable 5, Mythos 5, Opus 4.8, Opus 4.7, Sonnet 5 | never sent | never sent | adaptive only; `none` → `disabled` (omitted on always-on Fable/Mythos) | low … max | 128k |
+| Claude Opus 4.6, Sonnet 4.6 | sent when thinking is off | `top_k` in AMRF when thinking is off | adaptive; `xhigh` → `max` | low, medium, high, max | 128k |
+| Claude Opus 4.5 | either temperature or topP | as above | `enabled` + budget ≥ 1024, `maxTokens` raised above it | low, medium, high + `anthropic_beta: ["effort-2025-11-24"]` | 64k |
+| Claude Sonnet 4.5, Haiku 4.5 | either temperature or topP | as above | `enabled` + budget | dropped | 64k |
+| Nova 2 Lite | both accepted; dropped when `maxReasoningEffort` is `high` | `inferenceConfig.topK` in AMRF (≤ 128) | `reasoningConfig` | low, medium, high | 65,000 |
+| Nova Pro / Lite / Micro v1 | either temperature or topP; temperature 0 → 0.00001 | as above | `reasoningConfig` (Pro/Lite) | low, medium, high | 5,000 |
+| Nova Premier | as Nova v1 | as above | — | — | 25,000 |
+
+Thinking on any Claude model also drops temperature/topP (AWS: "Thinking isn't compatible with temperature, top_p, or top_k modifications"). Sources: Converse `InferenceConfiguration`, Claude adaptive/extended-thinking pages, Nova request schema, model cards.
+
 ## Response mapping
 
 Handled in [`instruct#L844-L926`](../gaise-provider-bedrock/src/bedrock_client.rs#L844-L926). The response is always a single `assistant` `GaiseMessage` with `content: Some(Many(...))` or `None` when empty.

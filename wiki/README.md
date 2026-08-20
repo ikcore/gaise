@@ -1,6 +1,6 @@
 # GAISe wiki
 
-GAISe (Generative AI Service) is a Rust workspace that maps one provider-neutral contract onto six vendor APIs — OpenAI, Anthropic, Google Gemini, Google Vertex AI, Amazon Bedrock, and Ollama — for chat (`instruct`), streaming, embeddings, model discovery, and live/realtime sessions. This wiki documents the implementation as audited on **2026-08-20**; every page links to the source it describes.
+GAISe (Generative AI Service) is a Rust workspace that maps one provider-neutral contract onto seven vendor APIs — OpenAI, Anthropic, Google Gemini, Google Vertex AI, Amazon Bedrock, Ollama, and ElevenLabs — for chat (`instruct`), streaming, embeddings, text-to-speech, model discovery, and live/realtime sessions. This wiki documents the implementation as audited on **2026-08-20**; every page links to the source it describes.
 
 ## Pages
 
@@ -8,8 +8,10 @@ GAISe (Generative AI Service) is a Rust workspace that maps one provider-neutral
 |---|---|
 | [**api.md**](api.md) | The HTTP surface of [`gaise-api`](../gaise-api/): every route, request/response JSON, SSE and WebSocket framing, errors, configuration — with a sequence diagram per route. |
 | [**sdk.md**](sdk.md) | Using GAISe from Rust: crates and features, the `GaiseClientService` router, direct provider clients, every core contract, streaming accumulation, live sessions, model discovery, logging, testing. |
-| [**capabilities.md**](capabilities.md) | What each adapter can and cannot do: operations, modalities, tools, reasoning, generation controls, streaming, live, embeddings, usage counters, and the model-discovery rules (tri-state support, provenance, registry overlay, vocabulary). |
-| [**models.md**](models.md) | Every model in the bundled registry (120 entries), per vendor, with modalities, operations, reasoning values, lifecycle dates, and GAISe support notes; plus the retirement calendar and maintenance procedure. |
+| [**capabilities.md**](capabilities.md) | What each adapter can and cannot do: operations, modalities, tools, per-family parameter compatibility, reasoning, generation controls, streaming, live, speech, embeddings, usage counters, and the model-discovery rules (tri-state support, provenance, registry overlay, vocabulary). |
+| [**reasoning.md**](reasoning.md) | The universal thinking/reasoning vocabulary (`none`…`ultra` + aliases), the resolution rules, the per-vendor mapping, and a generated model × level matrix showing exactly what each provider receives. |
+| [**embeddings.md**](embeddings.md) | Every embedding model per provider — dimensions, token and batch limits, task types, normalization, lifecycle — with best practices per vendor and the `task` / `dimensions` / `normalize` contract. |
+| [**models.md**](models.md) | Every model in the bundled registry (129 entries), per vendor, with modalities, operations, reasoning values, lifecycle dates, and GAISe support notes; plus the retirement calendar and maintenance procedure. |
 | [**flows.md**](flows.md) | Mermaid diagrams of routing, instruct, multimodal mapping, streaming, tool loops, usage normalization, embeddings, model discovery, live sessions, and retries. |
 | [**examples.md**](examples.md) | Rust request examples for text, media, files, reasoning, generated images, tools, streaming, embeddings, discovery, and live. |
 | [**releasing.md**](releasing.md) | Version synchronization, package verification, and crates.io publish order. |
@@ -24,6 +26,7 @@ GAISe (Generative AI Service) is a Rust workspace that maps one provider-neutral
 | [**Google Vertex AI**](vendor-vertexai.md) | `vertexai` | [`gaise-provider-vertexai`](../gaise-provider-vertexai/) | generateContent, Embeddings, Model Garden listing |
 | [**Amazon Bedrock**](vendor-bedrock.md) | `bedrock` | [`gaise-provider-bedrock`](../gaise-provider-bedrock/) | Converse/ConverseStream, InvokeModel embeddings, `ListFoundationModels` |
 | [**Ollama**](vendor-ollama.md) | `ollama` | [`gaise-provider-ollama`](../gaise-provider-ollama/) | `/api/chat`, `/api/embed`, `/api/tags` |
+| [**ElevenLabs**](vendor-elevenlabs.md) | `elevenlabs` | [`gaise-provider-elevenlabs`](../gaise-provider-elevenlabs/) | Text-to-speech, streaming speech, realtime voice (`live`), `GET /v1/models` |
 
 Each vendor page follows the same outline — configuration, request mapping (roles, modalities, tools, generation config, model-family rules), response mapping, streaming, usage counters, embeddings, live, model discovery, the vendor's model table, limitations, flow diagrams, tests, and sources — so the same question can be answered in the same place for every provider.
 
@@ -32,6 +35,9 @@ Each vendor page follows the same outline — configuration, request mapping (ro
 - **Calling the HTTP API?** [api.md](api.md) → pick a model from [models.md](models.md) → import [`gaise_postman_collection.json`](../gaise_postman_collection.json).
 - **Embedding the Rust crates?** [sdk.md#crates-and-features](sdk.md#crates-and-features) → [sdk.md#the-router-gaiseclientservice](sdk.md#the-router-gaiseclientservice) → [examples.md](examples.md).
 - **Does provider X support Y?** [capabilities.md](capabilities.md), then the vendor page's "Limitations and explicit fallbacks".
+- **Which embedding model, and how should I call it?** [embeddings.md](embeddings.md) — per-model limits, document-vs-query task types, Matryoshka dimensions, normalization.
+- **Which reasoning level should I send?** [reasoning.md](reasoning.md) — one vocabulary, `ultra` for "the most this model offers", and a matrix of what each model receives.
+- **Will model Z accept this parameter?** [capabilities.md#parameter-compatibility-by-family](capabilities.md#parameter-compatibility-by-family) and the vendor page's "Parameter compatibility" table — the adapters filter requests to what each family accepts.
 - **Which models exist and when do they retire?** [models.md](models.md) and `GET /v1/models` ([api.md#get-v1models](api.md#get-v1models)).
 - **Extending an adapter?** The vendor page's "Request mapping" and "Tests" sections, then [CLAUDE.md](../CLAUDE.md) for the repository rules.
 
@@ -47,8 +53,9 @@ flowchart LR
     Router --> VAI["Vertex AI<br/>generateContent · Embeddings"]
     Router --> BED["Bedrock<br/>Converse · InvokeModel"]
     Router --> OLL["Ollama<br/>chat · embed"]
+    Router --> ELL["ElevenLabs<br/>speech · realtime voice"]
     Registry["model-registry.toml<br/>bundled overlay"] -.-> Router
-    OAI & ANT & GEM & VAI & BED & OLL --> Norm["Normalized messages, streams, media, tools, usage, and model records"]
+    OAI & ANT & GEM & VAI & BED & OLL & ELL --> Norm["Normalized messages, streams, media, speech, tools, usage, and model records"]
     Norm --> App
     HTTP["gaise-api<br/>JSON · SSE · WebSocket"] --> Router
 ```
@@ -61,6 +68,10 @@ flowchart TD
         E[embeddings]
         M[list_models]
     end
+    subgraph Speech["GaiseSpeechClient (elevenlabs feature)"]
+        V[speech]
+        VS[speech_stream]
+    end
     subgraph Live["GaiseLiveClient (live feature)"]
         L[live_connect]
     end
@@ -69,6 +80,8 @@ flowchart TD
     E --> R3["GaiseEmbeddingsResponse"]
     M --> R4["GaiseListModelsResponse"]
     L --> R5["GaiseLiveSession tx / rx"]
+    V --> R6["GaiseSpeechResponse"]
+    VS --> R7["Stream of GaiseSpeechChunk"]
 ```
 
 ## Design rules

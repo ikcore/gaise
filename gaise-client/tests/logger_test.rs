@@ -135,6 +135,7 @@ async fn test_logger_integration() {
         model: "mock::model".to_string(),
         correlation_id: Some("cid2".to_string()),
         input: OneOrMany::One("test".to_string()),
+        ..Default::default()
     };
     service.embeddings(&emb_req).await.unwrap();
     {

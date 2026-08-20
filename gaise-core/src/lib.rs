@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use crate::contracts::{
     GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseInstructRequest, GaiseInstructResponse,
     GaiseInstructStreamResponse, GaiseListModelsRequest, GaiseListModelsResponse, GaiseLiveConfig,
-    GaiseLiveSession,
+    GaiseLiveSession, GaiseSpeechRequest, GaiseSpeechResponse, GaiseSpeechStreamResponse,
 };
 pub mod contracts;
 pub mod logging;
@@ -60,4 +60,31 @@ pub trait GaiseLiveClient: Send + Sync {
         &self,
         config: &GaiseLiveConfig,
     ) -> Result<GaiseLiveSession, Box<dyn std::error::Error + Send + Sync>>;
+}
+
+/// Text-to-speech. Realtime text-in/audio-out streaming uses
+/// [`GaiseLiveClient`] with `GaiseLiveInput::Text` and `GaiseLiveEvent::Audio`.
+#[async_trait]
+pub trait GaiseSpeechClient: Send + Sync {
+    async fn speech(
+        &self,
+        request: &GaiseSpeechRequest,
+    ) -> Result<GaiseSpeechResponse, Box<dyn std::error::Error + Send + Sync>>;
+
+    async fn speech_stream(
+        &self,
+        request: &GaiseSpeechRequest,
+    ) -> Result<
+        std::pin::Pin<
+            Box<
+                dyn futures_util::Stream<
+                        Item = Result<
+                            GaiseSpeechStreamResponse,
+                            Box<dyn std::error::Error + Send + Sync>,
+                        >,
+                    > + Send,
+            >,
+        >,
+        Box<dyn std::error::Error + Send + Sync>,
+    >;
 }

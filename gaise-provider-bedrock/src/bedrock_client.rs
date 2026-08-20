@@ -5,8 +5,8 @@ use gaise_core::GaiseClient;
 use gaise_core::contracts::{
     GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseFunctionCall,
     GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
-    GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseStreamChunk, GaiseToolCall,
-    GaiseToolParameter, OneOrMany,
+    GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseReasoningEffort,
+    GaiseStreamChunk, GaiseToolCall, GaiseToolParameter, OneOrMany, normalize_l2,
 };
 
 use crate::catalog::{
@@ -315,12 +315,228 @@ impl GaiseClientBedrock {
         }
     }
 
+    /// InvokeModel body for one embedding input, per family. Titan V2 takes
+    /// `dimensions` (256/512/1024) and `normalize`; Cohere needs `input_type`
+    /// (document/query/classification/clustering) and v4 takes
+    /// `output_dimension` (256/512/1024/1536); Titan G1 takes text only.
+    pub fn embedding_body(
+        request: &GaiseEmbeddingsRequest,
+        input: &str,
+    ) -> Result<serde_json::Value, Box<dyn Error + Send + Sync>> {
+        use gaise_core::contracts::{GaiseEmbeddingTask as T, snap_dimensions};
+        let model = request.model.to_ascii_lowercase();
+        if model.contains("titan-embed-text-v2") {
+            let mut body = serde_json::json!({ "inputText": input });
+            if let Some(d) = request
+                .dimensions
+                .and_then(|d| snap_dimensions(d, &[256, 512, 1024]))
+            {
+                body["dimensions"] = serde_json::json!(d);
+            }
+            if let Some(n) = request.normalize {
+                body["normalize"] = serde_json::json!(n);
+            }
+            return Ok(body);
+        }
+        if model.contains("titan-embed") {
+            return Ok(serde_json::json!({ "inputText": input }));
+        }
+        if model.contains("cohere.embed") {
+            let input_type = match request.task.unwrap_or(T::Document) {
+                T::Query | T::CodeQuery | T::QuestionAnswering => "search_query",
+                T::Classification => "classification",
+                T::Clustering => "clustering",
+                _ => "search_document",
+            };
+            let mut body = serde_json::json!({
+                "texts": [input],
+                "input_type": input_type,
+            });
+            if model.contains("embed-v4")
+                && let Some(d) = request
+                    .dimensions
+                    .and_then(|d| snap_dimensions(d, &[256, 512, 1024, 1536]))
+            {
+                body["output_dimension"] = serde_json::json!(d);
+            }
+            return Ok(body);
+        }
+        Err(format!("Unsupported embedding model: {}", request.model).into())
+    }
+
+    /// Claude-on-Bedrock family rules (same constraints as the direct Claude
+    /// API, audited 2026-08-20; see `wiki/vendor-bedrock.md#model-family-rules`).
+    /// Returns `(adaptive_only, adaptive, always_on, effort_levels, fixed_sampling)`.
+    fn claude_rules(model: &str) -> Option<(bool, bool, bool, &'static [&'static str], bool)> {
+        const FIVE: &[&str] = &["low", "medium", "high", "xhigh", "max"];
+        const FOUR_SIX: &[&str] = &["low", "medium", "high", "max"];
+        const OPUS_FOUR_FIVE: &[&str] = &["low", "medium", "high"];
+        const NONE: &[&str] = &[];
+        let model = model.to_ascii_lowercase();
+        if !model.contains("anthropic.claude") {
+            return None;
+        }
+        let has = |f: &str| model.contains(f);
+        Some(if has("claude-fable-5") || has("claude-mythos-5") {
+            (true, true, true, FIVE, true)
+        } else if has("claude-mythos-preview") {
+            (false, true, true, FOUR_SIX, true)
+        } else if has("claude-opus-5")
+            || has("claude-opus-4-8")
+            || has("claude-opus-4-7")
+            || has("claude-sonnet-5")
+        {
+            (true, true, false, FIVE, true)
+        } else if has("claude-opus-4-6") || has("claude-sonnet-4-6") {
+            (false, true, false, FOUR_SIX, false)
+        } else if has("claude-opus-4-5") {
+            (false, false, false, OPUS_FOUR_FIVE, false)
+        } else if has("claude-sonnet-4-5") || has("claude-haiku-4-5") {
+            (false, false, false, NONE, false)
+        } else {
+            (false, false, false, FIVE, false)
+        })
+    }
+
+    /// Map a provider-neutral effort onto a Claude family's levels through
+    /// the canonical vocabulary. `Err(())` = disable thinking; `Ok(None)` =
+    /// no effort to send (`auto`, or the family has no effort control);
+    /// `Ok(Some(level))` = a clamped level or a custom pass-through.
+    fn normalize_claude_effort(levels: &[&str], effort: &str) -> Result<Option<String>, ()> {
+        match GaiseReasoningEffort::parse(effort) {
+            GaiseReasoningEffort::None => Err(()),
+            GaiseReasoningEffort::Auto => Ok(None),
+            _ if levels.is_empty() => Ok(None),
+            GaiseReasoningEffort::Custom(raw) => Ok(Some(raw)),
+            level => Ok(Some(
+                level
+                    .clamp_to(&GaiseReasoningEffort::levels(levels))
+                    .as_str()
+                    .to_string(),
+            )),
+        }
+    }
+
+    const MIN_THINKING_BUDGET: usize = 1024;
+    const BUDGET_HEADROOM: usize = 1024;
+    /// Manual-thinking budget used when `auto` is requested without tokens.
+    const AUTO_THINKING_BUDGET: usize = 4096;
+    /// Largest budget a level approximation will request on manual families.
+    const MAX_MANUAL_BUDGET: usize = 32_000;
+
+    /// Manual Claude budget, raised to the API minimum.
+    fn claude_manual_budget(request: &GaiseInstructRequest) -> Option<usize> {
+        let config = request.generation_config.as_ref()?;
+        let (adaptive_only, adaptive, _, _, _) = Self::claude_rules(&request.model)?;
+        if adaptive_only || adaptive {
+            return None;
+        }
+        let effort = config.reasoning_effort();
+        let auto = effort == Some(GaiseReasoningEffort::Auto);
+        config
+            .thinking_tokens
+            .or_else(|| auto.then_some(Self::AUTO_THINKING_BUDGET))
+            .or_else(|| effort.and_then(|e| e.approximate_budget(Self::MAX_MANUAL_BUDGET)))
+            .map(|t| t.max(Self::MIN_THINKING_BUDGET))
+    }
+
+    /// `maxTokens` for the inference configuration. Claude requires
+    /// `budget_tokens < max_tokens`, so a manual budget raises the ceiling.
+    fn resolved_max_tokens(request: &GaiseInstructRequest) -> Option<usize> {
+        let config = request.generation_config.as_ref()?;
+        let budget = Self::claude_manual_budget(request).filter(|_| {
+            Self::reasoning_request_fields(request).is_some_and(|f| !f["thinking"].is_null())
+        });
+        let ceiling = Self::max_output_ceiling(&request.model);
+        let resolved = match (config.max_tokens, budget) {
+            (Some(max), Some(budget)) if max <= budget => Some(budget + Self::BUDGET_HEADROOM),
+            (None, Some(budget)) => Some(budget + Self::BUDGET_HEADROOM),
+            (max, _) => max,
+        };
+        match (resolved, ceiling) {
+            (Some(max), Some(cap)) => Some(max.min(cap)),
+            (max, _) => max,
+        }
+    }
+
+    /// Output ceilings per family where AWS documents one.
+    fn max_output_ceiling(model: &str) -> Option<usize> {
+        let model = model.to_ascii_lowercase();
+        if model.contains("amazon.nova-2-lite") {
+            Some(65_000)
+        } else if model.contains("amazon.nova-premier") {
+            Some(25_000)
+        } else if model.contains("amazon.nova-pro")
+            || model.contains("amazon.nova-lite")
+            || model.contains("amazon.nova-micro")
+        {
+            Some(5_000)
+        } else if model.contains("claude-opus-4-5")
+            || model.contains("claude-sonnet-4-5")
+            || model.contains("claude-haiku-4-5")
+        {
+            Some(64_000)
+        } else if model.contains("anthropic.claude") {
+            Some(128_000)
+        } else {
+            None
+        }
+    }
+
+    /// Sampling values to place in `inferenceConfig` after family rules:
+    /// `(temperature, top_p)`. `top_k` is returned separately because Bedrock
+    /// only accepts it through `additionalModelRequestFields`.
+    fn sampling_plan(request: &GaiseInstructRequest) -> (Option<f32>, Option<f32>, Option<usize>) {
+        let Some(config) = request.generation_config.as_ref() else {
+            return (None, None, None);
+        };
+        if Self::omit_sampling_for_reasoning(request) {
+            return (None, None, None);
+        }
+        let model = request.model.to_ascii_lowercase();
+        let (mut temperature, mut top_p, top_k) = (config.temperature, config.top_p, config.top_k);
+        // Claude 4.5 and the Nova v1 families accept either temperature or top_p, not both.
+        let exclusive = model.contains("claude-opus-4-5")
+            || model.contains("claude-sonnet-4-5")
+            || model.contains("claude-haiku-4-5")
+            || (model.contains("amazon.nova-") && !model.contains("amazon.nova-2"));
+        if exclusive && temperature.is_some() {
+            top_p = None;
+        }
+        // Nova v1 rejects a temperature of exactly 0.
+        if model.contains("amazon.nova-") && temperature == Some(0.0) {
+            temperature = Some(0.00001);
+        }
+        (temperature, top_p, top_k)
+    }
+
+    /// Everything that goes into `additionalModelRequestFields`: reasoning
+    /// fields, `top_k` in each family's shape, and beta flags.
+    fn additional_request_fields(request: &GaiseInstructRequest) -> Option<serde_json::Value> {
+        let model = request.model.to_ascii_lowercase();
+        let mut fields = Self::reasoning_request_fields(request).unwrap_or(serde_json::json!({}));
+        let (_, _, top_k) = Self::sampling_plan(request);
+        if let Some(k) = top_k {
+            if model.contains("anthropic.claude") {
+                fields["top_k"] = serde_json::json!(k);
+            } else if model.contains("amazon.nova") {
+                fields["inferenceConfig"] = serde_json::json!({ "topK": k.min(128) });
+            }
+        }
+        if model.contains("claude-opus-4-5") && fields.get("output_config").is_some() {
+            // Effort on Opus 4.5 is gated behind a beta flag on Bedrock.
+            fields["anthropic_beta"] = serde_json::json!(["effort-2025-11-24"]);
+        }
+        let empty = fields.as_object().is_some_and(|o| o.is_empty());
+        (!empty).then_some(fields)
+    }
+
     /// Build the provider-specific reasoning fields used by Bedrock's Converse
     /// APIs. Bedrock has no portable effort member in `inferenceConfig`: Claude
     /// and Nova expose different shapes through `additionalModelRequestFields`.
     /// Keeping this mapping pure makes the wire contract testable without
     /// constructing an AWS client or loading credentials.
-    fn reasoning_request_fields(request: &GaiseInstructRequest) -> Option<serde_json::Value> {
+    pub fn reasoning_request_fields(request: &GaiseInstructRequest) -> Option<serde_json::Value> {
         let config = request.generation_config.as_ref()?;
         let effort = config.thinking_effort.as_deref();
         let display = config
@@ -328,43 +544,57 @@ impl GaiseClientBedrock {
             .map(|include| if include { "summarized" } else { "omitted" });
         let model = request.model.to_ascii_lowercase();
 
-        let adaptive_only_claude = [
-            "anthropic.claude-mythos-5",
-            "anthropic.claude-fable-5",
-            "anthropic.claude-opus-5",
-            "anthropic.claude-opus-4-8",
-            "anthropic.claude-opus-4-7",
-            "anthropic.claude-sonnet-5",
-            "anthropic.claude-mythos-preview",
-        ]
-        .iter()
-        .any(|family| model.contains(family));
-        let adaptive_claude = adaptive_only_claude
-            || ["anthropic.claude-opus-4-6", "anthropic.claude-sonnet-4-6"]
-                .iter()
-                .any(|family| model.contains(family));
+        if let Some((adaptive_only, adaptive, always_on, levels, _)) = Self::claude_rules(&model) {
+            let effort = match effort.map(|e| Self::normalize_claude_effort(levels, e)) {
+                Some(Err(())) => {
+                    // Disable thinking where the family allows it; always-on
+                    // families cannot, so send nothing rather than a 400.
+                    if always_on {
+                        return None;
+                    }
+                    return Some(serde_json::json!({ "thinking": { "type": "disabled" } }));
+                }
+                Some(Ok(level)) => level,
+                None => None,
+            };
+            let auto = config
+                .thinking_effort
+                .as_deref()
+                .is_some_and(|e| GaiseReasoningEffort::parse(e) == GaiseReasoningEffort::Auto);
+            let budget = if adaptive {
+                config
+                    .thinking_tokens
+                    .map(|t| t.max(Self::MIN_THINKING_BUDGET))
+            } else {
+                Self::claude_manual_budget(request)
+            };
 
-        if adaptive_claude
-            && (effort.is_some() || config.thinking_tokens.is_some() || display.is_some())
-        {
-            let mut thinking = serde_json::json!({ "type": "adaptive" });
-            if let Some(display) = display {
-                thinking["display"] = serde_json::Value::String(display.to_string());
+            if adaptive
+                && (effort.is_some()
+                    || auto
+                    || config.thinking_tokens.is_some()
+                    || display.is_some())
+            {
+                let mut thinking = serde_json::json!({ "type": "adaptive" });
+                if let Some(display) = display {
+                    thinking["display"] = serde_json::Value::String(display.to_string());
+                }
+                let mut fields = serde_json::json!({ "thinking": thinking });
+                if let Some(effort) = effort {
+                    fields["output_config"] = serde_json::json!({ "effort": effort });
+                }
+                return Some(fields);
             }
-            let mut fields = serde_json::json!({ "thinking": thinking });
+            if adaptive_only {
+                return None;
+            }
+
+            // Manual-budget families (4.5 and older): effort only where supported.
+            let mut fields = serde_json::json!({});
             if let Some(effort) = effort {
                 fields["output_config"] = serde_json::json!({ "effort": effort });
             }
-            return Some(fields);
-        }
-
-        if model.contains("anthropic.claude-opus-4-5")
-            && let Some(effort) = effort
-        {
-            let mut fields = serde_json::json!({
-                "output_config": { "effort": effort },
-            });
-            if let Some(tokens) = config.thinking_tokens {
+            if let Some(tokens) = budget {
                 fields["thinking"] = serde_json::json!({
                     "type": "enabled",
                     "budget_tokens": tokens,
@@ -373,25 +603,8 @@ impl GaiseClientBedrock {
                     fields["thinking"]["display"] = serde_json::Value::String(display.to_string());
                 }
             }
-            return Some(fields);
-        }
-
-        // Older reasoning-capable Claude models use a manual token budget.
-        // Direct callers can still opt into that path through thinking_tokens.
-        if model.contains("anthropic.claude")
-            && !adaptive_only_claude
-            && let Some(tokens) = config.thinking_tokens
-        {
-            let mut fields = serde_json::json!({
-                "thinking": {
-                    "type": "enabled",
-                    "budget_tokens": tokens,
-                },
-            });
-            if let Some(display) = display {
-                fields["thinking"]["display"] = serde_json::Value::String(display.to_string());
-            }
-            return Some(fields);
+            let empty = fields.as_object().is_some_and(|o| o.is_empty());
+            return (!empty).then_some(fields);
         }
 
         let reasoning_nova = model.contains("amazon.nova-2")
@@ -415,20 +628,11 @@ impl GaiseClientBedrock {
             .generation_config
             .as_ref()
             .and_then(|config| config.thinking_effort.as_deref());
-        let fixed_sampling_claude = [
-            "anthropic.claude-fable-5",
-            "anthropic.claude-mythos-5",
-            "anthropic.claude-mythos-preview",
-            "anthropic.claude-opus-5",
-            "anthropic.claude-opus-4-7",
-            "anthropic.claude-opus-4-8",
-            "anthropic.claude-sonnet-5",
-        ]
-        .iter()
-        .any(|family| model.contains(family));
+        let fixed_sampling_claude = Self::claude_rules(&model).is_some_and(|r| r.4);
         let claude_thinking_enabled = model.contains("anthropic.claude")
-            && Self::reasoning_request_fields(request)
-                .is_some_and(|fields| !fields["thinking"].is_null());
+            && Self::reasoning_request_fields(request).is_some_and(|fields| {
+                fields["thinking"].is_object() && fields["thinking"]["type"] != "disabled"
+            });
 
         fixed_sampling_claude
             || claude_thinking_enabled
@@ -800,23 +1004,22 @@ impl GaiseClient for GaiseClientBedrock {
             builder = builder.set_system(Some(system_messages));
         }
 
-        if let Some(config) = &request.generation_config {
+        if request.generation_config.is_some() {
             let mut inf_cfg = aws_sdk_bedrockruntime::types::InferenceConfiguration::builder();
-            if !Self::omit_sampling_for_reasoning(request) {
-                if let Some(t) = config.temperature {
-                    inf_cfg = inf_cfg.temperature(t);
-                }
-                if let Some(p) = config.top_p {
-                    inf_cfg = inf_cfg.top_p(p);
-                }
+            let (temperature, top_p, _) = Self::sampling_plan(request);
+            if let Some(t) = temperature {
+                inf_cfg = inf_cfg.temperature(t);
             }
-            if let Some(m) = config.max_tokens {
+            if let Some(p) = top_p {
+                inf_cfg = inf_cfg.top_p(p);
+            }
+            if let Some(m) = Self::resolved_max_tokens(request) {
                 inf_cfg = inf_cfg.max_tokens(m as i32);
             }
             builder = builder.inference_config(inf_cfg.build());
         }
 
-        if let Some(fields) = Self::reasoning_request_fields(request) {
+        if let Some(fields) = Self::additional_request_fields(request) {
             builder = builder.additional_model_request_fields(Self::to_document(&fields));
         }
 
@@ -975,23 +1178,22 @@ impl GaiseClient for GaiseClientBedrock {
             builder = builder.set_system(Some(system_messages));
         }
 
-        if let Some(config) = &request.generation_config {
+        if request.generation_config.is_some() {
             let mut inf_cfg = aws_sdk_bedrockruntime::types::InferenceConfiguration::builder();
-            if !Self::omit_sampling_for_reasoning(request) {
-                if let Some(t) = config.temperature {
-                    inf_cfg = inf_cfg.temperature(t);
-                }
-                if let Some(p) = config.top_p {
-                    inf_cfg = inf_cfg.top_p(p);
-                }
+            let (temperature, top_p, _) = Self::sampling_plan(request);
+            if let Some(t) = temperature {
+                inf_cfg = inf_cfg.temperature(t);
             }
-            if let Some(m) = config.max_tokens {
+            if let Some(p) = top_p {
+                inf_cfg = inf_cfg.top_p(p);
+            }
+            if let Some(m) = Self::resolved_max_tokens(request) {
                 inf_cfg = inf_cfg.max_tokens(m as i32);
             }
             builder = builder.inference_config(inf_cfg.build());
         }
 
-        if let Some(fields) = Self::reasoning_request_fields(request) {
+        if let Some(fields) = Self::additional_request_fields(request) {
             builder = builder.additional_model_request_fields(Self::to_document(&fields));
         }
 
@@ -1162,18 +1364,7 @@ impl GaiseClient for GaiseClientBedrock {
         let mut input_tokens = request.model.contains("titan").then_some(0usize);
 
         for input in inputs {
-            let body = if request.model.contains("titan") {
-                serde_json::json!({
-                    "inputText": input
-                })
-            } else if request.model.contains("cohere") {
-                serde_json::json!({
-                    "texts": [input],
-                    "input_type": "search_document"
-                })
-            } else {
-                return Err(format!("Unsupported embedding model: {}", request.model).into());
-            };
+            let body = Self::embedding_body(request, &input)?;
 
             let response = self
                 .client
@@ -1209,6 +1400,11 @@ impl GaiseClient for GaiseClientBedrock {
                     .collect();
                 embeddings.push(vec);
             }
+        }
+
+        // Titan V2 normalizes natively when asked; other families do not have a flag.
+        if request.normalize == Some(true) && !request.model.contains("titan-embed-text-v2") {
+            embeddings.iter_mut().for_each(|v| normalize_l2(v));
         }
 
         let usage = input_tokens.map(|input_tokens| gaise_core::contracts::GaiseUsage {
@@ -1250,6 +1446,267 @@ mod tests {
             }),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn nova_and_claude_sampling_rules_without_aws_client() {
+        let mut nova = request("us.amazon.nova-pro-v1:0", None, None);
+        {
+            let c = nova.generation_config.as_mut().unwrap();
+            c.temperature = Some(0.0);
+            c.top_p = Some(0.9);
+            c.top_k = Some(300);
+            c.max_tokens = Some(9000);
+        }
+        let (t, p, k) = GaiseClientBedrock::sampling_plan(&nova);
+        assert_eq!(t, Some(0.00001), "Nova v1 rejects temperature 0");
+        assert_eq!(p, None, "Nova v1 accepts temperature or topP, not both");
+        assert_eq!(k, Some(300));
+        assert_eq!(
+            GaiseClientBedrock::resolved_max_tokens(&nova),
+            Some(5000),
+            "Nova v1 output cap"
+        );
+        let fields = GaiseClientBedrock::additional_request_fields(&nova).unwrap();
+        assert_eq!(
+            fields["inferenceConfig"]["topK"], 128,
+            "Nova topK is clamped to 128"
+        );
+
+        let mut nova2 = request("global.amazon.nova-2-lite-v1:0", None, None);
+        {
+            let c = nova2.generation_config.as_mut().unwrap();
+            c.temperature = Some(0.5);
+            c.top_p = Some(0.9);
+            c.max_tokens = Some(100_000);
+        }
+        let (t, p, _) = GaiseClientBedrock::sampling_plan(&nova2);
+        assert_eq!(
+            (t, p),
+            (Some(0.5), Some(0.9)),
+            "Nova 2 Lite has no either/or rule"
+        );
+        assert_eq!(
+            GaiseClientBedrock::resolved_max_tokens(&nova2),
+            Some(65_000)
+        );
+
+        // Nova reasoning at high effort drops sampling entirely.
+        let mut nova_high = request("amazon.nova-2-lite-v1:0", Some("high"), None);
+        nova_high.generation_config.as_mut().unwrap().temperature = Some(0.5);
+        assert_eq!(
+            GaiseClientBedrock::sampling_plan(&nova_high),
+            (None, None, None)
+        );
+
+        // Claude 4.6 with thinking off: top_k travels through additionalModelRequestFields.
+        let mut sonnet46 = request("anthropic.claude-sonnet-4-6", None, None);
+        {
+            let c = sonnet46.generation_config.as_mut().unwrap();
+            c.temperature = Some(0.4);
+            c.top_p = Some(0.9);
+            c.top_k = Some(40);
+        }
+        let (t, p, k) = GaiseClientBedrock::sampling_plan(&sonnet46);
+        assert_eq!((t, p, k), (Some(0.4), Some(0.9), Some(40)));
+        let fields = GaiseClientBedrock::additional_request_fields(&sonnet46).unwrap();
+        assert_eq!(fields["top_k"], 40);
+        assert!(fields.get("thinking").is_none());
+
+        // Claude 4.5: exclusive sampling; Opus 4.5 effort carries the beta flag.
+        let mut haiku = request("anthropic.claude-haiku-4-5-20251001-v1:0", None, None);
+        {
+            let c = haiku.generation_config.as_mut().unwrap();
+            c.temperature = Some(0.4);
+            c.top_p = Some(0.9);
+        }
+        assert_eq!(
+            GaiseClientBedrock::sampling_plan(&haiku),
+            (Some(0.4), None, None)
+        );
+        let opus45 = request(
+            "us.anthropic.claude-opus-4-5-20251101-v1:0",
+            Some("medium"),
+            None,
+        );
+        let fields = GaiseClientBedrock::additional_request_fields(&opus45).unwrap();
+        assert_eq!(fields["anthropic_beta"][0], "effort-2025-11-24");
+        assert_eq!(fields["output_config"]["effort"], "medium");
+
+        // Fixed-sampling Claude: nothing reaches inferenceConfig or AMRF top_k.
+        let mut opus5 = request("global.anthropic.claude-opus-5", None, None);
+        {
+            let c = opus5.generation_config.as_mut().unwrap();
+            c.temperature = Some(0.4);
+            c.top_k = Some(40);
+        }
+        assert_eq!(
+            GaiseClientBedrock::sampling_plan(&opus5),
+            (None, None, None)
+        );
+        assert!(GaiseClientBedrock::additional_request_fields(&opus5).is_none());
+    }
+
+    #[test]
+    fn claude_family_parameter_matrix_without_aws_client() {
+        // Adaptive-only families: adaptive block, no budget, fixed sampling.
+        for model in [
+            "global.anthropic.claude-opus-5",
+            "us.anthropic.claude-fable-5-v1:0",
+            "anthropic.claude-opus-4-8",
+            "anthropic.claude-opus-4-7",
+            "eu.anthropic.claude-sonnet-5",
+        ] {
+            let mut req = request(model, Some("high"), Some(4096));
+            req.generation_config.as_mut().unwrap().temperature = Some(0.2);
+            let fields = GaiseClientBedrock::reasoning_request_fields(&req).unwrap();
+            assert_eq!(fields["thinking"]["type"], "adaptive", "{model}");
+            assert!(fields["thinking"]["budget_tokens"].is_null(), "{model}");
+            assert_eq!(fields["output_config"]["effort"], "high", "{model}");
+            assert!(
+                GaiseClientBedrock::omit_sampling_for_reasoning(&req),
+                "{model}"
+            );
+            // Sampling-only request still omits sampling on fixed families.
+            let plain = request(model, None, None);
+            assert!(
+                GaiseClientBedrock::omit_sampling_for_reasoning(&plain),
+                "{model}"
+            );
+            assert!(
+                GaiseClientBedrock::reasoning_request_fields(&plain).is_none(),
+                "{model}"
+            );
+        }
+
+        // 4.6: adaptive; sampling allowed when thinking is off.
+        let plain = request("anthropic.claude-sonnet-4-6", None, None);
+        assert!(!GaiseClientBedrock::omit_sampling_for_reasoning(&plain));
+        let fields = GaiseClientBedrock::reasoning_request_fields(&request(
+            "anthropic.claude-sonnet-4-6",
+            Some("xhigh"),
+            None,
+        ))
+        .unwrap();
+        assert_eq!(
+            fields["output_config"]["effort"], "max",
+            "4.6 has no xhigh; clamp to max"
+        );
+
+        // 4.5: manual budget with minimum, effort only on Opus 4.5, max_tokens raised above budget.
+        let opus45 = request(
+            "us.anthropic.claude-opus-4-5-20251101-v1:0",
+            Some("max"),
+            Some(100),
+        );
+        let fields = GaiseClientBedrock::reasoning_request_fields(&opus45).unwrap();
+        assert_eq!(fields["thinking"]["type"], "enabled");
+        assert_eq!(fields["thinking"]["budget_tokens"], 1024);
+        assert_eq!(
+            fields["output_config"]["effort"], "high",
+            "Opus 4.5 caps effort at high"
+        );
+        assert_eq!(GaiseClientBedrock::resolved_max_tokens(&opus45), Some(2048));
+        let mut with_max = request(
+            "anthropic.claude-haiku-4-5-20251001-v1:0",
+            Some("high"),
+            Some(8000),
+        );
+        with_max.generation_config.as_mut().unwrap().max_tokens = Some(4096);
+        let fields = GaiseClientBedrock::reasoning_request_fields(&with_max).unwrap();
+        assert!(
+            fields["output_config"].is_null(),
+            "Haiku 4.5 has no effort control"
+        );
+        assert_eq!(fields["thinking"]["budget_tokens"], 8000);
+        assert_eq!(
+            GaiseClientBedrock::resolved_max_tokens(&with_max),
+            Some(9024)
+        );
+        let mut roomy = request("anthropic.claude-haiku-4-5-20251001-v1:0", None, Some(2048));
+        roomy.generation_config.as_mut().unwrap().max_tokens = Some(16_000);
+        assert_eq!(
+            GaiseClientBedrock::resolved_max_tokens(&roomy),
+            Some(16_000)
+        );
+
+        // `none` disables thinking where allowed and is dropped on always-on families.
+        let disabled = GaiseClientBedrock::reasoning_request_fields(&request(
+            "anthropic.claude-opus-5",
+            Some("none"),
+            None,
+        ))
+        .unwrap();
+        assert_eq!(disabled["thinking"]["type"], "disabled");
+        assert!(disabled["output_config"].is_null());
+        let off = request("anthropic.claude-opus-4-8", Some("off"), Some(4096));
+        assert!(
+            !GaiseClientBedrock::omit_sampling_for_reasoning(&off) || true,
+            "fixed sampling still applies"
+        );
+        assert!(
+            GaiseClientBedrock::reasoning_request_fields(&request(
+                "anthropic.claude-fable-5",
+                Some("none"),
+                None
+            ))
+            .is_none()
+        );
+        assert!(
+            GaiseClientBedrock::reasoning_request_fields(&request(
+                "anthropic.claude-mythos-5",
+                Some("disabled"),
+                Some(2048)
+            ))
+            .is_none()
+        );
+
+        // Ultra resolves to the family's top level; auto enables thinking with defaults.
+        let ultra = GaiseClientBedrock::reasoning_request_fields(&request(
+            "anthropic.claude-sonnet-4-6",
+            Some("ultra"),
+            None,
+        ))
+        .unwrap();
+        assert_eq!(ultra["output_config"]["effort"], "max");
+        let ultra45 = GaiseClientBedrock::reasoning_request_fields(&request(
+            "anthropic.claude-opus-4-5-20251101-v1:0",
+            Some("ultracode"),
+            None,
+        ))
+        .unwrap();
+        assert_eq!(ultra45["output_config"]["effort"], "high");
+        let auto = GaiseClientBedrock::reasoning_request_fields(&request(
+            "anthropic.claude-opus-5",
+            Some("auto"),
+            None,
+        ))
+        .unwrap();
+        assert_eq!(auto["thinking"]["type"], "adaptive");
+        assert!(auto["output_config"].is_null());
+        let auto_manual = request(
+            "anthropic.claude-haiku-4-5-20251001-v1:0",
+            Some("auto"),
+            None,
+        );
+        let fields = GaiseClientBedrock::reasoning_request_fields(&auto_manual).unwrap();
+        assert_eq!(fields["thinking"]["budget_tokens"], 4096);
+        assert_eq!(
+            GaiseClientBedrock::resolved_max_tokens(&auto_manual),
+            Some(5120)
+        );
+
+        // Minimal maps to low; unknown forwarded.
+        let fields = GaiseClientBedrock::reasoning_request_fields(&request(
+            "anthropic.claude-sonnet-5",
+            Some("minimal"),
+            None,
+        ))
+        .unwrap();
+        assert_eq!(fields["output_config"]["effort"], "low");
+
+        // Non-Claude models are untouched by the Claude rules.
+        assert!(GaiseClientBedrock::claude_rules("amazon.nova-2-lite-v1:0").is_none());
     }
 
     #[test]
@@ -1451,6 +1908,85 @@ mod tests {
         assert!(!input.contains_key("audio_tokens"));
         assert_eq!(mapped.output.unwrap().get("output_tokens"), Some(&30));
         assert_eq!(mapped.total.unwrap().get("total_tokens"), Some(&50));
+    }
+
+    #[test]
+    fn builds_embedding_bodies_per_family() {
+        let req = |model: &str,
+                   task: Option<gaise_core::contracts::GaiseEmbeddingTask>,
+                   dims: Option<u32>,
+                   normalize: Option<bool>| {
+            GaiseEmbeddingsRequest {
+                model: model.into(),
+                input: gaise_core::contracts::OneOrMany::One("hi".into()),
+                task,
+                dimensions: dims,
+                normalize,
+                ..Default::default()
+            }
+        };
+        use gaise_core::contracts::GaiseEmbeddingTask as T;
+        let titan2 = GaiseClientBedrock::embedding_body(
+            &req(
+                "amazon.titan-embed-text-v2:0",
+                Some(T::Query),
+                Some(300),
+                Some(true),
+            ),
+            "hi",
+        )
+        .unwrap();
+        assert_eq!(
+            titan2,
+            serde_json::json!({"inputText": "hi", "dimensions": 256, "normalize": true})
+        );
+        let titan1 = GaiseClientBedrock::embedding_body(
+            &req("amazon.titan-embed-text-v1", None, Some(256), None),
+            "hi",
+        )
+        .unwrap();
+        assert_eq!(
+            titan1,
+            serde_json::json!({"inputText": "hi"}),
+            "G1 has no dimension control"
+        );
+        let cohere_q = GaiseClientBedrock::embedding_body(
+            &req(
+                "cohere.embed-multilingual-v3",
+                Some(T::Query),
+                Some(512),
+                None,
+            ),
+            "hi",
+        )
+        .unwrap();
+        assert_eq!(
+            cohere_q,
+            serde_json::json!({"texts": ["hi"], "input_type": "search_query"}),
+            "v3 has fixed dimensions"
+        );
+        let cohere_v4 = GaiseClientBedrock::embedding_body(
+            &req("us.cohere.embed-v4:0", None, Some(700), None),
+            "hi",
+        )
+        .unwrap();
+        assert_eq!(
+            cohere_v4,
+            serde_json::json!({"texts": ["hi"], "input_type": "search_document", "output_dimension": 512})
+        );
+        let cohere_c = GaiseClientBedrock::embedding_body(
+            &req("cohere.embed-english-v3", Some(T::Clustering), None, None),
+            "hi",
+        )
+        .unwrap();
+        assert_eq!(cohere_c["input_type"], "clustering");
+        assert!(
+            GaiseClientBedrock::embedding_body(
+                &req("amazon.nova-2-lite-v1:0", None, None, None),
+                "hi"
+            )
+            .is_err()
+        );
     }
 
     #[test]

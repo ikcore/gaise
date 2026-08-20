@@ -8,9 +8,9 @@ use tokio::sync::RwLock;
 use gaise_core::{
     GaiseClient,
     contracts::{
-        GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseInstructRequest,
+        GaiseConnection, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseInstructRequest,
         GaiseInstructResponse, GaiseInstructStreamResponse, GaiseListModelsRequest,
-        GaiseListModelsResponse, GaiseModel, GaiseProviderError,
+        GaiseListModelsResponse, GaiseModel, GaiseProviderError, redact_secrets,
     },
     logging::IGaiseLogger,
     registry::ModelRegistry,
@@ -20,10 +20,17 @@ use gaise_core::{
     GaiseLiveClient,
     contracts::{GaiseLiveConfig, GaiseLiveSession},
 };
+#[cfg(feature = "elevenlabs")]
+use gaise_core::{
+    GaiseSpeechClient,
+    contracts::{GaiseSpeechRequest, GaiseSpeechResponse, GaiseSpeechStreamResponse},
+};
 #[cfg(feature = "anthropic")]
 use gaise_provider_anthropic::anthropic_client::GaiseClientAnthropic;
 #[cfg(feature = "bedrock")]
 use gaise_provider_bedrock::bedrock_client::GaiseClientBedrock;
+#[cfg(feature = "elevenlabs")]
+use gaise_provider_elevenlabs::elevenlabs_client::GaiseClientElevenLabs;
 #[cfg(feature = "gemini")]
 use gaise_provider_gemini::gemini_client::GaiseClientGemini;
 #[cfg(all(feature = "gemini", feature = "live"))]
@@ -73,6 +80,12 @@ pub struct GaiseClientConfig {
     /// API key for Gemini.
     #[cfg(feature = "gemini")]
     pub gemini_api_key: Option<String>,
+    /// API URL for ElevenLabs (e.g., "https://api.elevenlabs.io"; regional hosts allowed).
+    #[cfg(feature = "elevenlabs")]
+    pub elevenlabs_api_url: Option<String>,
+    /// API key for ElevenLabs.
+    #[cfg(feature = "elevenlabs")]
+    pub elevenlabs_api_key: Option<String>,
     /// Optional logger for requests and responses.
     pub logger: Option<Arc<dyn IGaiseLogger>>,
 }
@@ -88,6 +101,8 @@ pub struct GaiseClientService {
     clients: RwLock<HashMap<String, Arc<dyn GaiseClient>>>,
     #[cfg(feature = "live")]
     live_clients: RwLock<HashMap<String, Arc<dyn GaiseLiveClient>>>,
+    #[cfg(feature = "elevenlabs")]
+    speech_clients: RwLock<HashMap<String, Arc<dyn GaiseSpeechClient>>>,
     logger: Option<Arc<dyn IGaiseLogger>>,
 }
 
@@ -100,104 +115,169 @@ impl GaiseClientService {
             clients: RwLock::new(HashMap::new()),
             #[cfg(feature = "live")]
             live_clients: RwLock::new(HashMap::new()),
+            #[cfg(feature = "elevenlabs")]
+            speech_clients: RwLock::new(HashMap::new()),
             logger,
         }
     }
 
     /// Retrieves an existing client for the specified provider or initializes a new one.
     ///
-    /// Supported providers: "ollama", "vertexai", "openai", "bedrock", "anthropic".
+    /// Supported providers: "ollama", "vertexai", "openai", "bedrock", "anthropic",
+    /// "gemini", "elevenlabs".
     pub async fn get_client(
         &self,
         provider: &str,
     ) -> Result<Arc<dyn GaiseClient>, Box<dyn std::error::Error + Send + Sync>> {
+        self.get_client_with(provider, None).await
+    }
+
+    /// Cache key for a provider plus an optional per-request connection.
+    fn client_key(provider: &str, connection: Option<&GaiseConnection>) -> String {
+        match connection.filter(|c| !c.is_empty()) {
+            Some(c) => format!("{provider}#{}", c.cache_key()),
+            None => provider.to_string(),
+        }
+    }
+
+    /// URL/key resolution: the request's connection wins, then the service config.
+    fn resolve_url<'a>(
+        connection: Option<&'a GaiseConnection>,
+        configured: Option<&'a str>,
+        default: Option<&'a str>,
+        what: &str,
+    ) -> Result<&'a str, Box<dyn std::error::Error + Send + Sync>> {
+        connection
+            .and_then(|c| c.api_url.as_deref())
+            .or(configured)
+            .or(default)
+            .ok_or_else(|| format!("{what} API URL not configured").into())
+    }
+
+    fn resolve_key<'a>(
+        connection: Option<&'a GaiseConnection>,
+        configured: Option<&'a str>,
+        what: &str,
+    ) -> Result<&'a str, Box<dyn std::error::Error + Send + Sync>> {
+        connection
+            .and_then(|c| c.api_key.as_deref())
+            .or(configured)
+            .ok_or_else(|| format!("{what} API Key not configured").into())
+    }
+
+    /// Like [`Self::get_client`], honouring a per-request [`GaiseConnection`]
+    /// (endpoint, key, region, service account). Clients built from an
+    /// override are cached per distinct connection.
+    pub async fn get_client_with(
+        &self,
+        provider: &str,
+        connection: Option<&GaiseConnection>,
+    ) -> Result<Arc<dyn GaiseClient>, Box<dyn std::error::Error + Send + Sync>> {
+        let key = Self::client_key(provider, connection);
         {
             let clients = self.clients.read().await;
-            if let Some(client) = clients.get(provider) {
+            if let Some(client) = clients.get(&key) {
                 return Ok(client.clone());
             }
         }
+        #[allow(unused_variables)]
+        let connection = connection.filter(|c| !c.is_empty());
 
         #[allow(unused_variables)]
         let client: Arc<dyn GaiseClient> = match provider {
             #[cfg(feature = "ollama")]
             "ollama" => {
-                let url = self
-                    .config
-                    .ollama_url
-                    .as_deref()
-                    .unwrap_or("http://localhost:11434");
+                let url = Self::resolve_url(
+                    connection,
+                    self.config.ollama_url.as_deref(),
+                    Some("http://localhost:11434"),
+                    "Ollama",
+                )?;
                 Arc::new(GaiseClientOllama::new(url.to_string()))
             }
             #[cfg(feature = "vertexai")]
-            "vertexai" => {
-                let sa = self
-                    .config
-                    .vertexai_sa
-                    .as_ref()
-                    .ok_or("VertexAI Service Account not configured")?;
-                let url = self
-                    .config
-                    .vertexai_api_url
-                    .as_deref()
-                    .ok_or("VertexAI API URL not configured")?;
-                Arc::new(GaiseClientVertexAI::new(sa, url.to_string()).await?)
-            }
+            "vertexai" => Arc::new(self.build_vertexai(connection).await?),
             #[cfg(feature = "openai")]
             "openai" => {
-                let url = self
-                    .config
-                    .openai_api_url
-                    .as_deref()
-                    .unwrap_or("https://api.openai.com/v1");
-                let key = self
-                    .config
-                    .openai_api_key
-                    .as_deref()
-                    .ok_or("OpenAI API Key not configured")?;
+                let url = Self::resolve_url(
+                    connection,
+                    self.config.openai_api_url.as_deref(),
+                    Some("https://api.openai.com/v1"),
+                    "OpenAI",
+                )?;
+                let key =
+                    Self::resolve_key(connection, self.config.openai_api_key.as_deref(), "OpenAI")?;
                 Arc::new(GaiseClientOpenAI::new(url.to_string(), key.to_string()))
             }
             #[cfg(feature = "bedrock")]
-            "bedrock" => Arc::new(
-                GaiseClientBedrock::new_with_region(self.config.bedrock_region.clone()).await,
-            ),
+            "bedrock" => {
+                let region = connection
+                    .and_then(|c| c.region.clone())
+                    .or_else(|| self.config.bedrock_region.clone());
+                Arc::new(GaiseClientBedrock::new_with_region(region).await)
+            }
             #[cfg(feature = "anthropic")]
             "anthropic" => {
-                let url = self
-                    .config
-                    .anthropic_api_url
-                    .as_deref()
-                    .unwrap_or("https://api.anthropic.com/v1");
-                let key = self
-                    .config
-                    .anthropic_api_key
-                    .as_deref()
-                    .ok_or("Anthropic API Key not configured")?;
+                let url = Self::resolve_url(
+                    connection,
+                    self.config.anthropic_api_url.as_deref(),
+                    Some("https://api.anthropic.com/v1"),
+                    "Anthropic",
+                )?;
+                let key = Self::resolve_key(
+                    connection,
+                    self.config.anthropic_api_key.as_deref(),
+                    "Anthropic",
+                )?;
                 Arc::new(GaiseClientAnthropic::new(url.to_string(), key.to_string()))
             }
             #[cfg(feature = "gemini")]
             "gemini" => {
-                let url = self
-                    .config
-                    .gemini_api_url
-                    .as_deref()
-                    .unwrap_or("https://generativelanguage.googleapis.com/v1beta");
-                let key = self
-                    .config
-                    .gemini_api_key
-                    .as_deref()
-                    .ok_or("Gemini API Key not configured")?;
+                let url = Self::resolve_url(
+                    connection,
+                    self.config.gemini_api_url.as_deref(),
+                    Some("https://generativelanguage.googleapis.com/v1beta"),
+                    "Gemini",
+                )?;
+                let key =
+                    Self::resolve_key(connection, self.config.gemini_api_key.as_deref(), "Gemini")?;
                 Arc::new(GaiseClientGemini::new(url.to_string(), key.to_string()))
             }
+            #[cfg(feature = "elevenlabs")]
+            "elevenlabs" => Arc::new(self.build_elevenlabs(connection)?),
             _ => return Err(format!("Unknown or disabled provider: {}", provider).into()),
         };
 
         #[allow(unreachable_code)]
         {
             let mut clients = self.clients.write().await;
-            clients.insert(provider.to_string(), client.clone());
+            clients.insert(key, client.clone());
             Ok(client)
         }
+    }
+
+    #[cfg(feature = "vertexai")]
+    async fn build_vertexai(
+        &self,
+        connection: Option<&GaiseConnection>,
+    ) -> Result<GaiseClientVertexAI, Box<dyn std::error::Error + Send + Sync>> {
+        let override_sa: Option<ServiceAccount> = connection
+            .and_then(|c| c.service_account.clone())
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|e| format!("invalid VertexAI service account override: {e}"))?;
+        let sa = match (&override_sa, &self.config.vertexai_sa) {
+            (Some(sa), _) => sa,
+            (None, Some(sa)) => sa,
+            (None, None) => return Err("VertexAI Service Account not configured".into()),
+        };
+        let url = Self::resolve_url(
+            connection,
+            self.config.vertexai_api_url.as_deref(),
+            None,
+            "VertexAI",
+        )?;
+        GaiseClientVertexAI::new(sa, url.to_string()).await
     }
 
     /// Adds a client for a specific provider.
@@ -239,6 +319,10 @@ impl GaiseClientService {
         if self.config.ollama_url.is_some() {
             providers.push("ollama".into());
         }
+        #[cfg(feature = "elevenlabs")]
+        if self.config.elevenlabs_api_key.is_some() {
+            providers.push("elevenlabs".into());
+        }
         let clients = self.clients.read().await;
         for key in clients.keys() {
             if !providers.iter().any(|p| p == key) {
@@ -256,9 +340,12 @@ impl GaiseClientService {
         provider: &str,
         request: &GaiseListModelsRequest,
     ) -> Result<GaiseListModelsResponse, Box<dyn std::error::Error + Send + Sync>> {
-        let client = self.get_client(provider).await?;
+        let client = self
+            .get_client_with(provider, request.connection.as_ref())
+            .await?;
         let mut req = request.clone();
         req.provider = Some(provider.to_string());
+        req.connection = None;
         // Filter after enrichment: the registry may supply the operations of
         // models whose provider API reports none.
         req.operation = None;
@@ -271,6 +358,65 @@ impl GaiseClientService {
         Ok(response)
     }
 
+    #[cfg(feature = "elevenlabs")]
+    fn build_elevenlabs(
+        &self,
+        connection: Option<&GaiseConnection>,
+    ) -> Result<GaiseClientElevenLabs, Box<dyn std::error::Error + Send + Sync>> {
+        let key = Self::resolve_key(
+            connection,
+            self.config.elevenlabs_api_key.as_deref(),
+            "ElevenLabs",
+        )?;
+        let url = Self::resolve_url(
+            connection,
+            self.config.elevenlabs_api_url.as_deref(),
+            Some(gaise_provider_elevenlabs::elevenlabs_client::DEFAULT_API_URL),
+            "ElevenLabs",
+        )?;
+        Ok(GaiseClientElevenLabs::new(url.to_string(), key.to_string()))
+    }
+
+    /// Retrieves or initializes a speech (text-to-speech) client for the provider.
+    #[cfg(feature = "elevenlabs")]
+    pub async fn get_speech_client(
+        &self,
+        provider: &str,
+    ) -> Result<Arc<dyn GaiseSpeechClient>, Box<dyn std::error::Error + Send + Sync>> {
+        self.get_speech_client_with(provider, None).await
+    }
+
+    /// Speech client honouring a per-request [`GaiseConnection`].
+    #[cfg(feature = "elevenlabs")]
+    pub async fn get_speech_client_with(
+        &self,
+        provider: &str,
+        connection: Option<&GaiseConnection>,
+    ) -> Result<Arc<dyn GaiseSpeechClient>, Box<dyn std::error::Error + Send + Sync>> {
+        let key = Self::client_key(provider, connection);
+        {
+            let clients = self.speech_clients.read().await;
+            if let Some(client) = clients.get(&key) {
+                return Ok(client.clone());
+            }
+        }
+        let connection = connection.filter(|c| !c.is_empty());
+        let client: Arc<dyn GaiseSpeechClient> = match provider {
+            "elevenlabs" => Arc::new(self.build_elevenlabs(connection)?),
+            _ => return Err(format!("No speech provider available for: {}", provider).into()),
+        };
+        let mut clients = self.speech_clients.write().await;
+        clients.insert(key, client.clone());
+        Ok(client)
+    }
+
+    /// Registers a speech client under a provider key.
+    #[cfg(feature = "elevenlabs")]
+    pub async fn add_speech_client(&self, provider: &str, client: Arc<dyn GaiseSpeechClient>) {
+        let mut clients = self.speech_clients.write().await;
+        clients.insert(provider.to_string(), client);
+    }
+
     /// Helper to parse a model string into (provider, model_name).
     /// The expected format is "provider::model_name".
     fn parse_model(model: &str) -> Result<(&str, &str), Box<dyn std::error::Error + Send + Sync>> {
@@ -280,6 +426,13 @@ impl GaiseClientService {
         }
         Ok((parts[0], parts[1]))
     }
+}
+
+/// Serialize a request for logging with credentials masked.
+fn log_value<T: serde::Serialize>(request: &T) -> serde_json::Value {
+    let mut value = serde_json::to_value(request).unwrap_or(serde_json::Value::Null);
+    redact_secrets(&mut value);
+    value
 }
 
 /// Apply the registry overlay and the `provider::id` routing form.
@@ -304,7 +457,7 @@ impl GaiseClient for GaiseClientService {
                 request.correlation_id.as_deref(),
                 "list_models",
                 request.provider.as_deref().unwrap_or("*"),
-                serde_json::to_value(request).unwrap_or(serde_json::Value::Null),
+                log_value(request),
             );
         }
 
@@ -355,19 +508,22 @@ impl GaiseClient for GaiseClientService {
         request: &GaiseInstructRequest,
     ) -> Result<GaiseInstructResponse, Box<dyn std::error::Error + Send + Sync>> {
         let (provider, actual_model) = Self::parse_model(&request.model)?;
-        let client = self.get_client(provider).await?;
+        let client = self
+            .get_client_with(provider, request.connection.as_ref())
+            .await?;
 
         if let Some(logger) = &self.logger {
             logger.log_request(
                 request.correlation_id.as_deref(),
                 "instruct",
                 &request.model,
-                serde_json::to_value(request).unwrap_or(serde_json::Value::Null),
+                log_value(request),
             );
         }
 
         let mut req = request.clone();
         req.model = actual_model.to_string();
+        req.connection = None;
         let response = client.instruct(&req).await?;
 
         if let Some(logger) = &self.logger {
@@ -400,19 +556,22 @@ impl GaiseClient for GaiseClientService {
         Box<dyn std::error::Error + Send + Sync>,
     > {
         let (provider, actual_model) = Self::parse_model(&request.model)?;
-        let client = self.get_client(provider).await?;
+        let client = self
+            .get_client_with(provider, request.connection.as_ref())
+            .await?;
 
         if let Some(logger) = &self.logger {
             logger.log_request(
                 request.correlation_id.as_deref(),
                 "instruct_stream",
                 &request.model,
-                serde_json::to_value(request).unwrap_or(serde_json::Value::Null),
+                log_value(request),
             );
         }
 
         let mut req = request.clone();
         req.model = actual_model.to_string();
+        req.connection = None;
 
         let stream = client.instruct_stream(&req).await?;
 
@@ -460,19 +619,22 @@ impl GaiseClient for GaiseClientService {
         request: &GaiseEmbeddingsRequest,
     ) -> Result<GaiseEmbeddingsResponse, Box<dyn std::error::Error + Send + Sync>> {
         let (provider, actual_model) = Self::parse_model(&request.model)?;
-        let client = self.get_client(provider).await?;
+        let client = self
+            .get_client_with(provider, request.connection.as_ref())
+            .await?;
 
         if let Some(logger) = &self.logger {
             logger.log_request(
                 request.correlation_id.as_deref(),
                 "embeddings",
                 &request.model,
-                serde_json::to_value(request).unwrap_or(serde_json::Value::Null),
+                log_value(request),
             );
         }
 
         let mut req = request.clone();
         req.model = actual_model.to_string();
+        req.connection = None;
         let response = client.embeddings(&req).await?;
 
         if let Some(logger) = &self.logger {
@@ -496,50 +658,60 @@ impl GaiseClientService {
         &self,
         provider: &str,
     ) -> Result<Arc<dyn GaiseLiveClient>, Box<dyn std::error::Error + Send + Sync>> {
+        self.get_live_client_with(provider, None).await
+    }
+
+    /// Live client honouring a per-request [`GaiseConnection`].
+    pub async fn get_live_client_with(
+        &self,
+        provider: &str,
+        connection: Option<&GaiseConnection>,
+    ) -> Result<Arc<dyn GaiseLiveClient>, Box<dyn std::error::Error + Send + Sync>> {
+        let key = Self::client_key(provider, connection);
         {
             let clients = self.live_clients.read().await;
-            if let Some(client) = clients.get(provider) {
+            if let Some(client) = clients.get(&key) {
                 return Ok(client.clone());
             }
         }
+        #[allow(unused_variables)]
+        let connection = connection.filter(|c| !c.is_empty());
 
         #[allow(unused_variables)]
         let client: Arc<dyn GaiseLiveClient> = match provider {
             #[cfg(feature = "gemini")]
             "gemini" => {
-                let url = self
-                    .config
-                    .gemini_api_url
-                    .as_deref()
-                    .unwrap_or("https://generativelanguage.googleapis.com/v1beta");
-                let key = self
-                    .config
-                    .gemini_api_key
-                    .as_deref()
-                    .ok_or("Gemini API Key not configured")?;
+                let url = Self::resolve_url(
+                    connection,
+                    self.config.gemini_api_url.as_deref(),
+                    Some("https://generativelanguage.googleapis.com/v1beta"),
+                    "Gemini",
+                )?;
+                let key =
+                    Self::resolve_key(connection, self.config.gemini_api_key.as_deref(), "Gemini")?;
                 Arc::new(GaiseClientGeminiLive::new(url.to_string(), key.to_string()))
             }
             #[cfg(feature = "openai")]
             "openai" => {
-                let url = self
-                    .config
-                    .openai_api_url
-                    .as_deref()
-                    .unwrap_or("https://api.openai.com");
-                let key = self
-                    .config
-                    .openai_api_key
-                    .as_deref()
-                    .ok_or("OpenAI API Key not configured")?;
+                let url = Self::resolve_url(
+                    connection,
+                    self.config.openai_api_url.as_deref(),
+                    Some("https://api.openai.com"),
+                    "OpenAI",
+                )?;
+                let key =
+                    Self::resolve_key(connection, self.config.openai_api_key.as_deref(), "OpenAI")?;
                 Arc::new(GaiseClientOpenAILive::new(url.to_string(), key.to_string()))
             }
+            #[cfg(feature = "elevenlabs")]
+            "elevenlabs" => Arc::new(self.build_elevenlabs(connection)?),
             _ => return Err(format!("No live provider available for: {}", provider).into()),
         };
 
         #[allow(unreachable_code)]
         {
             let mut clients = self.live_clients.write().await;
-            clients.insert(provider.to_string(), client.clone());
+            clients.insert(key, client.clone());
             Ok(client)
         }
     }
@@ -553,10 +725,87 @@ impl GaiseLiveClient for GaiseClientService {
         config: &GaiseLiveConfig,
     ) -> Result<GaiseLiveSession, Box<dyn std::error::Error + Send + Sync>> {
         let (provider, actual_model) = Self::parse_model(&config.model)?;
-        let client = self.get_live_client(provider).await?;
+        let client = self
+            .get_live_client_with(provider, config.connection.as_ref())
+            .await?;
 
         let mut cfg = config.clone();
         cfg.model = actual_model.to_string();
+        cfg.connection = None;
         client.live_connect(&cfg).await
+    }
+}
+
+#[cfg(feature = "elevenlabs")]
+#[async_trait]
+impl GaiseSpeechClient for GaiseClientService {
+    async fn speech(
+        &self,
+        request: &GaiseSpeechRequest,
+    ) -> Result<GaiseSpeechResponse, Box<dyn std::error::Error + Send + Sync>> {
+        let (provider, actual_model) = Self::parse_model(&request.model)?;
+        let client = self
+            .get_speech_client_with(provider, request.connection.as_ref())
+            .await?;
+        if let Some(logger) = &self.logger {
+            logger.log_request(
+                request.correlation_id.as_deref(),
+                "speech",
+                &request.model,
+                log_value(request),
+            );
+        }
+        let mut req = request.clone();
+        req.model = actual_model.to_string();
+        req.connection = None;
+        let response = client.speech(&req).await?;
+        if let Some(logger) = &self.logger {
+            logger.log_response(
+                request.correlation_id.as_deref(),
+                "speech",
+                &request.model,
+                serde_json::json!({
+                    "format": response.format,
+                    "bytes": response.audio.len(),
+                    "external_id": response.external_id,
+                }),
+                serde_json::to_value(&response.usage).ok(),
+            );
+        }
+        Ok(response)
+    }
+
+    async fn speech_stream(
+        &self,
+        request: &GaiseSpeechRequest,
+    ) -> Result<
+        Pin<
+            Box<
+                dyn Stream<
+                        Item = Result<
+                            GaiseSpeechStreamResponse,
+                            Box<dyn std::error::Error + Send + Sync>,
+                        >,
+                    > + Send,
+            >,
+        >,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        let (provider, actual_model) = Self::parse_model(&request.model)?;
+        let client = self
+            .get_speech_client_with(provider, request.connection.as_ref())
+            .await?;
+        if let Some(logger) = &self.logger {
+            logger.log_request(
+                request.correlation_id.as_deref(),
+                "speech_stream",
+                &request.model,
+                log_value(request),
+            );
+        }
+        let mut req = request.clone();
+        req.model = actual_model.to_string();
+        req.connection = None;
+        client.speech_stream(&req).await
     }
 }

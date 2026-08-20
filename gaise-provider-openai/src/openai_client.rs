@@ -6,8 +6,9 @@ use gaise_core::GaiseClient;
 use gaise_core::contracts::{
     GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseFunctionCall,
     GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
-    GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseStreamChunk, GaiseTool,
-    GaiseToolCall, GaiseToolParameter, GaiseUsage, OneOrMany, image_media_type,
+    GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseReasoningEffort,
+    GaiseStreamChunk, GaiseTool, GaiseToolCall, GaiseToolParameter, GaiseUsage, OneOrMany,
+    image_media_type, normalize_l2,
 };
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -99,6 +100,13 @@ pub struct GaiseClientOpenAI {
     /// `OPENAI_API_TIER` env var at construction. Stamped onto every chat request
     /// when set; left off entirely when unset so OpenAI applies its own default.
     service_tier: Option<String>,
+    /// Models for which this client has seen OpenAI's "function tools with
+    /// reasoning_effort are not supported" error. Once learned, later
+    /// tool-bearing requests to that model go straight to `none` instead of
+    /// paying a failed first attempt. Scoped per model so other models are
+    /// unaffected; scoped per client instance so a fix upstream is picked up
+    /// on restart.
+    learned_tool_none_models: tokio::sync::RwLock<std::collections::HashSet<String>>,
 }
 
 impl From<GaiseTool> for OpenAITool {
@@ -163,6 +171,182 @@ fn openai_audio_format(format: Option<&str>) -> String {
     }
 }
 
+/// Chat Completions parameter rules per model family, audited 2026-08-20
+/// against the OpenAI model pages, the latest-model guide, and the Chat
+/// Completions reference (see `wiki/vendor-openai.md#model-family-rules`).
+///
+/// Unknown models get a pass-through profile so new releases keep working;
+/// known families get exact constraints so invalid combinations are never
+/// sent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpenAIChatRules {
+    /// The model is served by Chat Completions at all (`-pro` and gated
+    /// Daybreak models are Responses-only).
+    pub chat_supported: bool,
+    /// `reasoning_effort` is meaningful; non-reasoning families never receive it.
+    pub reasoning: bool,
+    /// Accepted `reasoning_effort` values, lowest to highest. Empty = forward as given.
+    pub effort_levels: &'static [&'static str],
+    /// Effort applied by the API when none is sent.
+    pub default_effort: Option<&'static str>,
+    /// `temperature` / `top_p` are accepted only while the effective effort is `none`.
+    pub sampling_requires_none: bool,
+    /// `temperature` / `top_p` are never accepted.
+    pub sampling_never: bool,
+    /// `image_url.detail: "original"` is accepted; otherwise it degrades to `high`.
+    pub original_image_detail: bool,
+}
+
+const EFFORT_56: &[&str] = &["none", "low", "medium", "high", "xhigh", "max"];
+const EFFORT_55: &[&str] = &["none", "low", "medium", "high", "xhigh"];
+const EFFORT_51: &[&str] = &["none", "low", "medium", "high"];
+const EFFORT_5: &[&str] = &["minimal", "low", "medium", "high"];
+const EFFORT_CODEX: &[&str] = &["low", "medium", "high", "xhigh"];
+const EFFORT_O: &[&str] = &["low", "medium", "high"];
+const EFFORT_ANY: &[&str] = &[];
+
+const PASS_THROUGH: OpenAIChatRules = OpenAIChatRules {
+    chat_supported: true,
+    reasoning: true,
+    effort_levels: EFFORT_ANY,
+    default_effort: None,
+    sampling_requires_none: false,
+    sampling_never: false,
+    original_image_detail: true,
+};
+
+const NON_REASONING: OpenAIChatRules = OpenAIChatRules {
+    chat_supported: true,
+    reasoning: false,
+    effort_levels: EFFORT_ANY,
+    default_effort: None,
+    sampling_requires_none: false,
+    sampling_never: false,
+    original_image_detail: false,
+};
+
+fn gpt5_rules(
+    levels: &'static [&'static str],
+    default: &'static str,
+    original: bool,
+) -> OpenAIChatRules {
+    OpenAIChatRules {
+        chat_supported: true,
+        reasoning: true,
+        effort_levels: levels,
+        default_effort: Some(default),
+        sampling_requires_none: levels.contains(&"none"),
+        sampling_never: !levels.contains(&"none"),
+        original_image_detail: original,
+    }
+}
+
+pub fn openai_chat_rules(model: &str) -> OpenAIChatRules {
+    let m = model.to_ascii_lowercase();
+    let m = m.strip_prefix("ft:").unwrap_or(&m);
+    let base = m.split(':').next().unwrap_or(m); // fine-tune suffixes
+    let starts = |p: &str| base.starts_with(p);
+    let has = |p: &str| base.contains(p);
+
+    if has("-pro") && (starts("gpt-5") || starts("o1") || starts("o3"))
+        || has("cyber")
+        || starts("daybreak")
+    {
+        return OpenAIChatRules {
+            chat_supported: false,
+            ..PASS_THROUGH
+        };
+    }
+    if has("chat-latest") || starts("chat-latest") {
+        return NON_REASONING;
+    }
+    if starts("gpt-audio")
+        || has("-audio")
+        || starts("gpt-4.1")
+        || starts("gpt-4o")
+        || starts("gpt-4-")
+        || base == "gpt-4"
+        || starts("gpt-3.5")
+    {
+        return NON_REASONING;
+    }
+    if has("codex") {
+        return gpt5_rules(EFFORT_CODEX, "medium", false);
+    }
+    if starts("gpt-5.6") {
+        return gpt5_rules(EFFORT_56, "medium", true);
+    }
+    if starts("gpt-5.5") {
+        return gpt5_rules(EFFORT_55, "medium", true);
+    }
+    if starts("gpt-5.4-mini") || starts("gpt-5.4-nano") {
+        return gpt5_rules(EFFORT_55, "none", false);
+    }
+    if starts("gpt-5.4") {
+        return gpt5_rules(EFFORT_55, "none", true);
+    }
+    if starts("gpt-5.3") || starts("gpt-5.2") {
+        return gpt5_rules(EFFORT_55, "none", false);
+    }
+    if starts("gpt-5.1") {
+        return gpt5_rules(EFFORT_51, "none", false);
+    }
+    if starts("gpt-5") {
+        return gpt5_rules(EFFORT_5, "medium", false);
+    }
+    if starts("o1") || starts("o3") || starts("o4") {
+        return gpt5_rules(EFFORT_O, "medium", false);
+    }
+    PASS_THROUGH
+}
+
+/// Resolve a provider-neutral effort onto the family's accepted
+/// `reasoning_effort` values using the canonical vocabulary
+/// ([`GaiseReasoningEffort`]): `auto` omits the field so OpenAI applies the
+/// family default, `ultra` becomes the family's highest level, other levels
+/// snap to the nearest accepted one, and custom strings pass through.
+pub fn normalize_chat_effort(rules: &OpenAIChatRules, effort: &str) -> Option<String> {
+    if !rules.reasoning {
+        return None;
+    }
+    match GaiseReasoningEffort::parse(effort) {
+        GaiseReasoningEffort::Auto => None,
+        GaiseReasoningEffort::Custom(raw) => Some(raw),
+        level => {
+            let accepted = GaiseReasoningEffort::levels(rules.effort_levels);
+            Some(level.clamp_to(&accepted).as_str().to_string())
+        }
+    }
+}
+
+/// `dimensions` is accepted by `text-embedding-3-*` (1..=3072 for large,
+/// 1..=1536 for small); older embedding models reject it.
+pub fn embedding_dimensions_for(model: &str, requested: Option<u32>) -> Option<u32> {
+    let m = model.to_ascii_lowercase();
+    let requested = requested?;
+    if m.starts_with("text-embedding-3-large") {
+        Some(requested.clamp(1, 3072))
+    } else if m.starts_with("text-embedding-3-small") {
+        Some(requested.clamp(1, 1536))
+    } else if m.starts_with("text-embedding-3") {
+        Some(requested.max(1))
+    } else {
+        None
+    }
+}
+
+/// Fail fast for models OpenAI serves only through the Responses API.
+fn ensure_chat_supported(model: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if openai_chat_rules(model).chat_supported {
+        Ok(())
+    } else {
+        Err(format!(
+            "OpenAI model '{model}' is not available on Chat Completions; it requires the Responses API, which the GAISe OpenAI instruct client does not implement yet"
+        )
+        .into())
+    }
+}
+
 /// GPT-5.6 models currently reject function tools on Chat Completions unless
 /// reasoning is disabled. Keep this workaround surface-specific: these models
 /// support other reasoning efforts when tools are absent, and the Responses API
@@ -182,6 +366,7 @@ fn has_function_tools(request: &GaiseInstructRequest) -> bool {
 }
 
 fn chat_reasoning_effort(request: &GaiseInstructRequest) -> Option<String> {
+    let rules = openai_chat_rules(&request.model);
     if has_function_tools(request) && chat_tools_require_none_reasoning(&request.model) {
         return Some("none".to_string());
     }
@@ -189,7 +374,40 @@ fn chat_reasoning_effort(request: &GaiseInstructRequest) -> Option<String> {
     request
         .generation_config
         .as_ref()
-        .and_then(|config| config.thinking_effort.clone())
+        .and_then(|config| config.thinking_effort.as_deref())
+        .and_then(|effort| normalize_chat_effort(&rules, effort))
+}
+
+/// `(temperature, top_p)` after the family's sampling rules.
+fn chat_sampling(request: &GaiseInstructRequest) -> (Option<f32>, Option<f32>) {
+    let Some(config) = request.generation_config.as_ref() else {
+        return (None, None);
+    };
+    let rules = openai_chat_rules(&request.model);
+    if rules.sampling_never {
+        return (None, None);
+    }
+    if rules.sampling_requires_none {
+        let effective =
+            chat_reasoning_effort(request).or_else(|| rules.default_effort.map(str::to_string));
+        if effective.as_deref() != Some("none") {
+            return (None, None);
+        }
+    }
+    (config.temperature, config.top_p)
+}
+
+/// Image detail after the family rule for `original`.
+fn chat_image_detail(request: &GaiseInstructRequest) -> Option<String> {
+    let detail = request
+        .generation_config
+        .as_ref()
+        .and_then(|config| config.input_image_detail.as_deref())?
+        .to_ascii_lowercase();
+    if detail == "original" && !openai_chat_rules(&request.model).original_image_detail {
+        return Some("high".to_string());
+    }
+    Some(detail)
 }
 
 fn map_content_parts(content: GaiseContent, image_detail: Option<&str>) -> Vec<OpenAIContentPart> {
@@ -242,10 +460,8 @@ impl From<&GaiseInstructRequest> for OpenAIChatRequest {
             OneOrMany::One(m) => vec![m.clone()],
             OneOrMany::Many(ms) => ms.clone(),
         };
-        let image_detail = request
-            .generation_config
-            .as_ref()
-            .and_then(|config| config.input_image_detail.as_deref());
+        let image_detail = chat_image_detail(request);
+        let image_detail = image_detail.as_deref();
 
         let openai_messages = messages
             .into_iter()
@@ -296,11 +512,8 @@ impl From<&GaiseInstructRequest> for OpenAIChatRequest {
             messages: openai_messages,
             stream: false,
             stream_options: None,
-            temperature: request
-                .generation_config
-                .as_ref()
-                .and_then(|c| c.temperature),
-            top_p: request.generation_config.as_ref().and_then(|c| c.top_p),
+            temperature: chat_sampling(request).0,
+            top_p: chat_sampling(request).1,
             max_completion_tokens: request
                 .generation_config
                 .as_ref()
@@ -334,6 +547,7 @@ impl GaiseClientOpenAI {
             api_key,
             client: reqwest::Client::new(),
             service_tier,
+            learned_tool_none_models: tokio::sync::RwLock::new(Default::default()),
         }
     }
 
@@ -489,6 +703,7 @@ impl GaiseClientOpenAI {
         url: &str,
         request: &mut OpenAIChatRequest,
     ) -> Result<reqwest::Response, Box<dyn std::error::Error + Send + Sync>> {
+        self.apply_learned_tool_fallback(request).await;
         let response = self
             .send_with_retry(self.chat_request_builder(url, request))
             .await?;
@@ -499,6 +714,13 @@ impl GaiseClientOpenAI {
         let status = response.status();
         let err_text = response.text().await?;
         if should_retry_chat_tools_with_none(status, &err_text, request) {
+            if self.remember_tool_fallback(&request.model).await {
+                eprintln!(
+                    "OpenAI Chat Completions rejected function tools with reasoning_effort for {}; \
+                     retrying with reasoning_effort=none and using none for later tool requests to this model",
+                    request.model
+                );
+            }
             request.reasoning_effort = Some("none".to_string());
             let response = self
                 .send_with_retry(self.chat_request_builder(url, request))
@@ -511,6 +733,31 @@ impl GaiseClientOpenAI {
         }
 
         Err(format!("OpenAI API error: {err_text}").into())
+    }
+
+    /// Apply a previously learned tools-require-`none` rule for this model.
+    async fn apply_learned_tool_fallback(&self, request: &mut OpenAIChatRequest) {
+        if request.reasoning_effort.as_deref() == Some("none")
+            || request.tools.as_ref().is_none_or(|tools| tools.is_empty())
+        {
+            return;
+        }
+        if self
+            .learned_tool_none_models
+            .read()
+            .await
+            .contains(&request.model)
+        {
+            request.reasoning_effort = Some("none".to_string());
+        }
+    }
+
+    /// Record that `model` needs `none` with tools. Returns `true` the first time.
+    async fn remember_tool_fallback(&self, model: &str) -> bool {
+        self.learned_tool_none_models
+            .write()
+            .await
+            .insert(model.to_string())
     }
 }
 
@@ -532,6 +779,7 @@ impl GaiseClient for GaiseClientOpenAI {
         >,
         Box<dyn std::error::Error + Send + Sync>,
     > {
+        ensure_chat_supported(&request.model)?;
         let url = format!("{}/chat/completions", self.api_url);
 
         let mut openai_request = OpenAIChatRequest::from(request);
@@ -599,6 +847,7 @@ impl GaiseClient for GaiseClientOpenAI {
         &self,
         request: &GaiseInstructRequest,
     ) -> Result<GaiseInstructResponse, Box<dyn std::error::Error + Send + Sync>> {
+        ensure_chat_supported(&request.model)?;
         let url = format!("{}/chat/completions", self.api_url);
 
         let mut openai_request = OpenAIChatRequest::from(request);
@@ -639,6 +888,7 @@ impl GaiseClient for GaiseClientOpenAI {
         let openai_request = OpenAIEmbedRequest {
             model: request.model.clone(),
             input,
+            dimensions: embedding_dimensions_for(&request.model, request.dimensions),
         };
 
         let builder = self
@@ -668,13 +918,19 @@ impl GaiseClient for GaiseClientOpenAI {
             openai_response.usage.prompt_tokens,
         );
 
+        // OpenAI vectors are unit length already (including shortened ones);
+        // honour an explicit request anyway so the contract is uniform.
+        let mut output: Vec<Vec<f32>> = openai_response
+            .data
+            .into_iter()
+            .map(|d| d.embedding)
+            .collect();
+        if request.normalize == Some(true) {
+            output.iter_mut().for_each(|v| normalize_l2(v));
+        }
         Ok(GaiseEmbeddingsResponse {
             external_id: Some(openai_response.object),
-            output: openai_response
-                .data
-                .into_iter()
-                .map(|d| d.embedding)
-                .collect(),
+            output,
             usage: Some(GaiseUsage {
                 input: Some(input_usage),
                 output: None,
@@ -729,11 +985,53 @@ impl GaiseClientOpenAI {
 #[cfg(test)]
 mod retry_tests {
     use super::{
-        is_transient_status, map_stream_chunk, map_usage, should_retry_chat_tools_with_none,
+        GaiseClientOpenAI, is_transient_status, map_stream_chunk, map_usage,
+        should_retry_chat_tools_with_none,
     };
     use crate::contracts::{OpenAIChatRequest, OpenAIChatStreamResponse, OpenAIUsage};
     use gaise_core::contracts::GaiseStreamChunk;
     use reqwest::StatusCode;
+
+    #[tokio::test]
+    async fn learned_tool_fallback_is_scoped_to_model_and_tool_requests() {
+        let client = GaiseClientOpenAI::new("http://unused.invalid".into(), "k".into());
+        let tool_request = |model: &str, effort: &str| -> OpenAIChatRequest {
+            serde_json::from_value(serde_json::json!({
+                "model": model,
+                "messages": [],
+                "tools": [{"type": "function", "function": {"name": "inspect", "parameters": {"type": "object", "properties": {}, "required": []}}}],
+                "reasoning_effort": effort,
+                "stream": false
+            }))
+            .unwrap()
+        };
+        assert!(
+            client.remember_tool_fallback("gpt-future").await,
+            "first time is new"
+        );
+        assert!(!client.remember_tool_fallback("gpt-future").await);
+
+        let mut same = tool_request("gpt-future", "high");
+        client.apply_learned_tool_fallback(&mut same).await;
+        assert_eq!(same.reasoning_effort.as_deref(), Some("none"));
+
+        let mut other = tool_request("gpt-other", "high");
+        client.apply_learned_tool_fallback(&mut other).await;
+        assert_eq!(
+            other.reasoning_effort.as_deref(),
+            Some("high"),
+            "other models untouched"
+        );
+
+        let mut no_tools = tool_request("gpt-future", "high");
+        no_tools.tools = None;
+        client.apply_learned_tool_fallback(&mut no_tools).await;
+        assert_eq!(
+            no_tools.reasoning_effort.as_deref(),
+            Some("high"),
+            "only tool requests are affected"
+        );
+    }
 
     #[test]
     fn retries_429_and_5xx_only() {

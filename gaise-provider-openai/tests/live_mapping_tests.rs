@@ -379,4 +379,46 @@ mod tests {
         }
         serde_json::Value::Object(obj)
     }
+
+    #[test]
+    fn reasoning_is_sent_only_to_reasoning_realtime_models_and_tokens_are_clamped() {
+        use gaise_provider_openai::openai_live_client::{
+            build_session_update, realtime_model_supports_reasoning,
+        };
+
+        assert!(realtime_model_supports_reasoning("gpt-realtime-2.1"));
+        assert!(realtime_model_supports_reasoning("gpt-realtime-2.1-mini"));
+        assert!(realtime_model_supports_reasoning("gpt-realtime-2"));
+        assert!(!realtime_model_supports_reasoning("gpt-realtime-1.5"));
+        assert!(!realtime_model_supports_reasoning("gpt-realtime"));
+        assert!(!realtime_model_supports_reasoning("gpt-realtime-mini"));
+        assert!(!realtime_model_supports_reasoning(
+            "gpt-4o-realtime-preview"
+        ));
+
+        let config = |model: &str| GaiseLiveConfig {
+            model: model.to_string(),
+            generation_config: Some(GaiseGenerationConfig {
+                thinking_effort: Some("max".into()),
+                max_tokens: Some(100_000),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let json = serde_json::to_value(build_session_update(&config("gpt-realtime-2.1"))).unwrap();
+        assert_eq!(
+            json["session"]["reasoning"]["effort"], "xhigh",
+            "max clamps to xhigh on Realtime"
+        );
+        assert_eq!(
+            json["session"]["max_output_tokens"], 4096,
+            "session schema caps at 4096"
+        );
+
+        let json = serde_json::to_value(build_session_update(&config("gpt-realtime-1.5"))).unwrap();
+        assert!(
+            json["session"].get("reasoning").is_none(),
+            "non-reasoning Realtime models never get reasoning"
+        );
+    }
 }
