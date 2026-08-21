@@ -54,7 +54,7 @@ For each breaking change, suggest:
 List the exact TOML entries to add, modify, or remove.
 ```
 
-6. **If changes are needed**, update `gaise-core/model-registry.toml` with the new data, set `audited_on` to today's date, run `cargo test -p gaise --lib registry`, and regenerate `wiki/models.md` (`cargo run -p gaise --example registry_json`) and refresh the vendor pages under `wiki/`.
+6. **If changes are needed**, update `gaise-core/model-registry.toml` with the new data, set `audited_on` to today's date, run `cargo test -p gaise --lib registry`, and regenerate `wiki/models.md` (`cargo run -p gaise --example registry_json`) and refresh the vendor pages under `wiki/`. For embedding models also check the `[models.embedding]` profile (dimensions, limits, task control, normalization) against the model page and regenerate the matrix in `wiki/embeddings.md` (`cargo run -p gaise-client --example embedding_matrix --all-features`).
 
 ## What NOT to do
 - Do not modify provider source code automatically — only update the registry and report

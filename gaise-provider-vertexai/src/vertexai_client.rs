@@ -7,7 +7,7 @@ use crate::contracts::catalog::{
     VertexCatalogEndpoint, VertexPublisherModelList, map_vertex_model,
 };
 use crate::contracts::models::{
-    GoogleEmbeddingsRequest, GoogleEmbeddingsResponse, embedding_model_single_input,
+    GoogleEmbeddingsRequest, GoogleEmbeddingsResponse, vertex_embed_request,
 };
 
 /// Sums provider-named usage counters across the per-text calls that
@@ -386,20 +386,17 @@ impl GaiseClient for GaiseClientVertexAI {
         let url = self.api_url.replace("{{MODEL}}", &request.model) + ":predict";
 
         // gemini-embedding-001 takes one text per call; the others batch up to 250.
-        let batches: Vec<GaiseEmbeddingsRequest> = if embedding_model_single_input(&request.model) {
-            let texts: Vec<String> = match &request.input {
-                gaise_core::contracts::OneOrMany::One(s) => vec![s.clone()],
-                gaise_core::contracts::OneOrMany::Many(v) => v.clone(),
-            };
-            texts
+        let (wire, resolved) = vertex_embed_request(request);
+        let batches: Vec<GoogleEmbeddingsRequest> = if resolved.single_input {
+            wire.instances
                 .into_iter()
-                .map(|t| GaiseEmbeddingsRequest {
-                    input: gaise_core::contracts::OneOrMany::One(t),
-                    ..request.clone()
+                .map(|instance| GoogleEmbeddingsRequest {
+                    instances: vec![instance],
+                    parameters: wire.parameters.clone(),
                 })
                 .collect()
         } else {
-            vec![request.clone()]
+            vec![wire]
         };
 
         let token = self
@@ -410,7 +407,7 @@ impl GaiseClient for GaiseClientVertexAI {
         let mut response_view = GaiseEmbeddingsResponse::default();
         let mut usage_total: Option<GaiseUsageAccumulator> = None;
         for batch in &batches {
-            let json = serde_json::to_string(&GoogleEmbeddingsRequest::from(batch))?;
+            let json = serde_json::to_string(batch)?;
             let res = self
                 .http
                 .post(&url)
@@ -437,13 +434,7 @@ impl GaiseClient for GaiseClientVertexAI {
             }
         }
         response_view.usage = usage_total.map(|u| u.finish());
-        // Only gemini-embedding-2 re-normalizes truncated vectors itself.
-        let truncated = request.dimensions.is_some()
-            && !request
-                .model
-                .to_ascii_lowercase()
-                .starts_with("gemini-embedding-2");
-        if request.normalize == Some(true) || (truncated && request.normalize != Some(false)) {
+        if resolved.normalize_locally {
             response_view
                 .output
                 .iter_mut()

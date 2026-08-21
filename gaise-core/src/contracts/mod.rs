@@ -23,7 +23,7 @@ muse!(gaise_generation_config, {
 muse!(gaise_instruct_request, { GaiseInstructRequest });
 muse!(gaise_instruct_response, { GaiseInstructResponse });
 muse!(gaise_instruct_stream_response, {GaiseInstructStreamResponse, GaiseStreamChunk, GaiseStreamAccumulator});
-muse!(gaise_embeddings_request, { GaiseEmbeddingTask, GaiseEmbeddingsRequest, normalize_l2, snap_dimensions });
+muse!(gaise_embeddings_request, { DimensionRule, EmbeddingProfile, EmbeddingTaskControl, GaiseEmbeddingTask, GaiseEmbeddingsRequest, ResolvedEmbedding, normalize_l2, resolve_dimensions, resolve_embedding, snap_dimensions });
 muse!(gaise_embeddings_response, { GaiseEmbeddingsResponse });
 muse!(gaise_model, {
     GaiseListModelsRequest,

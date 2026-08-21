@@ -4,11 +4,11 @@ use base64::Engine;
 use futures_util::{Stream, StreamExt};
 use gaise_core::GaiseClient;
 use gaise_core::contracts::{
-    GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseFunctionCall,
-    GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
+    EmbeddingTaskControl, GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse,
+    GaiseFunctionCall, GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
     GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseReasoningEffort,
     GaiseStreamChunk, GaiseTool, GaiseToolCall, GaiseToolParameter, GaiseUsage, OneOrMany,
-    image_media_type, normalize_l2,
+    ResolvedEmbedding, image_media_type, normalize_l2, resolve_embedding,
 };
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -319,20 +319,30 @@ pub fn normalize_chat_effort(rules: &OpenAIChatRules, effort: &str) -> Option<St
     }
 }
 
-/// `dimensions` is accepted by `text-embedding-3-*` (1..=3072 for large,
-/// 1..=1536 for small); older embedding models reject it.
-pub fn embedding_dimensions_for(model: &str, requested: Option<u32>) -> Option<u32> {
-    let m = model.to_ascii_lowercase();
-    let requested = requested?;
-    if m.starts_with("text-embedding-3-large") {
-        Some(requested.clamp(1, 3072))
-    } else if m.starts_with("text-embedding-3-small") {
-        Some(requested.clamp(1, 1536))
-    } else if m.starts_with("text-embedding-3") {
-        Some(requested.max(1))
-    } else {
-        None
-    }
+/// Build the Embeddings request through the shared embedding rules
+/// (`model-registry.toml` profiles): `dimensions` is clamped for
+/// `text-embedding-3-*` and dropped for fixed-size models, `task` is ignored
+/// because the API has no task concept. Unknown models pass `dimensions`
+/// through for the API to validate.
+pub fn openai_embed_request(
+    request: &GaiseEmbeddingsRequest,
+) -> (OpenAIEmbedRequest, ResolvedEmbedding) {
+    let profile = gaise_core::registry::embedding_profile("openai", &request.model);
+    let resolved = resolve_embedding(request, profile, &EmbeddingTaskControl::None);
+    let input = match &request.input {
+        OneOrMany::One(_) if resolved.texts.len() == 1 => {
+            OpenAIEmbedInput::String(resolved.texts[0].clone())
+        }
+        _ => OpenAIEmbedInput::Array(resolved.texts.clone()),
+    };
+    (
+        OpenAIEmbedRequest {
+            model: request.model.clone(),
+            input,
+            dimensions: resolved.dimensions,
+        },
+        resolved,
+    )
 }
 
 /// Fail fast for models OpenAI serves only through the Responses API.
@@ -879,17 +889,7 @@ impl GaiseClient for GaiseClientOpenAI {
         request: &GaiseEmbeddingsRequest,
     ) -> Result<GaiseEmbeddingsResponse, Box<dyn std::error::Error + Send + Sync>> {
         let url = format!("{}/embeddings", self.api_url);
-
-        let input = match &request.input {
-            OneOrMany::One(s) => OpenAIEmbedInput::String(s.clone()),
-            OneOrMany::Many(ss) => OpenAIEmbedInput::Array(ss.clone()),
-        };
-
-        let openai_request = OpenAIEmbedRequest {
-            model: request.model.clone(),
-            input,
-            dimensions: embedding_dimensions_for(&request.model, request.dimensions),
-        };
+        let (openai_request, resolved) = openai_embed_request(request);
 
         let builder = self
             .client
@@ -918,14 +918,12 @@ impl GaiseClient for GaiseClientOpenAI {
             openai_response.usage.prompt_tokens,
         );
 
-        // OpenAI vectors are unit length already (including shortened ones);
-        // honour an explicit request anyway so the contract is uniform.
         let mut output: Vec<Vec<f32>> = openai_response
             .data
             .into_iter()
             .map(|d| d.embedding)
             .collect();
-        if request.normalize == Some(true) {
+        if resolved.normalize_locally {
             output.iter_mut().for_each(|v| normalize_l2(v));
         }
         Ok(GaiseEmbeddingsResponse {

@@ -216,7 +216,7 @@ fn thinking_levels_are_clamped_per_family() {
 #[test]
 fn embedding_requests_carry_task_type_and_output_dimensionality() {
     use gaise_core::contracts::{GaiseEmbeddingTask, GaiseEmbeddingsRequest};
-    use gaise_provider_vertexai::contracts::models::GoogleEmbeddingsRequest;
+    use gaise_provider_vertexai::contracts::models::vertex_embed_request;
     let request = GaiseEmbeddingsRequest {
         model: "gemini-embedding-001".into(),
         input: OneOrMany::Many(vec!["a".into(), "b".into()]),
@@ -224,19 +224,44 @@ fn embedding_requests_carry_task_type_and_output_dimensionality() {
         dimensions: Some(768),
         ..Default::default()
     };
-    let json = serde_json::to_value(GoogleEmbeddingsRequest::from(&request)).unwrap();
+    let (wire, resolved) = vertex_embed_request(&request);
+    let json = serde_json::to_value(&wire).unwrap();
     assert_eq!(json["instances"][0]["task_type"], "RETRIEVAL_QUERY");
     assert_eq!(json["instances"][1]["task_type"], "RETRIEVAL_QUERY");
     assert_eq!(json["parameters"]["outputDimensionality"], 768);
     assert_eq!(json["parameters"]["autoTruncate"], true);
+    assert!(resolved.single_input, "001 takes one text per call");
+    assert!(
+        resolved.normalize_locally,
+        "001 leaves truncated vectors raw"
+    );
 
     let embedding_2 = GaiseEmbeddingsRequest {
         model: "gemini-embedding-2".into(),
-        ..request
+        ..request.clone()
     };
-    let json = serde_json::to_value(GoogleEmbeddingsRequest::from(&embedding_2)).unwrap();
+    let (wire, resolved) = vertex_embed_request(&embedding_2);
+    let json = serde_json::to_value(&wire).unwrap();
     assert!(
         json["instances"][0].get("task_type").is_none(),
         "embedding-2 rejects task_type"
     );
+    assert_eq!(
+        json["instances"][0]["content"],
+        "task: search result | query: a"
+    );
+    assert!(!resolved.single_input);
+    assert!(!resolved.normalize_locally);
+
+    // Legacy family: 768 ceiling, batched, task_type.
+    let legacy = GaiseEmbeddingsRequest {
+        model: "text-multilingual-embedding-002".into(),
+        dimensions: Some(3072),
+        ..request
+    };
+    let (wire, resolved) = vertex_embed_request(&legacy);
+    let json = serde_json::to_value(&wire).unwrap();
+    assert_eq!(json["parameters"]["outputDimensionality"], 768);
+    assert_eq!(json["instances"][0]["task_type"], "RETRIEVAL_QUERY");
+    assert!(!resolved.single_input);
 }

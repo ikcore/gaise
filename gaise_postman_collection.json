@@ -539,7 +539,7 @@
 		},
 		{
 			"name": "Embeddings",
-			"description": "Text embeddings. task (document|query|classification|clustering|similarity|code_query|fact_verification|question_answering), dimensions, and normalize are mapped per provider. wiki/embeddings.md",
+			"description": "Text embeddings. task (document|query|classification|clustering|similarity|code_query|fact_verification|question_answering, aliases such as search_query, or a vendor value passed through), dimensions, and normalize are resolved per model from the registry profile: wire task fields, prompt instructions, local-model prefixes, dimension snapping, and local normalization. wiki/embeddings.md#how-a-request-is-resolved",
 			"item": [
 				{
 					"name": "Single embedding",
@@ -670,6 +670,39 @@
 							]
 						},
 						"description": "Embed the query side with task=query — Gemini/Vertex taskType and Cohere input_type differ between documents and queries."
+					},
+					"response": []
+				},
+				{
+					"name": "Local model query (prefix applied from task)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"model\": \"{{ollama_embedding_model}}\",\n  \"task\": \"search_query\",\n  \"input\": \"how does gaise route providers?\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/v1/embeddings",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"v1",
+								"embeddings"
+							]
+						},
+						"description": "On Ollama tags with a documented convention (nomic-embed-text, mxbai-embed-large, qwen3-embedding, snowflake-arctic-embed2, embeddinggemma) GAISe prepends the query prefix or instruction itself; \"search_query\" is an alias of \"query\"."
 					},
 					"response": []
 				},

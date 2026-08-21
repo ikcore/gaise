@@ -157,6 +157,14 @@ model = "text-embedding-3-large"
 status = "active"
 capabilities = ["embeddings"]
 gaise_support = "native"
+[models.embedding]
+default_dimensions = 3072
+dimension_rule = { range = { min = 1, max = 3072 } }
+max_input_tokens = 8192
+max_batch = 2048
+normalized_output = true
+normalizes_truncation = true
+task_control = "none"
 
 [[models]]
 provider = "openai"
@@ -164,6 +172,29 @@ model = "text-embedding-3-small"
 status = "active"
 capabilities = ["embeddings"]
 gaise_support = "native"
+[models.embedding]
+default_dimensions = 1536
+dimension_rule = { range = { min = 1, max = 1536 } }
+max_input_tokens = 8192
+max_batch = 2048
+normalized_output = true
+normalizes_truncation = true
+task_control = "none"
+
+[[models]]
+provider = "openai"
+model = "text-embedding-ada-002"
+status = "active"
+capabilities = ["embeddings"]
+gaise_support = "native"
+notes = "Previous generation; fixed 1536 dimensions, no retirement date published."
+[models.embedding]
+default_dimensions = 1536
+dimension_rule = "fixed"
+max_input_tokens = 8192
+max_batch = 2048
+normalized_output = true
+task_control = "none"
 
 [[models]]
 provider = "openai"
@@ -594,6 +625,13 @@ status = "stable"
 capabilities = ["embeddings", "multimodal_embeddings"]
 gaise_support = "native"
 notes = "Released 2026-04-22. Text, image, video, audio, and PDF input. The catalog table still shows the -preview endpoint name; the model page uses gemini-embedding-2."
+[models.embedding]
+default_dimensions = 3072
+dimension_rule = { range = { min = 128, max = 3072 } }
+max_input_tokens = 8192
+normalized_output = true
+normalizes_truncation = true
+task_control = "prompt_instruction"
 
 [[models]]
 provider = "gemini"
@@ -645,6 +683,13 @@ replacement = "gemini-embedding-2"
 capabilities = ["embeddings"]
 gaise_support = "native"
 notes = "Still listed as callable; the earlier registry date (2026-07-14) was the release date."
+[models.embedding]
+default_dimensions = 3072
+dimension_rule = { range = { min = 128, max = 3072 } }
+max_input_tokens = 2048
+normalized_output = true
+normalizes_truncation = false
+task_control = "task_type"
 
 [[models]]
 provider = "gemini"
@@ -769,6 +814,13 @@ capabilities = ["embeddings", "multimodal_embeddings"]
 operations = []
 gaise_support = "not yet: Vertex serves it via :embedContent on the aiplatform.{location}.rep.googleapis.com host, which the adapter does not call; use gemini::gemini-embedding-2"
 notes = "GA 2026-04-22 (preview alias since 2026-03-10). Text, image, audio, video, and PDF input; 8,192 input tokens; up to 3,072 dimensions with MRL. No retirement date published."
+[models.embedding]
+default_dimensions = 3072
+dimension_rule = { range = { min = 128, max = 3072 } }
+max_input_tokens = 8192
+normalized_output = true
+normalizes_truncation = true
+task_control = "prompt_instruction"
 
 [[models]]
 provider = "vertexai"
@@ -777,17 +829,49 @@ status = "active"
 retirement_not_before = "2028-05-20"
 capabilities = ["embeddings"]
 gaise_support = "native"
-notes = "Previous-generation text embedding model; gemini-embedding-2 is current."
+notes = "Previous-generation text embedding model; gemini-embedding-2 is current. Accepts one input text per :predict call; GAISe loops."
+[models.embedding]
+default_dimensions = 3072
+dimension_rule = { range = { min = 1, max = 3072 } }
+max_input_tokens = 2048
+max_batch = 1
+normalized_output = true
+normalizes_truncation = false
+task_control = "task_type"
+single_input = true
 
 [[models]]
 provider = "vertexai"
 model = "text-embedding-005"
-aliases = ["text-embedding-004", "text-multilingual-embedding-002", "multimodalembedding@001"]
+aliases = ["text-embedding-004", "text-multilingual-embedding-002"]
 status = "active"
 retirement_not_before = "2027-04-01"
 capabilities = ["embeddings"]
-gaise_support = "native for text embeddings"
-notes = "Legacy embedding family; all retire 2027-04-01."
+gaise_support = "native"
+notes = "Legacy text embedding family; all retire 2027-04-01. 768 dimensions, 2,048 tokens, 250 texts per call."
+[models.embedding]
+default_dimensions = 768
+dimension_rule = { range = { min = 1, max = 768 } }
+max_input_tokens = 2048
+max_batch = 250
+normalized_output = true
+normalizes_truncation = false
+task_control = "task_type"
+
+[[models]]
+provider = "vertexai"
+model = "multimodalembedding@001"
+status = "active"
+retirement_not_before = "2027-04-01"
+capabilities = ["embeddings", "multimodal_embeddings"]
+operations = []
+gaise_support = "not yet: uses the image/video embedding request schema"
+notes = "1408 dimensions (128/256/512 for text+image); 32 text tokens. Retires 2027-04-01."
+[models.embedding]
+default_dimensions = 1408
+dimension_rule = { set = [128, 256, 512, 1408] }
+max_input_tokens = 32
+task_control = "none"
 
 [[models]]
 provider = "vertexai"
@@ -968,8 +1052,14 @@ provider = "bedrock"
 model = "amazon.nova-2-multimodal-embeddings-v1:0"
 status = "active"
 capabilities = ["embeddings", "multimodal_embeddings"]
-gaise_support = "text embeddings via InvokeModel where the region supports synchronous invocation"
-notes = "us-east-1 and us-gov-west-1. Text, image, audio, video, and document input; async invocation for audio/video."
+gaise_support = "text embeddings via InvokeModel (SINGLE_EMBEDDING schema); image/audio/video input not mapped"
+notes = "us-east-1 and us-gov-west-1. Text, image, audio, video, and document input; async invocation for audio/video. `task: query` maps to TEXT_RETRIEVAL; pass GENERIC_RETRIEVAL / IMAGE_RETRIEVAL as a custom task to search a mixed index."
+[models.embedding]
+default_dimensions = 3072
+dimension_rule = { set = [256, 384, 1024, 3072] }
+max_input_tokens = 8192
+max_batch = 1
+task_control = "embedding_purpose"
 
 [[models]]
 provider = "bedrock"
@@ -981,11 +1071,55 @@ notes = "Nova Pro/Lite/Micro (v1) remain Active with regional us./eu./apac. prof
 
 [[models]]
 provider = "bedrock"
+model = "amazon.titan-embed-text-v2:0"
+status = "active"
+capabilities = ["embeddings"]
+gaise_support = "native via InvokeModel"
+notes = "In-region only. 8,192 tokens / 50,000 characters per text; one text per call; `normalize` is a native flag."
+[models.embedding]
+default_dimensions = 1024
+dimension_rule = { set = [256, 512, 1024] }
+max_input_tokens = 8192
+max_batch = 1
+normalized_output = true
+normalizes_truncation = true
+task_control = "none"
+
+[[models]]
+provider = "bedrock"
+model = "amazon.titan-embed-text-v1"
+status = "active"
+capabilities = ["embeddings"]
+gaise_support = "native via InvokeModel"
+notes = "First-generation Titan text embeddings; fixed 1536 dimensions, one text per call."
+[models.embedding]
+default_dimensions = 1536
+dimension_rule = "fixed"
+max_input_tokens = 8192
+max_batch = 1
+task_control = "none"
+
+[[models]]
+provider = "bedrock"
+model = "amazon.titan-embed-image-v1"
+status = "active"
+capabilities = ["embeddings", "multimodal_embeddings"]
+gaise_support = "text input via InvokeModel; no image path"
+notes = "Text + image embeddings in one space; 256 text tokens, 25 MB images; one input per call."
+[models.embedding]
+default_dimensions = 1024
+dimension_rule = { set = [256, 384, 1024] }
+max_input_tokens = 256
+max_batch = 1
+task_control = "none"
+
+[[models]]
+provider = "bedrock"
 model = "amazon.titan-embed-*"
 status = "dynamic_active_family"
 capabilities = ["embeddings"]
 gaise_support = "native via InvokeModel"
-notes = "amazon.titan-embed-text-v2:0, amazon.titan-embed-text-v1, and amazon.titan-embed-image-v1 (text+image) are Active, in-region only."
+notes = "Catch-all for Titan embedding ids not listed above; verify with ListFoundationModels."
 
 [[models]]
 provider = "bedrock"
@@ -993,7 +1127,28 @@ model = "cohere.embed-v4:0"
 status = "active"
 capabilities = ["embeddings", "multimodal_embeddings"]
 gaise_support = "native via InvokeModel"
-notes = "Launched 2025-04-15; text and image input; profiles us., eu., global."
+notes = "Launched 2025-04-15; text and image input; profiles us., eu., global. `input_type` is required; 96 inputs per call."
+[models.embedding]
+default_dimensions = 1536
+dimension_rule = { set = [256, 512, 1024, 1536] }
+max_input_tokens = 128000
+max_batch = 96
+task_control = "input_type"
+
+[[models]]
+provider = "bedrock"
+model = "cohere.embed-english-v3"
+aliases = ["cohere.embed-multilingual-v3"]
+status = "active"
+capabilities = ["embeddings"]
+gaise_support = "native via InvokeModel"
+notes = "Fixed 1024 dimensions, 512 tokens per text, 96 texts per call; `input_type` is required."
+[models.embedding]
+default_dimensions = 1024
+dimension_rule = "fixed"
+max_input_tokens = 512
+max_batch = 96
+task_control = "input_type"
 
 [[models]]
 provider = "bedrock"
@@ -1001,7 +1156,9 @@ model = "cohere.embed-*"
 status = "dynamic_active_family"
 capabilities = ["embeddings"]
 gaise_support = "native via InvokeModel"
-notes = "cohere.embed-english-v3 and cohere.embed-multilingual-v3 remain listed."
+notes = "Catch-all for other Cohere embed ids; `input_type` is always required."
+[models.embedding]
+task_control = "input_type"
 
 # Amazon Bedrock: lifecycle-sensitive entries
 
@@ -1174,22 +1331,183 @@ status = "dynamic_local"
 capabilities = ["text", "image_input", "streaming"]
 gaise_support = "native when the installed tag advertises vision"
 
+# Ollama embedding families. Ollama normalizes every vector it returns, so
+# `normalized_output` / `normalizes_truncation` are true throughout; the
+# task controls below are each family's documented prefix convention.
+
 [[models]]
 provider = "ollama"
 model = "embeddinggemma:*"
-aliases = [
-  "qwen3-embedding:*",
-  "nomic-embed-text:*",
-  "mxbai-embed-large:*",
-  "bge-m3:*",
-  "bge-large:*",
-  "all-minilm:*",
-  "snowflake-arctic-embed:*",
-  "snowflake-arctic-embed2:*",
-  "granite-embedding:*",
-  "paraphrase-multilingual:*",
-]
 status = "dynamic_local"
 capabilities = ["embeddings"]
 gaise_support = "native"
-notes = "Dimensions, context length, and prefix conventions differ per family; see wiki/embeddings.md. `dimensions` is honoured only by Matryoshka-trained tags (embeddinggemma, qwen3-embedding, snowflake-arctic-embed2)."
+notes = "EmbeddingGemma 300m; Matryoshka 768/512/256/128; 2,048-token context; Google prompt-instruction convention."
+[models.embedding]
+default_dimensions = 768
+dimension_rule = { set = [128, 256, 512, 768] }
+max_input_tokens = 2048
+normalized_output = true
+normalizes_truncation = true
+task_control = "prompt_instruction"
+
+[[models]]
+provider = "ollama"
+model = "nomic-embed-text:*"
+status = "dynamic_local"
+capabilities = ["embeddings"]
+gaise_support = "native"
+notes = "nomic-embed-text v1.5; Matryoshka 64-768; 8,192-token context (raise num_ctx); prefixes are required for good retrieval."
+[models.embedding]
+default_dimensions = 768
+dimension_rule = { range = { min = 64, max = 768 } }
+max_input_tokens = 8192
+normalized_output = true
+normalizes_truncation = true
+task_control = { prefix = { query = "search_query: ", document = "search_document: ", classification = "classification: ", clustering = "clustering: " } }
+
+[[models]]
+provider = "ollama"
+model = "nomic-embed-text-v2-moe:*"
+status = "dynamic_local"
+capabilities = ["embeddings"]
+gaise_support = "native"
+notes = "Multilingual MoE; Matryoshka 256-768; 512-token context."
+[models.embedding]
+default_dimensions = 768
+dimension_rule = { range = { min = 256, max = 768 } }
+max_input_tokens = 512
+normalized_output = true
+normalizes_truncation = true
+task_control = { prefix = { query = "search_query: ", document = "search_document: " } }
+
+[[models]]
+provider = "ollama"
+model = "qwen3-embedding:*"
+status = "dynamic_local"
+capabilities = ["embeddings"]
+gaise_support = "native"
+notes = "0.6b/4b/8b = 1024/2560/4096 dimensions (Matryoshka 32-4096); 32k context; queries take an instruction."
+[models.embedding]
+dimension_rule = { range = { min = 32, max = 4096 } }
+max_input_tokens = 32768
+normalized_output = true
+normalizes_truncation = true
+task_control = { query_instruction = "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:" }
+
+[[models]]
+provider = "ollama"
+model = "mxbai-embed-large:*"
+status = "dynamic_local"
+capabilities = ["embeddings"]
+gaise_support = "native"
+notes = "mixedbread mxbai-embed-large-v1; fixed 1024; 512-token context; queries take an instruction."
+[models.embedding]
+default_dimensions = 1024
+dimension_rule = "fixed"
+max_input_tokens = 512
+normalized_output = true
+normalizes_truncation = true
+task_control = { query_instruction = "Represent this sentence for searching relevant passages: " }
+
+[[models]]
+provider = "ollama"
+model = "bge-m3:*"
+status = "dynamic_local"
+capabilities = ["embeddings"]
+gaise_support = "native"
+notes = "BAAI bge-m3; fixed 1024; 8,192-token context; multilingual; no prefix."
+[models.embedding]
+default_dimensions = 1024
+dimension_rule = "fixed"
+max_input_tokens = 8192
+normalized_output = true
+normalizes_truncation = true
+task_control = "none"
+
+[[models]]
+provider = "ollama"
+model = "bge-large:*"
+status = "dynamic_local"
+capabilities = ["embeddings"]
+gaise_support = "native"
+notes = "BAAI bge-large-en-v1.5; fixed 1024; 512-token context; optional query instruction."
+[models.embedding]
+default_dimensions = 1024
+dimension_rule = "fixed"
+max_input_tokens = 512
+normalized_output = true
+normalizes_truncation = true
+task_control = { query_instruction = "Represent this sentence for searching relevant passages: " }
+
+[[models]]
+provider = "ollama"
+model = "all-minilm:*"
+status = "dynamic_local"
+capabilities = ["embeddings"]
+gaise_support = "native"
+notes = "all-MiniLM-L6/L12; fixed 384; 256-token context; English."
+[models.embedding]
+default_dimensions = 384
+dimension_rule = "fixed"
+max_input_tokens = 256
+normalized_output = true
+normalizes_truncation = true
+task_control = "none"
+
+[[models]]
+provider = "ollama"
+model = "snowflake-arctic-embed:*"
+status = "dynamic_local"
+capabilities = ["embeddings"]
+gaise_support = "native"
+notes = "Arctic-embed v1 22m-335m; 384-1024 dimensions by tag; 512-token context; queries take an instruction."
+[models.embedding]
+dimension_rule = "fixed"
+max_input_tokens = 512
+normalized_output = true
+normalizes_truncation = true
+task_control = { query_instruction = "Represent this sentence for searching relevant passages: " }
+
+[[models]]
+provider = "ollama"
+model = "snowflake-arctic-embed2:*"
+status = "dynamic_local"
+capabilities = ["embeddings"]
+gaise_support = "native"
+notes = "Arctic-embed 2.0; 1024 dimensions (Matryoshka to 256); 8,192-token context; multilingual; queries take `query: `."
+[models.embedding]
+default_dimensions = 1024
+dimension_rule = { set = [256, 1024] }
+max_input_tokens = 8192
+normalized_output = true
+normalizes_truncation = true
+task_control = { query_instruction = "query: " }
+
+[[models]]
+provider = "ollama"
+model = "granite-embedding:*"
+status = "dynamic_local"
+capabilities = ["embeddings"]
+gaise_support = "native"
+notes = "IBM Granite 30m (384, English) / 278m (768, 12 languages); 512-token context; no prefix."
+[models.embedding]
+dimension_rule = "fixed"
+max_input_tokens = 512
+normalized_output = true
+normalizes_truncation = true
+task_control = "none"
+
+[[models]]
+provider = "ollama"
+model = "paraphrase-multilingual:*"
+status = "dynamic_local"
+capabilities = ["embeddings"]
+gaise_support = "native"
+notes = "paraphrase-multilingual-MiniLM-L12-v2; fixed 768; 128-token context; 50+ languages."
+[models.embedding]
+default_dimensions = 768
+dimension_rule = "fixed"
+max_input_tokens = 128
+normalized_output = true
+normalizes_truncation = true
+task_control = "none"

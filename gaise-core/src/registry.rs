@@ -15,8 +15,8 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 
 use crate::contracts::{
-    GaiseMetadataSource, GaiseModality, GaiseModel, GaiseModelCapabilities, GaiseModelStatus,
-    GaiseOperation, GaiseSupport,
+    EmbeddingProfile, GaiseMetadataSource, GaiseModality, GaiseModel, GaiseModelCapabilities,
+    GaiseModelStatus, GaiseOperation, GaiseSupport,
 };
 
 /// The raw TOML text bundled with the crate.
@@ -72,6 +72,10 @@ pub struct RegistryModel {
     pub operations: Option<Vec<String>>,
     #[serde(default)]
     pub reasoning_values: Option<Vec<String>>,
+    /// Embedding model profile (dimension options, limits, task control);
+    /// drives `resolve_embedding` in every adapter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding: Option<EmbeddingProfile>,
     #[serde(default)]
     pub gaise_support: Option<String>,
     #[serde(default)]
@@ -261,12 +265,17 @@ impl RegistryModel {
         } else {
             model_id
         };
+        // Ollama resolves an untagged name to `name:latest`; match the
+        // `name:*` family patterns the same way.
+        let tagged = (self.provider == "ollama" && !candidate.contains(':'))
+            .then(|| format!("{candidate}:latest"));
         std::iter::once(self.model.as_str())
             .chain(self.aliases.iter().map(String::as_str))
             .any(|pattern| {
                 pattern == candidate
                     || glob_match(pattern, candidate)
                     || snapshot_of(pattern, candidate)
+                    || tagged.as_deref().is_some_and(|t| glob_match(pattern, t))
             })
     }
 
@@ -278,6 +287,10 @@ impl RegistryModel {
         model.retirement_not_before = self.retirement_not_before.clone();
         model.replacement = self.replacement.clone();
         model.notes = join_notes(self.gaise_support.as_deref(), self.notes.as_deref());
+        if let Some(profile) = &self.embedding {
+            model.limits.embedding_dimensions = profile.default_dimensions;
+            model.limits.max_input_tokens = profile.max_input_tokens.map(u64::from);
+        }
         if let Ok(classified) = self.classified() {
             model.capabilities = GaiseModelCapabilities {
                 input: classified.input,
@@ -337,6 +350,16 @@ impl RegistryModel {
         if caps.reasoning_values.is_none() && self.reasoning_values.is_some() {
             caps.reasoning_values = self.reasoning_values.clone();
             applied = true;
+        }
+        if let Some(profile) = &self.embedding {
+            if model.limits.embedding_dimensions.is_none() && profile.default_dimensions.is_some() {
+                model.limits.embedding_dimensions = profile.default_dimensions;
+                applied = true;
+            }
+            if model.limits.max_input_tokens.is_none() && profile.max_input_tokens.is_some() {
+                model.limits.max_input_tokens = profile.max_input_tokens.map(u64::from);
+                applied = true;
+            }
         }
         if model.status == GaiseModelStatus::Unknown {
             let status = self.status();
@@ -531,6 +554,13 @@ impl ModelRegistry {
             })
     }
 
+    /// Embedding profile for a provider model, if the registry knows it.
+    /// Adapters call this (through the bundled registry) to resolve
+    /// dimensions, task control, and normalization; `None` means pass-through.
+    pub fn embedding_profile(&self, provider: &str, model_id: &str) -> Option<&EmbeddingProfile> {
+        self.find(provider, model_id)?.embedding.as_ref()
+    }
+
     /// Overlay registry knowledge onto a provider-sourced model.
     pub fn enrich(&self, model: &mut GaiseModel) -> bool {
         match self.find(&model.provider, &model.id) {
@@ -543,6 +573,11 @@ impl ModelRegistry {
 /// Convenience: enrich with the bundled registry.
 pub fn enrich(model: &mut GaiseModel) -> bool {
     ModelRegistry::bundled().enrich(model)
+}
+
+/// Convenience: embedding profile from the bundled registry.
+pub fn embedding_profile(provider: &str, model_id: &str) -> Option<&'static EmbeddingProfile> {
+    ModelRegistry::bundled().embedding_profile(provider, model_id)
 }
 
 #[cfg(test)]
@@ -847,8 +882,25 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
             "amazon.nova-canvas-v1:0"
         );
         assert_eq!(find("bedrock", "cohere.embed-v4:0"), "cohere.embed-v4:0");
-        assert_eq!(find("bedrock", "cohere.embed-english-v3"), "cohere.embed-*");
+        assert_eq!(
+            find("bedrock", "cohere.embed-multilingual-v3"),
+            "cohere.embed-english-v3"
+        );
+        assert_eq!(find("bedrock", "cohere.embed-light-v3"), "cohere.embed-*");
+        assert_eq!(
+            find("bedrock", "us.amazon.titan-embed-text-v2:0"),
+            "amazon.titan-embed-text-v2:0"
+        );
         assert_eq!(find("ollama", "gpt-oss:20b"), "gpt-oss:*");
+        assert_eq!(find("ollama", "nomic-embed-text"), "nomic-embed-text:*");
+        assert_eq!(
+            find("ollama", "snowflake-arctic-embed2:latest"),
+            "snowflake-arctic-embed2:*"
+        );
+        assert_eq!(
+            find("ollama", "snowflake-arctic-embed:335m"),
+            "snowflake-arctic-embed:*"
+        );
         assert_eq!(
             find("elevenlabs", "eleven_english_sts_v2"),
             "eleven_multilingual_sts_v2"
@@ -924,5 +976,71 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
             "anthropic.x"
         );
         assert_eq!(strip_inference_profile_prefix("anthropic.x"), "anthropic.x");
+    }
+
+    #[test]
+    fn embedding_profiles_resolve_through_the_registry() {
+        use crate::contracts::{DimensionRule, EmbeddingTaskControl};
+        let registry = ModelRegistry::bundled();
+        let large = registry
+            .embedding_profile("openai", "text-embedding-3-large")
+            .expect("profile");
+        assert_eq!(large.default_dimensions, Some(3072));
+        assert_eq!(
+            large.dimension_rule,
+            DimensionRule::Range { min: 1, max: 3072 }
+        );
+        assert!(large.normalizes_truncation);
+
+        let g2 = registry
+            .embedding_profile("gemini", "gemini-embedding-2-preview")
+            .expect("alias resolves");
+        assert_eq!(g2.task_control, EmbeddingTaskControl::PromptInstruction);
+
+        let v001 = registry
+            .embedding_profile("vertexai", "gemini-embedding-001")
+            .expect("profile");
+        assert!(v001.single_input);
+        assert!(!v001.normalizes_truncation);
+
+        let nomic = registry
+            .embedding_profile("ollama", "nomic-embed-text:v1.5")
+            .expect("glob resolves");
+        assert!(matches!(
+            &nomic.task_control,
+            EmbeddingTaskControl::Prefix { query: Some(q), .. } if q == "search_query: "
+        ));
+
+        let qwen = registry
+            .embedding_profile("ollama", "qwen3-embedding:4b")
+            .expect("profile");
+        assert!(matches!(
+            &qwen.task_control,
+            EmbeddingTaskControl::QueryInstruction(i) if i.ends_with("\nQuery:")
+        ));
+
+        let titan = registry
+            .embedding_profile("bedrock", "eu.amazon.titan-embed-text-v2:0")
+            .expect("profile prefix stripped");
+        assert_eq!(
+            titan.dimension_rule,
+            DimensionRule::Set(vec![256, 512, 1024])
+        );
+
+        let cohere_other = registry
+            .embedding_profile("bedrock", "cohere.embed-light-v3")
+            .expect("catch-all");
+        assert_eq!(cohere_other.task_control, EmbeddingTaskControl::InputType);
+        assert_eq!(cohere_other.dimension_rule, DimensionRule::Fixed);
+
+        assert!(registry.embedding_profile("openai", "gpt-5.6").is_none());
+
+        // list_models limits come from the profile.
+        let model = registry
+            .find("openai", "text-embedding-3-small")
+            .unwrap()
+            .to_gaise_model();
+        assert_eq!(model.limits.embedding_dimensions, Some(1536));
+        assert_eq!(model.limits.max_input_tokens, Some(8192));
     }
 }

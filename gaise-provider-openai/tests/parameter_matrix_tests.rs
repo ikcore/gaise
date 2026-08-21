@@ -314,26 +314,40 @@ fn responses_only_models_are_identified() {
 
 #[test]
 fn embedding_dimensions_only_for_text_embedding_3() {
-    use gaise_provider_openai::openai_client::embedding_dimensions_for;
+    use gaise_core::contracts::{GaiseEmbeddingTask, GaiseEmbeddingsRequest, OneOrMany};
+    use gaise_provider_openai::openai_client::openai_embed_request;
+    let req = |model: &str, dims: Option<u32>| GaiseEmbeddingsRequest {
+        model: model.into(),
+        input: OneOrMany::One("hi".into()),
+        task: Some(GaiseEmbeddingTask::Query),
+        dimensions: dims,
+        ..Default::default()
+    };
+    let dims = |model: &str, d: Option<u32>| {
+        let (wire, resolved) = openai_embed_request(&req(model, d));
+        let json = serde_json::to_value(&wire).unwrap();
+        assert!(json.get("task").is_none() && json.get("input_type").is_none());
+        assert!(
+            !resolved.normalize_locally,
+            "OpenAI vectors are unit length"
+        );
+        wire.dimensions
+    };
+    assert_eq!(dims("text-embedding-3-large", Some(5000)), Some(3072));
+    assert_eq!(dims("text-embedding-3-small", Some(5000)), Some(1536));
+    assert_eq!(dims("text-embedding-3-small", Some(256)), Some(256));
     assert_eq!(
-        embedding_dimensions_for("text-embedding-3-large", Some(5000)),
-        Some(3072)
-    );
-    assert_eq!(
-        embedding_dimensions_for("text-embedding-3-small", Some(5000)),
-        Some(1536)
-    );
-    assert_eq!(
-        embedding_dimensions_for("text-embedding-3-small", Some(256)),
-        Some(256)
-    );
-    assert_eq!(
-        embedding_dimensions_for("text-embedding-ada-002", Some(256)),
+        dims("text-embedding-ada-002", Some(256)),
         None,
         "ada rejects dimensions"
     );
+    assert_eq!(dims("text-embedding-3-large", None), None);
     assert_eq!(
-        embedding_dimensions_for("text-embedding-3-large", None),
-        None
+        dims("text-embedding-9-future", Some(256)),
+        Some(256),
+        "unknown models pass through"
     );
+    // Task prefixes never touch OpenAI inputs.
+    let (wire, _) = openai_embed_request(&req("text-embedding-3-small", None));
+    assert_eq!(serde_json::to_value(&wire).unwrap()["input"], "hi");
 }

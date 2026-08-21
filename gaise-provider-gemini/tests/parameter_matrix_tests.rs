@@ -215,26 +215,64 @@ fn thinking_levels_are_clamped_per_family() {
 
 #[test]
 fn embedding_requests_map_task_type_and_dimensions_per_model() {
-    use gaise_core::contracts::{GaiseEmbeddingTask, GaiseEmbeddingsRequest};
-    use gaise_provider_gemini::contracts::models::{
-        embedding_model_accepts_task_type, embedding_model_normalizes_truncation, gemini_task_type,
-    };
-    assert!(embedding_model_accepts_task_type("gemini-embedding-001"));
+    use gaise_core::contracts::{GaiseEmbeddingTask, GaiseEmbeddingsRequest, OneOrMany};
+    use gaise_provider_gemini::contracts::models::gemini_embed_request;
+    let req =
+        |model: &str, task: Option<GaiseEmbeddingTask>, dims: Option<u32>| GaiseEmbeddingsRequest {
+            model: model.into(),
+            input: OneOrMany::Many(vec!["alpha".into(), "beta".into()]),
+            task,
+            dimensions: dims,
+            ..Default::default()
+        };
+
+    // gemini-embedding-001: taskType field, range-clamped dimensions, raw truncation.
+    let (wire, resolved) = gemini_embed_request(&req(
+        "gemini-embedding-001",
+        Some(GaiseEmbeddingTask::CodeQuery),
+        Some(64),
+    ));
+    let json = serde_json::to_value(&wire).unwrap();
+    assert_eq!(json["requests"][0]["taskType"], "CODE_RETRIEVAL_QUERY");
+    assert_eq!(json["requests"][0]["outputDimensionality"], 128);
+    assert_eq!(json["requests"][1]["content"]["parts"][0]["text"], "beta");
     assert!(
-        !embedding_model_accepts_task_type("gemini-embedding-2"),
+        resolved.normalize_locally,
+        "001 leaves truncated vectors raw"
+    );
+
+    // gemini-embedding-2: prompt instruction, no taskType, provider normalizes.
+    let (wire, resolved) = gemini_embed_request(&req(
+        "gemini-embedding-2",
+        Some(GaiseEmbeddingTask::Query),
+        Some(768),
+    ));
+    let json = serde_json::to_value(&wire).unwrap();
+    assert!(
+        json["requests"][0].get("taskType").is_none(),
         "embedding-2 rejects taskType"
     );
-    assert!(embedding_model_normalizes_truncation("gemini-embedding-2"));
-    assert!(!embedding_model_normalizes_truncation(
-        "gemini-embedding-001"
+    assert_eq!(
+        json["requests"][0]["content"]["parts"][0]["text"],
+        "task: search result | query: alpha"
+    );
+    assert_eq!(json["requests"][0]["outputDimensionality"], 768);
+    assert!(!resolved.normalize_locally);
+
+    // No task: nothing is added anywhere.
+    let (wire, resolved) = gemini_embed_request(&req("gemini-embedding-2", None, None));
+    let json = serde_json::to_value(&wire).unwrap();
+    assert_eq!(json["requests"][0]["content"]["parts"][0]["text"], "alpha");
+    assert!(json["requests"][0].get("outputDimensionality").is_none());
+    assert!(!resolved.normalize_locally);
+
+    // Unknown model: taskType default and pass-through dimensions.
+    let (wire, _) = gemini_embed_request(&req(
+        "gemini-embedding-9",
+        Some(GaiseEmbeddingTask::Document),
+        Some(5000),
     ));
-    assert_eq!(
-        gemini_task_type(GaiseEmbeddingTask::Query),
-        "RETRIEVAL_QUERY"
-    );
-    assert_eq!(
-        gemini_task_type(GaiseEmbeddingTask::CodeQuery),
-        "CODE_RETRIEVAL_QUERY"
-    );
-    let _ = GaiseEmbeddingsRequest::default();
+    let json = serde_json::to_value(&wire).unwrap();
+    assert_eq!(json["requests"][0]["taskType"], "RETRIEVAL_DOCUMENT");
+    assert_eq!(json["requests"][0]["outputDimensionality"], 5000);
 }

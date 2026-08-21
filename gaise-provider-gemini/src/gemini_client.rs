@@ -972,41 +972,7 @@ impl GaiseClient for GaiseClientGemini {
             self.api_url, request.model, self.api_key
         );
 
-        let inputs: Vec<String> = match &request.input {
-            OneOrMany::One(s) => vec![s.clone()],
-            OneOrMany::Many(ss) => ss.clone(),
-        };
-        // gemini-embedding-2 takes the task as a prompt instruction instead of
-        // `taskType`; apply Google's documented convention.
-        let instruct_in_prompt = !embedding_model_accepts_task_type(&request.model);
-        let inputs: Vec<String> = inputs
-            .into_iter()
-            .map(|text| match request.task {
-                Some(task) if instruct_in_prompt => task.gemini_instruction(&text),
-                _ => text,
-            })
-            .collect();
-
-        let batch_request = GeminiBatchEmbedRequest {
-            requests: inputs
-                .into_iter()
-                .map(|text| GeminiEmbedRequest {
-                    model: format!("models/{}", request.model),
-                    content: GeminiContent {
-                        role: None,
-                        parts: vec![GeminiPart {
-                            text: Some(text),
-                            ..Default::default()
-                        }],
-                    },
-                    task_type: request
-                        .task
-                        .filter(|_| embedding_model_accepts_task_type(&request.model))
-                        .map(|t| gemini_task_type(t).to_string()),
-                    output_dimensionality: request.dimensions.map(|d| d.clamp(128, 3072)),
-                })
-                .collect(),
-        };
+        let (batch_request, resolved) = gemini_embed_request(request);
 
         let response = self.client.post(&url).json(&batch_request).send().await?;
 
@@ -1022,10 +988,7 @@ impl GaiseClient for GaiseClientGemini {
             .into_iter()
             .map(|e| e.values)
             .collect();
-        // gemini-embedding-001 does not re-normalize truncated vectors.
-        let truncated =
-            request.dimensions.is_some() && !embedding_model_normalizes_truncation(&request.model);
-        if request.normalize == Some(true) || (truncated && request.normalize != Some(false)) {
+        if resolved.normalize_locally {
             output.iter_mut().for_each(|v| normalize_l2(v));
         }
         Ok(GaiseEmbeddingsResponse {

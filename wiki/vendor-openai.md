@@ -157,7 +157,12 @@ Realtime turn usage ([`map_realtime_usage`](../gaise-provider-openai/src/openai_
 
 ## Embeddings
 
-[`embeddings`](../gaise-provider-openai/src/openai_client.rs#L628) posts `{"model", "input"}` to `POST {api_url}/embeddings`; `input` is a string for `OneOrMany::One` and a string array for `Many` ([`OpenAIEmbedInput`](../gaise-provider-openai/src/contracts/models.rs#L228)). `dimensions`, `encoding_format`, and `user` are not mapped. The response body is parsed from text so a shape mismatch reports the failing field and a 400-char snippet ([`#L659-L663`](../gaise-provider-openai/src/openai_client.rs#L659-L663)). Output is `Vec<Vec<f32>>` in response order; `external_id` is the response `object` field (`"list"`). Uses [`send_with_retry`](../gaise-provider-openai/src/openai_client.rs#L431). [`OpenAIEmbedUsage`](../gaise-provider-openai/src/contracts/models.rs#L251) defaults every field so OpenAI-compatible proxies that omit usage still parse.
+[`embeddings`](../gaise-provider-openai/src/openai_client.rs) builds [`OpenAIEmbedRequest`](../gaise-provider-openai/src/contracts/models.rs) with [`openai_embed_request`](../gaise-provider-openai/src/openai_client.rs) and posts it to `POST {api_url}/embeddings`; `input` is a string for `OneOrMany::One` and a string array for `Many` ([`OpenAIEmbedInput`](../gaise-provider-openai/src/contracts/models.rs)). Requests go through the shared resolver described in [embeddings.md](embeddings.md#how-a-request-is-resolved): the model's `[models.embedding]` profile in [`model-registry.toml`](../gaise-core/model-registry.toml) decides how `task`, `dimensions`, and `normalize` are expressed, and the [generated matrix](embeddings.md#model-matrix) shows the wire result per model.
+
+- `dimensions` is clamped to 1–3072 on `text-embedding-3-large`, 1–1536 on `text-embedding-3-small`, dropped on `text-embedding-ada-002` (fixed 1536), and forwarded untouched for unknown models.
+- `task` is ignored — the API has no task concept and no prefix convention — so inputs are sent unchanged.
+- `normalize: true` is applied locally only for models without a profile; the 3-series and ada return unit-length vectors (including shortened ones), so nothing is recomputed.
+- `encoding_format` and `user` are not mapped. The response body is parsed from text so a shape mismatch reports the failing field and a 400-char snippet. Output is `Vec<Vec<f32>>` in response order; `external_id` is the response `object` field (`"list"`). Uses [`send_with_retry`](../gaise-provider-openai/src/openai_client.rs). [`OpenAIEmbedUsage`](../gaise-provider-openai/src/contracts/models.rs) defaults every field so OpenAI-compatible proxies that omit usage still parse.
 
 ## Live / realtime
 
@@ -213,8 +218,9 @@ From `model-registry.toml` (audited 2026-08-20). Status is the registry string; 
 | `gpt-5.4` | — | active | — | text, image | text | instruct, instruct_stream | none, low, medium, high, xhigh | chat-compatible features | |
 | `gpt-5.4-mini` | — | active | — | text, image | text | instruct, instruct_stream | none, low, medium, high, xhigh | chat-compatible features | |
 | `gpt-5.4-nano` | — | active | — | text, image | text | instruct, instruct_stream | none, low, medium, high, xhigh | chat-compatible features | |
-| `text-embedding-3-large` | — | active | — | text | embedding | embeddings | — | native | |
-| `text-embedding-3-small` | — | active | — | text | embedding | embeddings | — | native | |
+| `text-embedding-3-large` | — | active | — | text | embedding | embeddings | — | native |  |
+| `text-embedding-3-small` | — | active | — | text | embedding | embeddings | — | native |  |
+| `text-embedding-ada-002` | — | active | — | text | embedding | embeddings | — | native | Previous generation; fixed 1536 dimensions, no retirement date published. |
 | `gpt-realtime-2.1` | — | active | — | text, image, audio | text, audio | live | minimal, low, medium, high, xhigh | realtime transport | OpenAI documents configurable reasoning effort without enumerating values for 2.1; the list mirrors gpt-realtime-2. 'max… |
 | `gpt-realtime-2.1-mini` | — | active | — | text, image, audio | text, audio | live | minimal, low, medium, high, xhigh | realtime transport | |
 | `gpt-realtime-2` | — | active | — | text, image, audio | text, audio | live | minimal, low, medium, high, xhigh | realtime transport | |

@@ -7,6 +7,8 @@ Every embedding model GAISe can drive, what each one needs to perform well, and 
 ## Contents
 
 - [The contract](#the-contract)
+- [How a request is resolved](#how-a-request-is-resolved)
+- [Model matrix](#model-matrix)
 - [Practices that apply to every model](#practices-that-apply-to-every-model)
 - [OpenAI](#openai)
 - [Google Gemini API](#google-gemini-api)
@@ -19,21 +21,145 @@ Every embedding model GAISe can drive, what each one needs to perform well, and 
 
 ## The contract
 
+Embeddings are standardised the same way [reasoning](reasoning.md) is: one canonical vocabulary with aliases and an escape hatch, one resolver in core, per-model profiles as data, every adapter going through the resolver, and a [generated matrix](#model-matrix) so the page cannot drift from the code.
+
 [`GaiseEmbeddingsRequest`](../gaise-core/src/contracts/gaise_embeddings_request.rs):
 
-| Field | Meaning | Mapped to |
+| Field | Meaning | Resolved to |
 |---|---|---|
 | `model` | `provider::model` | — |
-| `input` | one string or an array | batched where the provider allows, looped otherwise (Bedrock) |
-| `task` | `document` (default), `query`, `classification`, `clustering`, `similarity`, `code_query`, `fact_verification`, `question_answering` | Gemini / Vertex `taskType` (`RETRIEVAL_DOCUMENT`, `RETRIEVAL_QUERY`, …); Cohere `input_type` (`search_document`, `search_query`, `classification`, `clustering`); ignored by OpenAI, Titan, Ollama, and `gemini-embedding-2` (which rejects it) |
-| `dimensions` | requested vector length | OpenAI `dimensions` (text-embedding-3 only), Gemini/Vertex `outputDimensionality`, Titan V2 `dimensions` (snapped to 256/512/1024), Cohere v4 `output_dimension` (256/512/1024/1536), Ollama `dimensions`; ignored by fixed-size models |
-| `normalize` | unit-length vectors | Titan V2 `normalize`; applied locally by every other adapter. Gemini/Vertex `gemini-embedding-001` vectors are normalized automatically when `dimensions` truncates them, because the model does not do it itself |
+| `input` | one string or an array | batched where the provider allows, looped otherwise (Bedrock, Vertex `gemini-embedding-001`) |
+| `task` | what the vectors are for — see the vocabulary below | the model's **task control**: a wire field (`taskType`, `input_type`, `embeddingPurpose`), a prompt instruction, a per-side text prefix, a query-only instruction, or nothing |
+| `dimensions` | requested vector length | the model's **dimension rule**: clamped into a range, snapped to the nearest of a discrete set (ties upward), or dropped for fixed-size models; forwarded untouched for unknown models |
+| `normalize` | unit-length vectors | `true` → native flag where one exists (Titan V2), local L2 otherwise; `false` → raw; unset → provider output, plus local L2 only when `dimensions` truncated a vector the provider leaves un-normalized (`gemini-embedding-001`, Cohere v4, Titan image, Nova) |
 
-[`GaiseEmbeddingsResponse`](../gaise-core/src/contracts/gaise_embeddings_response.rs) returns `output: Vec<Vec<f32>>` in input order and `usage` only when the provider reports token counts (OpenAI, Vertex, Titan; not Gemini, Cohere, or Ollama beyond `prompt_eval_count`). Helpers: [`normalize_l2`](../gaise-core/src/contracts/gaise_embeddings_request.rs), [`snap_dimensions`](../gaise-core/src/contracts/gaise_embeddings_request.rs).
+**Task vocabulary** ([`GaiseEmbeddingTask`](../gaise-core/src/contracts/gaise_embeddings_request.rs)) — canonical names with the aliases the parser accepts (case-insensitive; `-` and spaces read as `_`):
+
+| Canonical | Aliases | Gemini / Vertex `taskType` | Cohere `input_type` | Nova `embeddingPurpose` | Google instruction | Side |
+|---|---|---|---|---|---|---|
+| `document` (default) | `retrieval_document`, `search_document`, `index`, `passage`, `generic_index` | `RETRIEVAL_DOCUMENT` | `search_document` | `GENERIC_INDEX` | `title: none \| text: …` | document |
+| `query` | `retrieval_query`, `search_query`, `search`, `generic_retrieval`, `text_retrieval` | `RETRIEVAL_QUERY` | `search_query` | `TEXT_RETRIEVAL` | `task: search result \| query: …` | query |
+| `classification` | `classify` | `CLASSIFICATION` | `classification` | `CLASSIFICATION` | `task: classification \| text: …` | — |
+| `clustering` | `cluster` | `CLUSTERING` | `clustering` | `CLUSTERING` | `task: clustering \| text: …` | — |
+| `similarity` | `semantic_similarity`, `sts`, `sentence_similarity` | `SEMANTIC_SIMILARITY` | `search_document` | `GENERIC_INDEX` | `task: sentence similarity \| text: …` | document |
+| `code_query` | `code_retrieval_query`, `code`, `code_retrieval` | `CODE_RETRIEVAL_QUERY` | `search_query` | `TEXT_RETRIEVAL` | `task: code retrieval \| query: …` | query |
+| `fact_verification` | `fact`, `fact_checking` | `FACT_VERIFICATION` | `search_query` | `TEXT_RETRIEVAL` | `task: fact checking \| query: …` | query |
+| `question_answering` | `qa` | `QUESTION_ANSWERING` | `search_query` | `TEXT_RETRIEVAL` | `task: question answering \| query: …` | query |
+| anything else | — | upper-cased verbatim | verbatim | upper-cased verbatim (`IMAGE_RETRIEVAL`, `GENERIC_RETRIEVAL`, …) | `task: {value} \| text: …` | document |
+
+"Side" is what prefix-style models (nomic, mxbai, Arctic, Qwen3) key on: query-side tasks get the query prefix or instruction, everything else the document form. Unknown strings become a **custom** task: forwarded to providers with a task field, ignored by the rest — that is how you reach vendor values GAISe has no name for.
+
+[`GaiseEmbeddingsResponse`](../gaise-core/src/contracts/gaise_embeddings_response.rs) returns `output: Vec<Vec<f32>>` in input order and `usage` only when the provider reports token counts (OpenAI, Vertex, Titan; not Gemini, Cohere, Nova, or Ollama beyond `prompt_eval_count`).
 
 ```json
 { "model": "gemini::gemini-embedding-001", "task": "query", "dimensions": 768, "input": "how do I rotate an API key?" }
 ```
+
+## How a request is resolved
+
+Every adapter calls one function, [`resolve_embedding`](../gaise-core/src/contracts/gaise_embeddings_request.rs), with the request, the model's profile, and the provider's default task control:
+
+```mermaid
+flowchart LR
+    R[GaiseEmbeddingsRequest] --> L{registry profile<br/>for provider::model?}
+    L -- yes --> P[EmbeddingProfile<br/>dimension rule · task control<br/>normalization · single_input]
+    L -- no --> D[provider default control<br/>pass-through dimensions]
+    P --> X[resolve_embedding]
+    D --> X
+    X --> T[texts with prefix / instruction]
+    X --> W[wire task value]
+    X --> N[dimensions snapped / clamped / dropped]
+    X --> Z[normalize locally?]
+    T & W & N & Z --> A[adapter builds the provider body]
+```
+
+Profiles live in [`model-registry.toml`](../gaise-core/model-registry.toml) as an `[models.embedding]` table per entry and are read through [`ModelRegistry::embedding_profile`](../gaise-core/src/registry.rs):
+
+```toml
+[[models]]
+provider = "ollama"
+model = "nomic-embed-text:*"
+capabilities = ["embeddings"]
+[models.embedding]
+default_dimensions = 768
+dimension_rule = { range = { min = 64, max = 768 } }   # or "fixed", or { set = [256, 512, 1024] }
+max_input_tokens = 8192
+normalized_output = true
+normalizes_truncation = true
+task_control = { prefix = { query = "search_query: ", document = "search_document: ", classification = "classification: ", clustering = "clustering: " } }
+```
+
+| Profile field | Meaning |
+|---|---|
+| `default_dimensions` | vector length without `dimensions`; surfaces as `limits.embedding_dimensions` in [`GET /v1/models`](api.md#get-v1models) |
+| `dimension_rule` | `"fixed"` (drop `dimensions`), `{ range = { min, max } }` (clamp), `{ set = [...] }` (snap to nearest, ties upward) |
+| `max_input_tokens`, `max_batch` | documented limits; surfaced as `limits.max_input_tokens`, not enforced |
+| `normalized_output` / `normalizes_truncation` | whether full-size / reduced vectors come back unit-length — decides whether GAISe runs L2 locally |
+| `task_control` | `"none"`, `"task_type"`, `"input_type"`, `"embedding_purpose"`, `"prompt_instruction"`, `{ prefix = {...} }`, `{ query_instruction = "..." }` |
+| `single_input` | one input per provider call (Vertex `gemini-embedding-001`) |
+
+A model without a profile is not rejected: the adapter's provider default applies (`taskType` on Gemini/Vertex, `input_type` on Cohere, `embeddingPurpose` on Nova, nothing elsewhere), `dimensions` is forwarded for the API to validate, and no prefix is added. Add a profile when a vendor ships a model; the adapters need no change.
+
+## Model matrix
+
+<!-- Generated by `cargo run -p gaise-client --example embedding_matrix --all-features`; registry audited 2026-08-20 -->
+
+Each row runs the provider's real request builder for `task: document` and `task: query` with `dimensions: 300` (an awkward value on purpose) on the sample text `hi`. **Sent** shows the text after any prefix or instruction; **dims** shows the wire value after snapping/clamping (— = omitted); **local L2** marks where GAISe normalizes the result itself because the provider would not.
+
+### openai
+
+| Model | Dimensions (default / options) | Task control | Document → sent | Query → sent | dims sent | local L2 (doc / query) |
+|---|---|---|---|---|---|---|
+| `text-embedding-3-large` | 3072 (1–3072) | none (task ignored) | unchanged | unchanged | 300 | no / no |
+| `text-embedding-3-small` | 1536 (1–1536) | none (task ignored) | unchanged | unchanged | 300 | no / no |
+| `text-embedding-ada-002` | 1536 (fixed) | none (task ignored) | unchanged | unchanged | — | no / no |
+
+### gemini
+
+| Model | Dimensions (default / options) | Task control | Document → sent | Query → sent | dims sent | local L2 (doc / query) |
+|---|---|---|---|---|---|---|
+| `gemini-embedding-2` | 3072 (128–3072) | prompt instruction | `title: none \| text: hi` | `task: search result \| query: hi` | 300 | no / no |
+| `gemini-embedding-001` | 3072 (128–3072) | `taskType` field | `taskType: RETRIEVAL_DOCUMENT` · unchanged | `taskType: RETRIEVAL_QUERY` · unchanged | 300 | yes / yes |
+
+### vertexai
+
+| Model | Dimensions (default / options) | Task control | Document → sent | Query → sent | dims sent | local L2 (doc / query) |
+|---|---|---|---|---|---|---|
+| `gemini-embedding-2` | 3072 (128–3072) | prompt instruction | — (not drivable: not yet: Vertex serves it via :embedContent on the aiplatform.{location}.rep.googleapis.com host, which the adapter does not call; use gemini::gemini-embedding-2) | — | — | — |
+| `gemini-embedding-001` | 3072 (1–3072) | `taskType` field | `task_type: RETRIEVAL_DOCUMENT` · unchanged | `task_type: RETRIEVAL_QUERY` · unchanged | 300 | yes / yes |
+| `text-embedding-005` | 768 (1–768) | `taskType` field | `task_type: RETRIEVAL_DOCUMENT` · unchanged | `task_type: RETRIEVAL_QUERY` · unchanged | 300 | yes / yes |
+| `multimodalembedding@001` | 1408 (128 / 256 / 512 / 1408) | none (task ignored) | — (not drivable: not yet: uses the image/video embedding request schema) | — | — | — |
+
+### bedrock
+
+| Model | Dimensions (default / options) | Task control | Document → sent | Query → sent | dims sent | local L2 (doc / query) |
+|---|---|---|---|---|---|---|
+| `amazon.nova-2-multimodal-embeddings-v1:0` | 3072 (256 / 384 / 1024 / 3072) | `embeddingPurpose` field (required) | `embeddingPurpose: GENERIC_INDEX` · unchanged | `embeddingPurpose: TEXT_RETRIEVAL` · unchanged | 256 | yes / yes |
+| `amazon.titan-embed-text-v2:0` | 1024 (256 / 512 / 1024) | none (task ignored) | unchanged | unchanged | 256 | no / no |
+| `amazon.titan-embed-text-v1` | 1536 (fixed) | none (task ignored) | unchanged | unchanged | — | no / no |
+| `amazon.titan-embed-image-v1` | 1024 (256 / 384 / 1024) | none (task ignored) | unchanged | unchanged | 256 | yes / yes |
+| `cohere.embed-v4:0` | 1536 (256 / 512 / 1024 / 1536) | `input_type` field (required) | `input_type: search_document` · unchanged | `input_type: search_query` · unchanged | 256 | yes / yes |
+| `cohere.embed-english-v3` | 1024 (fixed) | `input_type` field (required) | `input_type: search_document` · unchanged | `input_type: search_query` · unchanged | — | no / no |
+| `cohere.embed-*` | per tag (fixed) | `input_type` field (required) | `input_type: search_document` · unchanged | `input_type: search_query` · unchanged | — | no / no |
+
+### ollama
+
+| Model | Dimensions (default / options) | Task control | Document → sent | Query → sent | dims sent | local L2 (doc / query) |
+|---|---|---|---|---|---|---|
+| `embeddinggemma:*` | 768 (128 / 256 / 512 / 768) | prompt instruction | `title: none \| text: hi` | `task: search result \| query: hi` | 256 | no / no |
+| `nomic-embed-text:*` | 768 (64–768) | text prefix per side | `search_document: hi` | `search_query: hi` | 300 | no / no |
+| `nomic-embed-text-v2-moe:*` | 768 (256–768) | text prefix per side | `search_document: hi` | `search_query: hi` | 300 | no / no |
+| `qwen3-embedding:*` | per tag (32–4096) | query instruction | unchanged | `Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:hi` | 300 | no / no |
+| `mxbai-embed-large:*` | 1024 (fixed) | query instruction | unchanged | `Represent this sentence for searching relevant passages: hi` | — | no / no |
+| `bge-m3:*` | 1024 (fixed) | none (task ignored) | unchanged | unchanged | — | no / no |
+| `bge-large:*` | 1024 (fixed) | query instruction | unchanged | `Represent this sentence for searching relevant passages: hi` | — | no / no |
+| `all-minilm:*` | 384 (fixed) | none (task ignored) | unchanged | unchanged | — | no / no |
+| `snowflake-arctic-embed:*` | per tag (fixed) | query instruction | unchanged | `Represent this sentence for searching relevant passages: hi` | — | no / no |
+| `snowflake-arctic-embed2:*` | 1024 (256 / 1024) | query instruction | unchanged | `query: hi` | 256 | no / no |
+| `granite-embedding:*` | per tag (fixed) | none (task ignored) | unchanged | unchanged | — | no / no |
+| `paraphrase-multilingual:*` | 768 (fixed) | none (task ignored) | unchanged | unchanged | — | no / no |
+
+Regenerate after changing a profile or a builder: `cargo run -p gaise-client --example embedding_matrix --all-features` ([`embedding_matrix.rs`](../gaise-client/examples/embedding_matrix.rs)) and paste the output here. The per-provider `parameter_matrix_tests` pin the same behaviour.
 
 ## Practices that apply to every model
 
@@ -58,7 +184,7 @@ Route: `openai::<model>` → `POST /v1/embeddings` ([vendor-openai.md](vendor-op
 | `text-embedding-3-small` | 1536 | any ≤ 1536 | 8,192 | same | yes | — | $0.02 | active |
 | `text-embedding-ada-002` | 1536 | no | 8,192 | same | yes | — | $0.10 | older; no retirement published |
 
-What GAISe sends: `dimensions` (clamped to the model ceiling, dropped for ada-002), the input array as one request. `task` is ignored (OpenAI has no task parameter). Usage: `prompt_tokens`, `total_tokens`.
+What GAISe sends ([`openai_embed_request`](../gaise-provider-openai/src/openai_client.rs)): `dimensions` (clamped to the model ceiling, dropped for ada-002), the input array as one request. `task` is ignored (OpenAI has no task parameter). Usage: `prompt_tokens`, `total_tokens`.
 
 Best practices:
 
@@ -79,7 +205,7 @@ Route: `gemini::<model>` → `batchEmbedContents` ([vendor-gemini.md](vendor-gem
 | `gemini-embedding-001` | 3072 | 128–3072 | 2,048 | text | yes / **no** | `taskType` (8 values) | $0.15 (batch $0.075) | deprecated → shutdown **2028-05-14** |
 | `embedding-2-preview` | — | — | — | — | — | — | — | retired 2026-08-10 |
 
-What GAISe sends: one `requests[]` entry per input (so embedding-2 returns one vector per input rather than one aggregated vector); `taskType` from `task` on embedding-001; on embedding-2 the task is applied as Google's documented instruction prefix (`task: search result | query: …`, `title: none | text: …`, `task: classification | text: …`); `outputDimensionality` clamped to 128–3072; truncated embedding-001 vectors are normalized locally. No usage is reported by this endpoint.
+What GAISe sends ([`gemini_embed_request`](../gaise-provider-gemini/src/contracts/models.rs)): one `requests[]` entry per input (so embedding-2 returns one vector per input rather than one aggregated vector); `taskType` from `task` on embedding-001; on embedding-2 the task is applied as Google's documented instruction prefix (`task: search result | query: …`, `title: none | text: …`, `task: classification | text: …`); `outputDimensionality` clamped to 128–3072; truncated embedding-001 vectors are normalized locally. No usage is reported by this endpoint.
 
 Best practices:
 
@@ -103,7 +229,7 @@ Route: `vertexai::<model>` → `:predict` via the `{{MODEL}}` URL template ([ven
 | `text-embedding-004` | 768 | ≤ 768 | 2,048 | 250 | `task_type` | — | retires 2027-04-01; no longer in the supported-model table | native (legacy) |
 | `multimodalembedding@001` | 1408 | 128 / 256 / 512 / 1408 (text + image) | 32 text tokens | — | — | English | retires 2027-04-01 | out of scope (image/video API) |
 
-What GAISe sends: per-instance `task_type` (defaults to Vertex's `RETRIEVAL_QUERY` when omitted — set `task: document` when indexing), `outputDimensionality` clamped to 768 for the text-embedding family and 3072 for Gemini Embedding, `autoTruncate: true`; truncated non-embedding-2 vectors are normalized locally. Usage: `token_count` per prediction summed across calls, plus billable characters.
+What GAISe sends ([`vertex_embed_request`](../gaise-provider-vertexai/src/contracts/models.rs)): per-instance `task_type` (defaults to Vertex's `RETRIEVAL_QUERY` when omitted — set `task: document` when indexing), `outputDimensionality` clamped to 768 for the text-embedding family and 3072 for Gemini Embedding, `autoTruncate: true`, one text per call for `gemini-embedding-001`; truncated non-embedding-2 vectors are normalized locally. Usage: `token_count` per prediction summed across calls, plus billable characters.
 
 Best practices:
 
@@ -121,12 +247,12 @@ Route: `bedrock::<model>` → `InvokeModel`, one input per call ([vendor-bedrock
 |---|---|---|---|---|---|---|---|
 | `amazon.titan-embed-text-v2:0` | 1024 | 256 / 512 / 1024 | 8,192 tokens / 50,000 chars | — | `normalize` (default true) | text | native: `dimensions` snapped, `normalize` forwarded |
 | `amazon.titan-embed-text-v1` | 1536 | no | 8,192 tokens | — | unverified | text | native (text only) |
-| `amazon.titan-embed-image-v1` | 1024 | 256 / 384 / 1024 | 256 text tokens; 25 MB image | — | unverified | text, image | text only (no image path) |
+| `amazon.titan-embed-image-v1` | 1024 | 256 / 384 / 1024 | 256 text tokens; 25 MB image | — | unverified | text, image | text only (no image path); `dimensions` → `embeddingConfig.outputEmbeddingLength` |
 | `cohere.embed-v4:0` | 1536 | 256 / 512 / 1024 / 1536 | 128k tokens incl. images; 96 items | `input_type` **required** | unverified | text, image | native: `task` → `input_type`, `dimensions` → `output_dimension` |
 | `cohere.embed-english-v3`, `cohere.embed-multilingual-v3` | 1024 | no | 512 tokens per text; 96 texts | `input_type` **required** | unverified | text (+1 image) | native: `task` → `input_type` |
-| `amazon.nova-2-multimodal-embeddings-v1:0` | 3072 | 256 / 384 / 1024 / 3072 | 8,192 chars text; 30 s audio/video sync | `embeddingPurpose` **required** | unverified | text, image, audio, video, document | **not mapped yet** (different body schema) |
+| `amazon.nova-2-multimodal-embeddings-v1:0` | 3072 | 256 / 384 / 1024 / 3072 | 8,192 chars text; 30 s audio/video sync | `embeddingPurpose` **required** | unverified | text, image, audio, video, document | text via the `SINGLE_EMBEDDING` schema: `task` → `embeddingPurpose` (`query` = `TEXT_RETRIEVAL`; pass `generic_retrieval` / `image_retrieval` as a custom task for mixed indexes), `dimensions` → `embeddingDimension`, `truncationMode: END` |
 
-What GAISe sends per family is in [`embedding_body`](../gaise-provider-bedrock/src/bedrock_client.rs). Usage: Titan `inputTextTokenCount` summed; Cohere reports none. All Bedrock embedding models are InvokeModel-only and throttled by requests per minute, not tokens.
+What GAISe sends per family is in [`embedding_bodies`](../gaise-provider-bedrock/src/bedrock_client.rs) (one InvokeModel body per input). Usage: Titan `inputTextTokenCount` summed; Cohere and Nova report none. All Bedrock embedding models are InvokeModel-only and throttled by requests per minute, not tokens.
 
 Best practices:
 
@@ -156,11 +282,11 @@ Route: `ollama::<tag>` → `POST /api/embed` ([vendor-ollama.md](vendor-ollama.m
 | `granite-embedding` 30m / 278m | 384 / 768 | 512 | no | English / 12 | none |
 | `paraphrase-multilingual` | 768 | 128 | no | 50+ | none |
 
-What GAISe sends: the input array in one call, `truncate: true`, `dimensions` when requested (Ollama ≥ 0.11.11 truncates and re-normalizes; older servers ignore it). `/api/embed` already returns L2-normalized vectors. `task` is **not** applied — Ollama adds no prefixes, so prepend the model's convention to your text yourself. Usage: `prompt_eval_count`.
+What GAISe sends ([`ollama_embed_request`](../gaise-provider-ollama/src/ollama_client.rs)): the input array in one call, `truncate: true`, `dimensions` snapped to the tag's Matryoshka sizes and dropped for fixed-size tags (Ollama ≥ 0.11.11 truncates and re-normalizes; older servers ignore it). `/api/embed` already returns L2-normalized vectors. **`task` applies each family's documented convention from the table above** — nomic's `search_query: ` / `search_document: ` prefixes, the mxbai / Arctic / bge-large query instruction, Qwen3's `Instruct: … Query:` form, Arctic 2's `query: `, EmbeddingGemma's `task: … | query: …` — and leaves text untouched when `task` is unset or the tag has no convention. Usage: `prompt_eval_count`.
 
 Best practices:
 
-- **Apply the model's prefix convention manually.** nomic, mxbai, arctic and qwen3 are asymmetric; without the query instruction their retrieval quality drops noticeably. (A future GAISe change could derive these from `task`; today it is on the caller.)
+- **Set `task` on both sides.** nomic, mxbai, Arctic and Qwen3 are asymmetric; GAISe adds the right prefix or instruction only when it knows which side it is embedding. If you already prepend prefixes yourself, stop — or leave `task` unset so they are not doubled.
 - **Match context to the tag.** `all-minilm` sees 256 word pieces and `paraphrase-multilingual` 128 — anything longer is silently truncated. Use `bge-m3`, `nomic-embed-text`, `qwen3-embedding`, or `arctic-embed2` for long chunks; set `options.num_ctx` if the default is lower than the model allows.
 - **Use `dimensions` only on Matryoshka-trained tags** (`embeddinggemma`, `qwen3-embedding`, `nomic`, `mxbai`, `arctic-embed2`); truncating others loses quality.
 - **Pin the tag digest.** `latest` moves; a re-pulled model is a new vector space. `GET /v1/models?provider=ollama&include_details=true` reports context and embedding length per installed tag.
@@ -177,17 +303,17 @@ Anthropic has no embeddings API ("Anthropic does not offer its own embedding mod
 | General English RAG, lowest cost | `openai::text-embedding-3-small` or `bedrock::amazon.titan-embed-text-v2:0` | cheap, 8k inputs, shortenable, normalized |
 | Multilingual corpus | `gemini::gemini-embedding-2` or `openai::text-embedding-3-large` | 100+ languages; embedding-2 also accepts task instructions |
 | Code search | `gemini::gemini-embedding-2` (`task: code_query`) or `vertexai::text-embedding-005` | explicit code-retrieval task type |
-| Documents and images in one index (vendor-side) | Cohere v4 / Nova MM embeddings / embedding-2 | multimodal models — text only through GAISe today |
+| Documents and images in one index (vendor-side) | Cohere v4 / Nova MM embeddings (`task: generic_retrieval` for mixed queries) / embedding-2 | multimodal models — text input only through GAISe today |
 | Air-gapped / on-device | `ollama::embeddinggemma` or `ollama::qwen3-embedding:0.6b` | small, multilingual, Matryoshka |
 | Long chunks (4k+ tokens) | `ollama::qwen3-embedding`, `ollama::bge-m3`, Cohere v4 | 8k–128k contexts |
 
 ## What GAISe does not do
 
 - Image / audio / video / PDF embedding inputs (the contract is `OneOrMany<String>`), so multimodal models are text-only here.
-- Vertex `gemini-embedding-2` (`:embedContent` on the `.rep.` host) and Bedrock Nova multimodal embeddings (different body schema) — both listed in the registry with empty operations.
+- Vertex `gemini-embedding-2` (`:embedContent` on the `.rep.` host) and Vertex `multimodalembedding@001` — listed in the registry with empty operations.
 - Cohere 96-item batching on Bedrock (one input per call today).
-- Automatic prefix conventions for Ollama models; apply them in your text.
+- Qwen3-Embedding's per-task instruction text: GAISe sends the model card's generic web-search instruction for every query-side task.
 - Binary / int8 output types (Titan `embeddingTypes`, Cohere `embedding_types`, Voyage `output_dtype`).
 - Dimension and token **cost** estimates; use the returned usage where the provider supplies it.
 
-Keep this page in step with [`gaise-core/model-registry.toml`](../gaise-core/model-registry.toml) and the mapping code: [`embedding_body`](../gaise-provider-bedrock/src/bedrock_client.rs), [`GeminiEmbedRequest`](../gaise-provider-gemini/src/contracts/models.rs), [`GoogleEmbeddingsRequest`](../gaise-provider-vertexai/src/contracts/models.rs), [`embedding_dimensions_for`](../gaise-provider-openai/src/openai_client.rs), [`OllamaEmbedRequest`](../gaise-provider-ollama/src/contracts/models.rs).
+Keep this page in step with the profiles in [`gaise-core/model-registry.toml`](../gaise-core/model-registry.toml), the resolver in [`gaise_embeddings_request.rs`](../gaise-core/src/contracts/gaise_embeddings_request.rs), and the builders: [`openai_embed_request`](../gaise-provider-openai/src/openai_client.rs), [`gemini_embed_request`](../gaise-provider-gemini/src/contracts/models.rs), [`vertex_embed_request`](../gaise-provider-vertexai/src/contracts/models.rs), [`embedding_bodies`](../gaise-provider-bedrock/src/bedrock_client.rs), [`ollama_embed_request`](../gaise-provider-ollama/src/ollama_client.rs). Regenerate the [matrix](#model-matrix) whenever any of them changes.

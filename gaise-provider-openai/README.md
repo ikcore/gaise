@@ -76,7 +76,7 @@ Enable the `live` feature to use the OpenAI Realtime API for bidirectional audio
 
 ```toml
 [dependencies]
-gaise-provider-openai = { version = "0.1", features = ["live"] }
+gaise-provider-openai = { version = "0.2", features = ["live"] }
 ```
 
 ```rust
