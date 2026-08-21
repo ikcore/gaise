@@ -33,6 +33,8 @@ muse!(gaise_model, {
     GaiseModel,
     GaiseModelCapabilities,
     GaiseModelLimits,
+    GaiseModelLimitsEntry,
+    GaiseModelLimitsMatrix,
     GaiseModelStatus,
     GaiseOperation,
     GaiseProviderError,

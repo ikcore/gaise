@@ -109,7 +109,10 @@ pub fn map_anthropic_model(model: &AnthropicModelInfo, include_raw: bool) -> Gai
     let mut out = GaiseModel::new("anthropic", model.id.clone());
     out.display_name = model.display_name.clone();
     out.created_at = model.created_at.clone();
+    // Anthropic names the context window `max_input_tokens`; zero means the
+    // API did not know.
     out.limits.max_input_tokens = model.max_input_tokens.filter(|v| *v > 0);
+    out.limits.context_window = out.limits.max_input_tokens;
     out.limits.max_output_tokens = model.max_tokens.filter(|v| *v > 0);
     // Models API only lists callable models; retired ids are absent.
     out.status = GaiseModelStatus::Active;
@@ -243,6 +246,7 @@ mod tests {
             )
         );
         assert_eq!(opus.limits.max_input_tokens, Some(200_000));
+        assert_eq!(opus.limits.context_window, Some(200_000));
         assert_eq!(opus.limits.max_output_tokens, Some(128_000));
         assert_eq!(opus.status, GaiseModelStatus::Active);
         assert_eq!(
@@ -253,6 +257,7 @@ mod tests {
         let haiku = map_anthropic_model(&list.data[1], true);
         assert!(haiku.capabilities.reasoning_values.is_none());
         assert_eq!(haiku.limits.max_input_tokens, None, "zero means unknown");
+        assert_eq!(haiku.limits.context_window, None);
         assert_eq!(haiku.raw.unwrap()["display_name"], "Claude Haiku 4.5");
     }
 

@@ -16,7 +16,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::contracts::{
     EmbeddingProfile, GaiseMetadataSource, GaiseModality, GaiseModel, GaiseModelCapabilities,
-    GaiseModelStatus, GaiseOperation, GaiseSupport,
+    GaiseModelLimits, GaiseModelLimitsEntry, GaiseModelLimitsMatrix, GaiseModelStatus,
+    GaiseOperation, GaiseSupport,
 };
 
 /// The raw TOML text bundled with the crate.
@@ -72,6 +73,18 @@ pub struct RegistryModel {
     pub operations: Option<Vec<String>>,
     #[serde(default)]
     pub reasoning_values: Option<Vec<String>>,
+    /// Vendor-documented context window in tokens (see
+    /// [`GaiseModelLimits::context_window`]). Absent for entries whose docs
+    /// publish no token window (image generation, TTS) and for embedding
+    /// models, whose per-input limit lives in `embedding.max_input_tokens`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u64>,
+    /// Vendor-documented maximum generated tokens per response.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u64>,
+    /// Vendor-documented maximum input characters per request (speech).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_input_characters: Option<u64>,
     /// Embedding model profile (dimension options, limits, task control);
     /// drives `resolve_embedding` in every adapter.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -253,6 +266,34 @@ impl RegistryModel {
         map_status(&self.status)
     }
 
+    /// Every limit this entry documents, in the common shape.
+    pub fn limits(&self) -> GaiseModelLimits {
+        GaiseModelLimits {
+            context_window: self.context_window,
+            max_input_tokens: self
+                .embedding
+                .as_ref()
+                .and_then(|p| p.max_input_tokens)
+                .map(u64::from),
+            max_output_tokens: self.max_output_tokens,
+            max_input_characters: self.max_input_characters,
+            embedding_dimensions: self.embedding.as_ref().and_then(|p| p.default_dimensions),
+        }
+    }
+
+    /// This entry as one row of the limits matrix.
+    pub fn limits_entry(&self) -> GaiseModelLimitsEntry {
+        GaiseModelLimitsEntry {
+            id: format!("{}::{}", self.provider, self.model),
+            provider: self.provider.clone(),
+            aliases: self.aliases.clone(),
+            status: self.status(),
+            operations: self.classified().map(|c| c.operations).unwrap_or_default(),
+            limits: self.limits(),
+            notes: self.notes.clone(),
+        }
+    }
+
     /// Does this entry describe `model_id`?
     ///
     /// Matches, in order: exact id or alias; `*` glob on id or alias; a
@@ -287,10 +328,7 @@ impl RegistryModel {
         model.retirement_not_before = self.retirement_not_before.clone();
         model.replacement = self.replacement.clone();
         model.notes = join_notes(self.gaise_support.as_deref(), self.notes.as_deref());
-        if let Some(profile) = &self.embedding {
-            model.limits.embedding_dimensions = profile.default_dimensions;
-            model.limits.max_input_tokens = profile.max_input_tokens.map(u64::from);
-        }
+        model.limits = self.limits();
         if let Ok(classified) = self.classified() {
             model.capabilities = GaiseModelCapabilities {
                 input: classified.input,
@@ -315,6 +353,8 @@ impl RegistryModel {
     ///   so the registry may add modalities but never removes one.
     /// - Operations and tri-state flags are filled only when unknown: a
     ///   provider that says "no streaming" or "no tools" is believed.
+    /// - Limits are filled field by field only when unknown: a provider that
+    ///   reports its own context window is believed over the registry.
     /// - Lifecycle fields are filled only when absent.
     pub fn overlay(&self, model: &mut GaiseModel) -> bool {
         let mut applied = false;
@@ -351,16 +391,7 @@ impl RegistryModel {
             caps.reasoning_values = self.reasoning_values.clone();
             applied = true;
         }
-        if let Some(profile) = &self.embedding {
-            if model.limits.embedding_dimensions.is_none() && profile.default_dimensions.is_some() {
-                model.limits.embedding_dimensions = profile.default_dimensions;
-                applied = true;
-            }
-            if model.limits.max_input_tokens.is_none() && profile.max_input_tokens.is_some() {
-                model.limits.max_input_tokens = profile.max_input_tokens.map(u64::from);
-                applied = true;
-            }
-        }
+        applied |= model.limits.fill(&self.limits());
         if model.status == GaiseModelStatus::Unknown {
             let status = self.status();
             if status != GaiseModelStatus::Unknown {
@@ -561,6 +592,23 @@ impl ModelRegistry {
         self.find(provider, model_id)?.embedding.as_ref()
     }
 
+    /// The model × limits matrix: one row per registry entry (optionally one
+    /// provider), in registry order. Needs no credentials and contacts no
+    /// provider; `GET /v1/models` remains the place to see what a provider
+    /// reports live.
+    pub fn limits_matrix(&self, provider: Option<&str>) -> GaiseModelLimitsMatrix {
+        GaiseModelLimitsMatrix {
+            audited_on: self.audited_on.clone(),
+            source: GaiseMetadataSource::Registry,
+            models: self
+                .models
+                .iter()
+                .filter(|m| provider.is_none_or(|p| m.provider == p))
+                .map(RegistryModel::limits_entry)
+                .collect(),
+        }
+    }
+
     /// Overlay registry knowledge onto a provider-sourced model.
     pub fn enrich(&self, model: &mut GaiseModel) -> bool {
         match self.find(&model.provider, &model.id) {
@@ -573,6 +621,11 @@ impl ModelRegistry {
 /// Convenience: enrich with the bundled registry.
 pub fn enrich(model: &mut GaiseModel) -> bool {
     ModelRegistry::bundled().enrich(model)
+}
+
+/// Convenience: the limits matrix of the bundled registry.
+pub fn limits_matrix(provider: Option<&str>) -> GaiseModelLimitsMatrix {
+    ModelRegistry::bundled().limits_matrix(provider)
 }
 
 /// Convenience: embedding profile from the bundled registry.
@@ -872,7 +925,11 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
             find("bedrock", "global.amazon.nova-2-lite-v1:0"),
             "amazon.nova-2-lite-v1:0"
         );
-        assert_eq!(find("bedrock", "amazon.nova-pro-v1:0"), "amazon.nova-*");
+        assert_eq!(
+            find("bedrock", "us.amazon.nova-pro-v1:0"),
+            "amazon.nova-pro-v1:0"
+        );
+        assert_eq!(find("bedrock", "amazon.nova-ultra-v1:0"), "amazon.nova-*");
         assert_eq!(
             find("bedrock", "amazon.nova-reel-v1:1"),
             "amazon.nova-reel-v1:*"
@@ -1042,5 +1099,140 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
             .to_gaise_model();
         assert_eq!(model.limits.embedding_dimensions, Some(1536));
         assert_eq!(model.limits.max_input_tokens, Some(8192));
+    }
+
+    #[test]
+    fn limits_overlay_fills_unknowns_and_keeps_provider_values() {
+        let registry = ModelRegistry::parse(
+            r#"
+schema_version = 2
+audited_on = "2026-08-21"
+
+[[models]]
+provider = "openai"
+model = "gpt-5.6"
+status = "active"
+capabilities = ["text", "streaming", "tools"]
+context_window = 1050000
+max_output_tokens = 128000
+"#,
+        )
+        .unwrap();
+
+        // Registry-only record carries both figures.
+        let entry = registry.find("openai", "gpt-5.6-2026-03-05").unwrap();
+        let model = entry.to_gaise_model();
+        assert_eq!(model.limits.context_window, Some(1_050_000));
+        assert_eq!(model.limits.max_output_tokens, Some(128_000));
+        assert_eq!(model.limits.max_input_tokens, None);
+
+        // Provider-reported window wins; the missing output cap is filled.
+        let mut reported = GaiseModel::new("openai", "gpt-5.6");
+        reported.limits.context_window = Some(400_000);
+        reported
+            .capabilities
+            .add_source(GaiseMetadataSource::Provider);
+        assert!(registry.enrich(&mut reported));
+        assert_eq!(reported.limits.context_window, Some(400_000));
+        assert_eq!(reported.limits.max_output_tokens, Some(128_000));
+        assert!(
+            reported
+                .capabilities
+                .sources
+                .contains(&GaiseMetadataSource::Registry)
+        );
+
+        // A fully reported model is left alone.
+        let mut complete = GaiseModel::new("openai", "gpt-5.6");
+        complete.limits.context_window = Some(400_000);
+        complete.limits.max_output_tokens = Some(64_000);
+        complete.capabilities.add_input(GaiseModality::Text);
+        complete.capabilities.add_output(GaiseModality::Text);
+        complete
+            .capabilities
+            .add_operation(GaiseOperation::Instruct);
+        complete
+            .capabilities
+            .add_operation(GaiseOperation::InstructStream);
+        complete.capabilities.tools = GaiseSupport::Supported;
+        complete.capabilities.reasoning = GaiseSupport::Unsupported;
+        complete.capabilities.structured_output = GaiseSupport::Supported;
+        complete.status = GaiseModelStatus::Active;
+        complete.notes = Some("provider".into());
+        assert!(!registry.enrich(&mut complete));
+        assert_eq!(complete.limits.max_output_tokens, Some(64_000));
+    }
+
+    #[test]
+    fn limits_matrix_lists_every_entry_with_routable_ids() {
+        let registry = ModelRegistry::bundled();
+        let matrix = registry.limits_matrix(None);
+        assert_eq!(matrix.audited_on, registry.audited_on);
+        assert_eq!(matrix.source, GaiseMetadataSource::Registry);
+        assert_eq!(matrix.models.len(), registry.models.len());
+
+        let row = |id: &str| {
+            matrix
+                .models
+                .iter()
+                .find(|m| m.id == id)
+                .unwrap_or_else(|| panic!("no row for {id}"))
+        };
+        let opus = row("anthropic::claude-opus-5");
+        assert_eq!(opus.provider, "anthropic");
+        assert_eq!(opus.limits.context_window, Some(1_000_000));
+        assert_eq!(opus.limits.max_output_tokens, Some(128_000));
+        assert!(opus.operations.contains(&GaiseOperation::Instruct));
+
+        let embed = row("openai::text-embedding-3-small");
+        assert_eq!(embed.limits.max_input_tokens, Some(8192));
+        assert_eq!(embed.limits.embedding_dimensions, Some(1536));
+        assert_eq!(embed.limits.context_window, None);
+
+        let ollama = registry.limits_matrix(Some("ollama"));
+        assert!(!ollama.models.is_empty());
+        assert!(ollama.models.iter().all(|m| m.provider == "ollama"));
+        assert!(ollama.models.iter().any(|m| m.id == "ollama::qwen3:*"));
+
+        assert!(registry.limits_matrix(Some("nope")).models.is_empty());
+    }
+
+    #[test]
+    fn every_driveable_text_model_documents_a_context_window() {
+        // Every entry GAISe can drive through instruct or live must record the
+        // vendor's context window (or, for speech models, the per-request
+        // character limit), so `GET /v1/models/limits` has no silent gaps.
+        // Embedding entries carry their per-input limit in the profile;
+        // image-generation and STT entries have no token window.
+        // Entries whose vendor publishes no per-request figure at all; the
+        // provider's model API reports one live where it exists.
+        const UNDOCUMENTED: &[&str] = &["elevenlabs::eleven_v3_conversational"];
+        let registry = ModelRegistry::bundled();
+        let mut missing = Vec::new();
+        for entry in &registry.models {
+            let id = format!("{}::{}", entry.provider, entry.model);
+            if UNDOCUMENTED.contains(&id.as_str()) {
+                continue;
+            }
+            let ops = entry.classified().unwrap().operations;
+            let text_model =
+                ops.contains(&GaiseOperation::Instruct) || ops.contains(&GaiseOperation::Live);
+            let documented = entry.context_window.is_some() || entry.max_input_characters.is_some();
+            // Retired models whose vendor pages are gone keep whatever was
+            // last documented; nothing is invented for them.
+            if text_model && !documented && entry.status() != GaiseModelStatus::Retired {
+                missing.push(id);
+            }
+            if entry.embedding.is_some() && entry.context_window.is_some() {
+                panic!(
+                    "{}::{}: embedding entries record max_input_tokens in the profile, not context_window",
+                    entry.provider, entry.model
+                );
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "registry entries without context_window: {missing:?}"
+        );
     }
 }

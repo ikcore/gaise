@@ -191,3 +191,73 @@ async fn get_model_and_validation_errors() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 }
+
+#[tokio::test]
+async fn limits_matrix_is_served_from_the_registry() {
+    // No fake provider takes part: the matrix needs no credentials.
+    let response = app()
+        .await
+        .oneshot(
+            Request::builder()
+                .uri("/v1/models/limits")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+    assert_eq!(body["source"], "registry");
+    assert!(body["audited_on"].as_str().is_some_and(|d| d.len() == 10));
+    let models = body["models"].as_array().unwrap();
+    assert!(models.len() > 100, "every registry entry is a row");
+    let opus = models
+        .iter()
+        .find(|m| m["id"] == "anthropic::claude-opus-5")
+        .expect("opus row");
+    assert_eq!(opus["provider"], "anthropic");
+    assert_eq!(opus["context_window"], 1_000_000);
+    assert_eq!(opus["max_output_tokens"], 128_000);
+    assert!(opus.get("limits").is_none(), "limits are flattened");
+    let embed = models
+        .iter()
+        .find(|m| m["id"] == "openai::text-embedding-3-small")
+        .expect("embedding row");
+    assert_eq!(embed["max_input_tokens"], 8192);
+    assert_eq!(embed["embedding_dimensions"], 1536);
+    assert!(embed.get("context_window").is_none());
+
+    let response = app()
+        .await
+        .oneshot(
+            Request::builder()
+                .uri("/v1/models/limits?provider=ollama&operation=embeddings")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_json(response).await;
+    let models = body["models"].as_array().unwrap();
+    assert!(!models.is_empty());
+    assert!(models.iter().all(|m| m["provider"] == "ollama"));
+    assert!(models.iter().all(|m| {
+        m["operations"]
+            .as_array()
+            .unwrap()
+            .contains(&"embeddings".into())
+    }));
+
+    let response = app()
+        .await
+        .oneshot(
+            Request::builder()
+                .uri("/v1/models/limits?operation=teleport")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}

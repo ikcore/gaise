@@ -175,14 +175,14 @@ Counters keep provider names inside the three maps; an absent modality counter m
 
 | Provider | Endpoint | Identity / lifecycle | Capability metadata | Limits | Left for the registry |
 |---|---|---|---|---|---|
-| Anthropic | `GET /v1/models` (cursor) | id, display name, created | `image_input`, `pdf_input`, `thinking` types, `effort` levels, `structured_outputs` | input/output tokens | dates, replacement |
-| Bedrock | `ListFoundationModels`, `ListInferenceProfiles` | id, ARN, name, provider, ACTIVE/LEGACY | `TEXT`/`IMAGE`/`EMBEDDING` modalities, streaming, inference types | — | documents, tools, reasoning |
-| Ollama | `/api/tags`, `/api/show` (opt-in) | tag, digest, modified, family/size/quant | `completion`, `vision`, `tools`, `embedding`, `thinking` | context length, embedding length | nothing |
-| Gemini | `GET /v1beta/models` (page token) | name, version, display, description | `supportedGenerationMethods` → operations, `thinking` | input/output tokens | modalities, thinking levels |
-| OpenAI | `GET /v1/models` | id, created, owned_by, `shutdown_date` | — (name heuristics) | — | everything |
-| Vertex AI | `GET …/v1beta1/publishers/{p}/models` | name, versionId, launchStage | — (name heuristics) | — | everything |
+| Anthropic | `GET /v1/models` (cursor) | id, display name, created | `image_input`, `pdf_input`, `thinking` types, `effort` levels, `structured_outputs` | `max_input_tokens` (= context window), `max_tokens` | dates, replacement |
+| Bedrock | `ListFoundationModels`, `ListInferenceProfiles` | id, ARN, name, provider, ACTIVE/LEGACY | `TEXT`/`IMAGE`/`EMBEDDING` modalities, streaming, inference types | — | documents, tools, reasoning, limits |
+| Ollama | `/api/tags`, `/api/show` (opt-in) | tag, digest, modified, family/size/quant | `completion`, `vision`, `tools`, `embedding`, `thinking` | `context_length` (context window), `embedding_length` | limits until `include_details` |
+| Gemini | `GET /v1beta/models` (page token) | name, version, display, description | `supportedGenerationMethods` → operations, `thinking` | `inputTokenLimit` (context window), `outputTokenLimit` | modalities, thinking levels |
+| OpenAI | `GET /v1/models` | id, created, owned_by, `shutdown_date` | — (name heuristics) | — | everything, including limits |
+| Vertex AI | `GET …/v1beta1/publishers/{p}/models` | name, versionId, launchStage | — (name heuristics) | — | everything, including limits |
 
-| ElevenLabs | `GET /v1/models` | model_id, name, description, alpha flag | `can_do_text_to_speech`, `can_do_voice_conversion`, style / speaker-boost flags | characters per request (notes) | lifecycle notes |
+| ElevenLabs | `GET /v1/models` | model_id, name, description, alpha flag | `can_do_text_to_speech`, `can_do_voice_conversion`, style / speaker-boost flags | `maximum_text_length_per_request` → `max_input_characters` | lifecycle notes |
 
 Catalog modules: [elevenlabs](../gaise-provider-elevenlabs/src/contracts/models.rs) · [openai](../gaise-provider-openai/src/contracts/catalog.rs) · [anthropic](../gaise-provider-anthropic/src/contracts/catalog.rs) · [gemini](../gaise-provider-gemini/src/contracts/catalog.rs) · [vertexai](../gaise-provider-vertexai/src/contracts/catalog.rs) · [bedrock](../gaise-provider-bedrock/src/catalog.rs) · [ollama](../gaise-provider-ollama/src/contracts/catalog.rs).
 
@@ -218,8 +218,10 @@ classDiagram
         +Vec~GaiseMetadataSource~ sources
     }
     class GaiseModelLimits {
+        +Option context_window
         +Option max_input_tokens
         +Option max_output_tokens
+        +Option max_input_characters
         +Option embedding_dimensions
     }
     class GaiseModality {
@@ -263,6 +265,7 @@ classDiagram
 - Empty `input` / `output` means unknown — every model has at least one modality, so emptiness cannot mean "none".
 - `operations` is what GAISe can drive, not what the vendor sells: an image-generation model lists `output: [image]` with `operations: []`.
 - `sources` is the provenance trail in application order.
+- `limits` is typed and optional throughout; a missing field is unknown, never unlimited. `context_window` is the vendor's documented window (Google's input limit); the full matrix and the per-vendor reading notes are in [limits.md](limits.md), and `GET /v1/models/limits` serves the registry figures without credentials.
 
 ### Overlay rules
 
@@ -274,6 +277,7 @@ Applied by [`RegistryModel::overlay`](../gaise-core/src/registry.rs) through [`G
 | `operations` | Fill when empty; an explicit registry `operations = []`/list override replaces a *heuristic* claim | A provider that says "no streaming" is believed; a name guess is not |
 | `tools`, `reasoning`, `structured_output` | Fill only when `unknown` | Explicit provider `unsupported` wins |
 | `reasoning_values` | Fill when absent | Anthropic reports them; others do not |
+| `limits` (each field) | Fill only when `None` ([`GaiseModelLimits::fill`](../gaise-core/src/contracts/gaise_model.rs)) | A provider that reports its own context window is believed over the registry |
 | `status`, `retires_on`, `retirement_not_before`, `replacement`, `notes` | Fill when absent | Lifecycle is rarely in a model API |
 | `sources` | `registry` appended when anything applied | Auditability |
 

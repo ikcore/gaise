@@ -204,6 +204,8 @@ Available with `features = ["live"]`; implemented by [`GaiseClientOpenAILive::li
 
 Tests: [`catalog.rs#L167-L283`](../gaise-provider-openai/src/contracts/catalog.rs#L167-L283) (fixture parse, heuristics, `shutdown_date`, fine-tune owner, conservative classification).
 
+**Limits.** `GET /v1/models` reports no token limits, so `limits.context_window` / `limits.max_output_tokens` are registry-sourced from the OpenAI model cards (1,050,000 for GPT-5.4/5.5/5.6, 400,000 for the mini/nano and GPT-5 generation, 128,000 for Realtime 2.x). See [limits.md](limits.md) and `GET /v1/models/limits?provider=openai`.
+
 ## Models
 
 From `model-registry.toml` (audited 2026-08-20). Status is the registry string; dates are `shutdown_date` / `retirement_not_before`.

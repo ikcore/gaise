@@ -30,7 +30,7 @@ The default suite must remain hermetic. Tests that need credentials, provider AP
 - `gaise-provider-elevenlabs/`: text-to-speech, streaming speech, realtime voice WebSocket (`live`), and model listing. No chat or embeddings surface.
 - `gaise-api/`: Axum JSON, SSE, and WebSocket server.
 - `gaise-chatbot/`: example CLI.
-- `wiki/`: the developer wiki — `README.md` index, `api.md`, `sdk.md`, `capabilities.md`, `models.md` (generated from the registry), `flows.md`, `examples.md`, `releasing.md`, and one `vendor-{provider}.md` per adapter. Keep it in step with behaviour changes; every page deep-links to source.
+- `wiki/`: the developer wiki — `README.md` index, `api.md`, `sdk.md`, `capabilities.md`, `models.md` (generated from the registry), `limits.md` (generated model × limits matrix), `reasoning.md`, `embeddings.md`, `flows.md`, `examples.md`, `releasing.md`, and one `vendor-{provider}.md` per adapter. Keep it in step with behaviour changes; every page deep-links to source.
 
 ## Core contracts
 
@@ -70,6 +70,10 @@ Every request type carries `connection: Option<GaiseConnection>` (`api_url`, `ap
 ### Model discovery
 
 `GaiseClient::list_models` returns `GaiseModel` records (`gaise_model.rs`). Adapters return bare provider IDs and only what the provider API actually reports, tagged `GaiseMetadataSource::Provider`; name-based inferences are tagged `Heuristic`. `GaiseSupport` is tri-state and empty modality lists mean *unknown* — never invent `Unsupported`. The router (`GaiseClientService`) rewrites IDs to `provider::id`, overlays `gaise_core::registry` (modalities are unioned; operations, flags, and lifecycle are filled only when unknown), filters by operation after enrichment, and reports per-provider failures in `errors` rather than dropping them. `operations` means "which GAISe trait methods can drive this model", not what the vendor advertises. Extra per-model requests (Ollama `/api/show`) must stay behind `include_details`. Every adapter's `list_models` needs a JSON-fixture test of the provider payload mapped to `GaiseModel`.
+
+### Model limits
+
+`GaiseModelLimits` (`context_window`, `max_input_tokens`, `max_output_tokens`, `max_input_characters`, `embedding_dimensions`) is the one shape for token and character limits; `None` means unknown, never unlimited. `context_window` is the vendor's documented window (Google's input token limit). Adapters set only what the provider API reports (Anthropic `max_input_tokens`/`max_tokens`, Gemini `inputTokenLimit`/`outputTokenLimit`, Ollama `context_length`, ElevenLabs `maximum_text_length_per_request`); every other figure lives as data in `model-registry.toml` (`context_window`, `max_output_tokens`, `max_input_characters` on the entry; embedding per-text limits in `[models.embedding]`) and the overlay fills only fields the provider left empty. `gaise_core::registry::limits_matrix` and `GET /v1/models/limits` serve the registry figures without credentials. `cargo test -p gaise` fails when an active instruct/live entry has no documented window, so when adding a model, verify the figure on the vendor page and record it in the same change; then regenerate `wiki/limits.md` (`cargo run -p gaise --example limits_matrix`). Request-builder output ceilings (`claude_family_rules`, Bedrock `max_output_ceiling`) remain part of the per-family parameter rules; model discovery itself never hard-codes a context size in an adapter.
 
 ## Provider-specific boundaries
 

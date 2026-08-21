@@ -167,6 +167,56 @@
 					"response": []
 				},
 				{
+					"name": "Limits matrix (registry, no credentials)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/v1/models/limits",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"v1",
+								"models",
+								"limits"
+							]
+						},
+						"description": "Every registry entry's documented `context_window`, `max_output_tokens`, `max_input_tokens`, `embedding_dimensions`, and `max_input_characters`, served from the bundled registry without contacting any provider."
+					},
+					"response": []
+				},
+				{
+					"name": "Limits matrix: Anthropic instruct models",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/v1/models/limits?provider=anthropic&operation=instruct",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"v1",
+								"models",
+								"limits"
+							],
+							"query": [
+								{
+									"key": "provider",
+									"value": "anthropic"
+								},
+								{
+									"key": "operation",
+									"value": "instruct"
+								}
+							]
+						},
+						"description": "Filters apply to the registry rows; `operation` accepts instruct, instruct_stream, embeddings, speech, live."
+					},
+					"response": []
+				},
+				{
 					"name": "Get one model",
 					"request": {
 						"method": "GET",
