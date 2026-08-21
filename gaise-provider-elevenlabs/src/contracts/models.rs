@@ -329,7 +329,8 @@ pub fn map_elevenlabs_model(model: &ElevenLabsModelInfo, include_raw: bool) -> G
     } else {
         GaiseModelStatus::Active
     };
-    out.limits.max_input_tokens = None;
+    // Speech is bounded by characters, not tokens.
+    out.limits.max_input_characters = model.maximum_text_length_per_request;
     let caps = &mut out.capabilities;
     caps.add_source(GaiseMetadataSource::Provider);
     caps.tools = GaiseSupport::Unsupported;
@@ -614,6 +615,8 @@ mod tests {
             models[0].notes.as_deref(),
             Some("max 5000 characters per request")
         );
+        assert_eq!(models[0].limits.max_input_characters, Some(5000));
+        assert_eq!(models[0].limits.context_window, None);
         assert_eq!(
             models[0].raw.as_ref().unwrap()["languages"][0]["language_id"],
             "en"

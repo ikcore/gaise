@@ -132,6 +132,8 @@ Mapping functions: [`stream_input_events`](../gaise-provider-elevenlabs/src/elev
 
 `GET /v1/models` → [`map_elevenlabs_model`](../gaise-provider-elevenlabs/src/contracts/models.rs). Provider-sourced: id, name, description, `can_do_text_to_speech` (→ input `text`, output `audio`, operations `speech` + `live`), `can_do_voice_conversion` (→ input `audio`), `requires_alpha_access` (→ `preview`), `maximum_text_length_per_request` (→ notes). Tools, reasoning, and structured output are `unsupported`. The registry overlay adds lifecycle notes and the `eleven_v3_conversational` live-only override.
 
+**Limits.** `maximum_text_length_per_request` is provider-sourced and becomes `limits.max_input_characters` (also echoed in `notes`); speech models have no token window. The documented per-model character budgets are in [limits.md](limits.md).
+
 ## Models
 
 | Model | Aliases | Status | Input | Output | Ops | GAISe support / notes |

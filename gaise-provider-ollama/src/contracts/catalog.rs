@@ -123,6 +123,9 @@ pub fn apply_ollama_show(model: &mut GaiseModel, show: &OllamaShowResponse, incl
             if key.ends_with(".context_length")
                 && let Some(v) = value.as_u64()
             {
+                // The architecture's trained window; Ollama serves it with a
+                // smaller default `num_ctx` unless the request raises it.
+                model.limits.context_window = Some(v);
                 model.limits.max_input_tokens = Some(v);
             }
             if key.ends_with(".embedding_length")
@@ -177,6 +180,7 @@ mod tests {
         assert_eq!(qwen.capabilities.tools, GaiseSupport::Supported);
         assert_eq!(qwen.capabilities.reasoning, GaiseSupport::Supported);
         assert_eq!(qwen.limits.max_input_tokens, Some(40_960));
+        assert_eq!(qwen.limits.context_window, Some(40_960));
         assert_eq!(
             qwen.limits.embedding_dimensions, None,
             "only meaningful for embedding models"

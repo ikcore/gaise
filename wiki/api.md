@@ -14,6 +14,7 @@
 - [`POST /v1/embeddings`](#post-v1embeddings)
 - [`GET /v1/models`](#get-v1models)
 - [`GET /v1/models/{provider}::{id}`](#get-v1modelsproviderid)
+- [`GET /v1/models/limits`](#get-v1modelslimits)
 - [`GET /v1/live`](#get-v1live)
 - [`POST /v1/speech`](#post-v1speech)
 - [`POST /v1/speech/stream`](#post-v1speechstream)
@@ -72,6 +73,7 @@ GAISe does not restrict IDs to an allowlist. Use [`GET /v1/models`](#get-v1model
 | `POST` | `/v1/embeddings` | `GaiseEmbeddingsRequest` | `GaiseEmbeddingsResponse` | [`handle_embeddings`](../gaise-api/src/lib.rs) |
 | `GET` | `/v1/models` | query | `GaiseListModelsResponse` | [`handle_list_models`](../gaise-api/src/lib.rs) |
 | `GET` | `/v1/models/{provider}::{id}` | query | `GaiseModel` | [`handle_get_model`](../gaise-api/src/lib.rs) |
+| `GET` | `/v1/models/limits` | query | `GaiseModelLimitsMatrix` | [`handle_model_limits`](../gaise-api/src/lib.rs) |
 | `GET` | `/v1/live` | WebSocket | `GaiseLiveEvent` frames | [`handle_live_ws`](../gaise-api/src/lib.rs) (`live` feature) |
 | `POST` | `/v1/speech` | `GaiseSpeechRequest` | `GaiseSpeechResponse` | [`handle_speech`](../gaise-api/src/lib.rs) (`elevenlabs` feature, default) |
 | `POST` | `/v1/speech/stream` | `GaiseSpeechRequest` | SSE of `GaiseSpeechStreamResponse` | [`handle_speech_stream`](../gaise-api/src/lib.rs) |
@@ -310,7 +312,7 @@ sequenceDiagram
         "structured_output": "supported",
         "sources": ["provider", "registry"]
       },
-      "limits": { "max_input_tokens": 1000000, "max_output_tokens": 128000 }
+      "limits": { "context_window": 1000000, "max_input_tokens": 1000000, "max_output_tokens": 128000 }
     },
     {
       "id": "openai::text-embedding-3-small",
@@ -322,7 +324,7 @@ sequenceDiagram
         "tools": "unsupported", "reasoning": "unsupported", "structured_output": "unknown",
         "sources": ["provider", "heuristic", "registry"]
       },
-      "limits": {}
+      "limits": { "max_input_tokens": 8192, "embedding_dimensions": 1536 }
     }
   ],
   "errors": [ { "provider": "ollama", "message": "error sending request for url (http://localhost:11434/api/tags)" } ]
@@ -334,6 +336,7 @@ Semantics (details in [capabilities.md#model-discovery](capabilities.md#model-di
 - `tools`, `reasoning`, `structured_output` are `supported` / `unsupported` / `unknown`; empty `input`/`output` means unknown.
 - `operations` lists the GAISe routes that can drive the model; image-generation, TTS, and transcription models have an empty list.
 - `sources` is provenance: `provider`, `registry`, `heuristic`.
+- `limits` (`context_window`, `max_input_tokens`, `max_output_tokens`, `max_input_characters`, `embedding_dimensions`) holds what the provider reported, with the registry filling only the fields left unknown; an absent field means unknown, never unlimited. The full matrix is in [limits.md](limits.md).
 - Without `provider`, failures are reported per provider in `errors` (omitted when empty) and never hide other providers. With `provider`, a failure is HTTP 500.
 - Bedrock lists foundation models and cross-region inference profiles (`us.`, `global.` …), which inherit the foundation model's capabilities.
 - Which providers take part is decided by [`configured_providers`](../gaise-client/src/lib.rs): a key + URL for the SaaS providers, SA + URL for Vertex, `BEDROCK_REGION` for Bedrock, `OLLAMA_URL` for Ollama, plus any custom clients.
@@ -345,6 +348,64 @@ Returns the single enriched record for one routable ID, or 404 when the provider
 ```http
 GET /v1/models/ollama::qwen3:8b?include_details=true
 ```
+
+## `GET /v1/models/limits`
+
+The registry's model × limits matrix — every entry's documented `context_window`, `max_output_tokens`, `max_input_tokens`, `embedding_dimensions`, and `max_input_characters` — served from the bundled [`model-registry.toml`](../gaise-core/model-registry.toml) without contacting any provider, so it needs no credentials and never fails partially. Use it to size prompts before choosing a model; use [`GET /v1/models`](#get-v1models) when you want the provider's live figure (it takes precedence in that response).
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as gaise-api
+    participant G as Registry
+    C->>A: GET /v1/models/limits?provider=&operation=
+    A->>A: validate operation (400 on unknown)
+    A->>G: limits_matrix(provider)
+    G-->>A: one row per entry (id, status, operations, limits)
+    A->>A: retain_operation
+    A-->>C: 200 GaiseModelLimitsMatrix
+```
+
+| Query | Meaning |
+|---|---|
+| `provider` | One provider key. Omit for every provider in the registry. |
+| `operation` | Keep only entries mapped to `instruct`, `instruct_stream`, `embeddings`, `speech`, or `live`. |
+
+```json
+{
+  "audited_on": "2026-08-20",
+  "source": "registry",
+  "models": [
+    {
+      "id": "openai::gpt-5.6",
+      "provider": "openai",
+      "aliases": ["gpt-5.6-sol"],
+      "status": "active",
+      "operations": ["instruct", "instruct_stream"],
+      "context_window": 1050000,
+      "max_output_tokens": 128000,
+      "notes": "…"
+    },
+    {
+      "id": "openai::text-embedding-3-small",
+      "provider": "openai",
+      "status": "active",
+      "operations": ["embeddings"],
+      "max_input_tokens": 8192,
+      "embedding_dimensions": 1536
+    },
+    {
+      "id": "elevenlabs::eleven_flash_v2_5",
+      "provider": "elevenlabs",
+      "status": "active",
+      "operations": ["speech", "live"],
+      "max_input_characters": 40000
+    }
+  ]
+}
+```
+
+Rows are [`GaiseModelLimitsEntry`](../gaise-core/src/contracts/gaise_model.rs) with the limits flattened; wildcard families (`ollama::qwen3:*`, `bedrock::amazon.nova-*`) keep their pattern as `id`. The figures and their sources are explained in [limits.md](limits.md).
 
 ## `GET /v1/live`
 
@@ -479,7 +540,7 @@ Every JSON shape is the serde form of a core contract — the field-level refere
 
 | Status | When |
 |---|---|
-| `400` | Unknown `operation` query value; `GET /v1/models/{id}` without `::`; malformed JSON (Axum rejection) |
+| `400` | Unknown `operation` query value (`/v1/models`, `/v1/models/limits`); `GET /v1/models/{id}` without `::`; malformed JSON (Axum rejection) |
 | `404` | `GET /v1/models/{id}` not present in the provider's listing |
 | `502` | `POST /v1/speech/audio` when the provider returned no audio |
 | `500` | Routing failure (`Model name must be in the format 'provider::model'`, `Unknown or disabled provider`, `… not configured`) or any provider error, with the provider's message as the body |

@@ -11,7 +11,8 @@ GAISe (Generative AI Service) is a Rust workspace that maps one provider-neutral
 | [**capabilities.md**](capabilities.md) | What each adapter can and cannot do: operations, modalities, tools, per-family parameter compatibility, reasoning, generation controls, streaming, live, speech, embeddings, usage counters, and the model-discovery rules (tri-state support, provenance, registry overlay, vocabulary). |
 | [**reasoning.md**](reasoning.md) | The universal thinking/reasoning vocabulary (`none`…`ultra` + aliases), the resolution rules, the per-vendor mapping, and a generated model × level matrix showing exactly what each provider receives. |
 | [**embeddings.md**](embeddings.md) | Every embedding model per provider — dimensions, token and batch limits, task types, normalization, lifecycle — with best practices per vendor and the `task` / `dimensions` / `normalize` contract. |
-| [**models.md**](models.md) | Every model in the bundled registry (146 entries), per vendor, with modalities, operations, reasoning values, lifecycle dates, and GAISe support notes; plus the retirement calendar and maintenance procedure. |
+| [**limits.md**](limits.md) | Every model's documented context window, max output, per-input token limit, embedding dimensions, and character budget — one typed `limits` object, a generated model × limits matrix, and `GET /v1/models/limits` to serve it without credentials. |
+| [**models.md**](models.md) | Every model in the bundled registry (149 entries), per vendor, with modalities, operations, reasoning values, lifecycle dates, and GAISe support notes; plus the retirement calendar and maintenance procedure. |
 | [**flows.md**](flows.md) | Mermaid diagrams of routing, instruct, multimodal mapping, streaming, tool loops, usage normalization, embeddings, model discovery, live sessions, and retries. |
 | [**examples.md**](examples.md) | Rust request examples for text, media, files, reasoning, generated images, tools, streaming, embeddings, discovery, and live. |
 | [**releasing.md**](releasing.md) | Version synchronization, package verification, and crates.io publish order. |
@@ -39,6 +40,7 @@ Each vendor page follows the same outline — configuration, request mapping (ro
 - **Which reasoning level should I send?** [reasoning.md](reasoning.md) — one vocabulary, `ultra` for "the most this model offers", and a matrix of what each model receives.
 - **Will model Z accept this parameter?** [capabilities.md#parameter-compatibility-by-family](capabilities.md#parameter-compatibility-by-family) and the vendor page's "Parameter compatibility" table — the adapters filter requests to what each family accepts.
 - **Which models exist and when do they retire?** [models.md](models.md) and `GET /v1/models` ([api.md#get-v1models](api.md#get-v1models)).
+- **How big is model Z's context window?** [limits.md](limits.md) — the matrix, the `limits` object on every `GET /v1/models` record, and `GET /v1/models/limits` ([api.md#get-v1modelslimits](api.md#get-v1modelslimits)) for the registry figures without credentials.
 - **Extending an adapter?** The vendor page's "Request mapping" and "Tests" sections, then [CLAUDE.md](../CLAUDE.md) for the repository rules.
 
 ## Architecture
@@ -115,6 +117,7 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-targets --all-features
 cargo run -p gaise --example registry_json   # dump the registry used to generate models.md
+cargo run -p gaise --example limits_matrix   # regenerate the matrix in limits.md
 ```
 
 The suite is hermetic: tests that need credentials, a provider API, or a running Ollama are `#[ignore]`d with a reason.

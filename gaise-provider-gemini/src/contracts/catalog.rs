@@ -67,7 +67,10 @@ pub fn map_google_model(provider: &str, model: &GeminiModelInfo, include_raw: bo
     let mut out = GaiseModel::new(provider, id.clone());
     out.display_name = model.display_name.clone();
     out.description = model.description.clone();
+    // Google documents an input limit and a separate output limit; the input
+    // limit is the figure its model pages call the context window.
     out.limits.max_input_tokens = model.input_token_limit.filter(|v| *v > 0);
+    out.limits.context_window = out.limits.max_input_tokens;
     out.limits.max_output_tokens = model.output_token_limit.filter(|v| *v > 0);
     let lower = id.to_ascii_lowercase();
     out.status = if lower.contains("preview") || lower.contains("-exp") {
@@ -183,6 +186,7 @@ mod tests {
         );
         assert_eq!(models[0].capabilities.reasoning, GaiseSupport::Supported);
         assert_eq!(models[0].limits.max_input_tokens, Some(1_048_576));
+        assert_eq!(models[0].limits.context_window, Some(1_048_576));
         assert_eq!(models[0].limits.max_output_tokens, Some(65_536));
         assert_eq!(models[0].status, GaiseModelStatus::Active);
         assert_eq!(

@@ -438,7 +438,7 @@ let embed = service.list_models(&GaiseListModelsRequest {
 }).await?;
 ```
 
-[`GaiseModel`](../gaise-core/src/contracts/gaise_model.rs) fields: `id` (routable), `provider`, `display_name`, `description`, `created_at`, `status`, `retires_on`, `retirement_not_before`, `replacement`, `notes`, `capabilities` (`input`, `output`, `operations` — `instruct`, `instruct_stream`, `embeddings`, `speech`, `live` — `tools`, `reasoning`, `reasoning_values`, `structured_output`, `sources`), `limits` (`max_input_tokens`, `max_output_tokens`, `embedding_dimensions`), `raw`.
+[`GaiseModel`](../gaise-core/src/contracts/gaise_model.rs) fields: `id` (routable), `provider`, `display_name`, `description`, `created_at`, `status`, `retires_on`, `retirement_not_before`, `replacement`, `notes`, `capabilities` (`input`, `output`, `operations` — `instruct`, `instruct_stream`, `embeddings`, `speech`, `live` — `tools`, `reasoning`, `reasoning_values`, `structured_output`, `sources`), `limits` (`context_window`, `max_input_tokens`, `max_output_tokens`, `max_input_characters`, `embedding_dimensions` — see [limits.md](limits.md)), `raw`.
 
 ```mermaid
 flowchart LR
@@ -461,6 +461,21 @@ Rules (enforced in [`gaise-client/src/lib.rs`](../gaise-client/src/lib.rs) and [
 - Aggregate listings never fail because one provider failed — read `errors`. A single-provider request propagates the error.
 - `include_details` triggers extra per-model calls (Ollama `/api/show`); `include_raw` attaches the provider's native record.
 - Direct clients return bare IDs and no registry overlay; call [`gaise_core::registry::enrich`](../gaise-core/src/registry.rs) yourself if you need it.
+- `limits` is filled field by field: a provider-reported `context_window` or `max_output_tokens` is kept and the registry supplies only what is still `None` ([`GaiseModelLimits::fill`](../gaise-core/src/contracts/gaise_model.rs)).
+
+For the documented limits without a provider round-trip, read the registry directly — [`gaise_core::registry::limits_matrix(provider)`](../gaise-core/src/registry.rs) returns a [`GaiseModelLimitsMatrix`](../gaise-core/src/contracts/gaise_model.rs) (`audited_on`, one [`GaiseModelLimitsEntry`](../gaise-core/src/contracts/gaise_model.rs) per entry with `id`, `status`, `operations`, and the limits), which is what `GET /v1/models/limits` serves:
+
+```rust
+use gaise_core::registry::{ModelRegistry, limits_matrix};
+
+let anthropic = limits_matrix(Some("anthropic"));
+for row in &anthropic.models {
+    println!("{} → {:?} / {:?}", row.id, row.limits.context_window, row.limits.max_output_tokens);
+}
+// One model, including wildcard and snapshot resolution:
+let entry = ModelRegistry::bundled().find("bedrock", "us.anthropic.claude-opus-5-v1:0");
+let window = entry.and_then(|e| e.context_window); // Some(1_000_000)
+```
 
 What each provider API can report is tabulated in [capabilities.md#model-discovery](capabilities.md#model-discovery); the full catalog is in [models.md](models.md).
 

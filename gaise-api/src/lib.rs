@@ -15,6 +15,7 @@ use gaise_core::{
     contracts::{
         GaiseEmbeddingsRequest, GaiseInstructRequest, GaiseListModelsRequest, GaiseOperation,
     },
+    registry,
 };
 use std::sync::Arc;
 use tracing::error;
@@ -42,6 +43,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .route("/v1/instruct/stream", post(handle_instruct_stream))
         .route("/v1/embeddings", post(handle_embeddings))
         .route("/v1/models", get(handle_list_models))
+        .route("/v1/models/limits", get(handle_model_limits))
         .route("/v1/models/:model", get(handle_get_model));
 
     #[cfg(feature = "live")]
@@ -153,6 +155,42 @@ async fn handle_list_models(
             (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
         }
     }
+}
+
+/// Query parameters for `GET /v1/models/limits`.
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct ModelLimitsQuery {
+    /// Restrict to one provider key.
+    pub provider: Option<String>,
+    /// Keep only entries mapped to this operation.
+    pub operation: Option<String>,
+}
+
+/// `GET /v1/models/limits` — the registry's model × limits matrix
+/// (`context_window`, `max_input_tokens`, `max_output_tokens`,
+/// `embedding_dimensions`), served without contacting any provider or
+/// needing credentials. `GET /v1/models` carries the same fields per model,
+/// with provider-reported values taking precedence over the registry.
+async fn handle_model_limits(Query(query): Query<ModelLimitsQuery>) -> impl IntoResponse {
+    let operation = match query.operation.as_deref() {
+        None | Some("") => None,
+        Some(value) => match GaiseOperation::parse(value) {
+            Some(op) => Some(op),
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    format!("unknown operation '{value}'"),
+                )
+                    .into_response();
+            }
+        },
+    };
+    let provider = query.provider.filter(|p| !p.is_empty());
+    let mut matrix = registry::limits_matrix(provider.as_deref());
+    if let Some(operation) = operation {
+        matrix.models.retain(|m| m.operations.contains(&operation));
+    }
+    Json(matrix).into_response()
 }
 
 /// `GET /v1/models/{provider}::{id}` — one model from one provider's listing.

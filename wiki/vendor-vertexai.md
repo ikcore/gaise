@@ -227,6 +227,8 @@ Not supported. The crate implements only `GaiseClient`; there is no `GaiseLiveCl
 
 Tests: [`catalog.rs#L150`](../gaise-provider-vertexai/src/contracts/catalog.rs#L150) (`derives_catalog_endpoint_from_template`, `maps_publisher_models`).
 
+**Limits.** Model Garden listing reports no token limits, so `limits.context_window` / `limits.max_output_tokens` are registry-sourced from the Vertex AI model pages (now under `docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/`), which are recorded separately from the Gemini API's figures. See [limits.md](limits.md).
+
 ## Models
 
 From `model-registry.toml` (audited 2026-08-20), `provider = "vertexai"` entries. Dates are Google Cloud dates only; Gemini API (`gemini`) lifecycle dates must never be copied here or vice versa. "Short-term" models retire 45 days after a designated replacement ships.

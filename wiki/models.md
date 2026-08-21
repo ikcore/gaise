@@ -10,6 +10,7 @@ The tables below are generated from the registry with [`cargo run -p gaise --exa
 - **Ops** — GAISe operations the entry maps to: `I` instruct, `S` instruct_stream, `E` embeddings, `V` speech (voice), `L` live. Empty means no GAISe surface drives the model (image generation, TTS, bidirectional audio).
 - **Tools / Reasoning** — ✓ supported, ✗ not listed, and the `reasoning_values` the provider documents.
 - **Dates** — `shutdown` is a published retirement date; `not before` is an availability guarantee. Gemini API and Vertex AI dates are **never** interchangeable.
+- **Limits** — context windows, output ceilings, per-input token limits, and character budgets are not repeated here; see [limits.md](limits.md) for the generated model × limits matrix and `GET /v1/models/limits`.
 
 ## Contents
 
@@ -18,7 +19,7 @@ The tables below are generated from the registry with [`cargo run -p gaise --exa
 - [Anthropic](#anthropic) — 15 entries
 - [Google Gemini API](#gemini) — 24 entries
 - [Google Vertex AI](#vertexai) — 19 entries
-- [Amazon Bedrock](#bedrock) — 30 entries
+- [Amazon Bedrock](#bedrock) — 33 entries
 - [Ollama](#ollama) — 16 entries
 - [ElevenLabs](#elevenlabs) — 9 entries
 - [Maintaining the registry](#maintaining-the-registry)
@@ -248,6 +249,9 @@ Model IDs, inference profiles, and lifecycle are **region-specific**; entries ar
 | `amazon.nova-2-lite-v1:0` | — | `active` | — | text, image, video, file | text | IS | ✓ | ✗ | native via Converse — The only Converse-capable Nova 2 model. Client-side tool calling supported; structured… |
 | `amazon.nova-2-sonic-v1:0` | — | `active` | — | text, audio | text, audio | — | ✓ | ✗ | not supported: InvokeModelWithBidirectionalStream only |
 | `amazon.nova-2-multimodal-embeddings-v1:0` | — | `active` | — | text, image, audio, video | embedding | E | ✗ | ✗ | text embeddings via InvokeModel (SINGLE_EMBEDDING schema); image/audio/video input not mapped — us-east-1 and… |
+| `amazon.nova-pro-v1:0` | — | `active` | — | text, image, video, file | text | IS | ✓ | ✗ | native via Converse — Bedrock model card: 300K context, 5K max output (the Nova user guide's spec table says 10K; the request schema… |
+| `amazon.nova-lite-v1:0` | — | `active` | — | text, image, video, file | text | IS | ✓ | ✗ | native via Converse — Bedrock model card: 300K context, 5K max output (the Nova user guide's spec table says 10K; the request schema… |
+| `amazon.nova-micro-v1:0` | — | `active` | — | text | text | IS | ✓ | ✗ | native via Converse — Text only. Bedrock model card: 128K context, 5K max output (the Nova user guide's spec table says 10K; the requ… |
 | `amazon.nova-*` | — | `dynamic_active_family` | — | text, image, video, file | text | IS | ✓ | ✗ | Converse where the regional catalog lists the model — Nova Pro/Lite/Micro (v1) remain Active with regional us… |
 | `amazon.titan-embed-text-v2:0` | — | `active` | — | text | embedding | E | ✗ | ✗ | native via InvokeModel — In-region only. 8,192 tokens / 50,000 characters per text; one text per call; `norma… |
 | `amazon.titan-embed-text-v1` | — | `active` | — | text | embedding | E | ✗ | ✗ | native via InvokeModel — First-generation Titan text embeddings; fixed 1536 dimensions, one text per call. |

@@ -260,6 +260,8 @@ Server events (receive loop, [L535–L700](../gaise-provider-gemini/src/gemini_l
 
 The router clears the operation filter before calling the provider and re-applies it after enrichment ([`list_provider_models`](../gaise-client/src/lib.rs#L254)). Catalog tests: [`maps_methods_to_operations`](../gaise-provider-gemini/src/contracts/catalog.rs#L168).
 
+**Limits.** `inputTokenLimit` and `outputTokenLimit` are provider-sourced and become `limits.context_window` / `limits.max_input_tokens` / `limits.max_output_tokens`; the registry fills them only when the API omits them. The documented figures per model, and where they differ from Vertex AI (`gemini-2.5-flash-image`), are in [limits.md](limits.md).
+
 ## Models
 
 From the bundled registry (audited 2026-08-20), entries with `provider = "gemini"`. Dates are Gemini API dates only; Vertex AI has a separate lifecycle. "—" means none recorded.

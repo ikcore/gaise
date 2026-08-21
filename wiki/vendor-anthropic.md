@@ -249,6 +249,8 @@ Not supported. The crate implements only `GaiseClient`; there is no `GaiseLiveCl
 
 There are no heuristics from the model name and no opt-in detail calls (`include_details` is ignored). `thinking.types.adaptive/enabled` are parsed but not surfaced on the common record. Tests: [`catalog.rs#L162`](../gaise-provider-anthropic/src/contracts/catalog.rs#L162) (`maps_capabilities_limits_and_effort`, `tolerates_missing_capabilities_object`).
 
+**Limits.** `max_input_tokens` (Anthropic's name for the context window) and `max_tokens` are provider-sourced and become `limits.context_window` / `limits.max_input_tokens` / `limits.max_output_tokens` ([`map_anthropic_model`](../gaise-provider-anthropic/src/contracts/catalog.rs)); the registry only fills them when the API returns zero. Documented figures for every Claude model, including Bedrock-hosted differences, are in [limits.md](limits.md).
+
 ## Models
 
 From `gaise-core/model-registry.toml` (audited 2026-08-20), entries with `provider = "anthropic"`. The registry is advisory; arbitrary IDs are accepted. Dates are the direct Claude API lifecycle — Bedrock-hosted Claude is tracked separately.

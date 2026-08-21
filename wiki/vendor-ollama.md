@@ -206,6 +206,8 @@ Registry-filled: the router ([`list_provider_models`](../gaise-client/src/lib.rs
 
 Catalog tests: [`maps_tags_and_show_details`](../gaise-provider-ollama/src/contracts/catalog.rs#L152) covers tag mapping, capability flags, context/embedding lengths, raw trimming, and a vision-only show payload.
 
+**Limits.** With `include_details`, `/api/show`'s `<arch>.context_length` becomes `limits.context_window` / `limits.max_input_tokens` and `embedding_length` becomes `limits.embedding_dimensions` for the installed tag, overriding the registry's family figure (recorded at the smallest tag's window, with per-tag variation in the notes). Without it, the registry figure applies. Remember the served window is the request's `num_ctx`, not the trained value. See [limits.md](limits.md).
+
 ## Models
 
 Registry entries for `ollama` (audited 2026-08-20). Every entry is a family glob with `status = dynamic_local` (mapped to `Active`); no lifecycle dates exist because Ollama has no central retirement calendar. Which tags actually exist, and their vision/tool/thinking support, comes from the local daemon.

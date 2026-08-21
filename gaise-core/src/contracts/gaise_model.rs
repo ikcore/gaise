@@ -95,12 +95,13 @@ impl GaiseSupport {
 }
 
 /// Where a capability claim came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GaiseMetadataSource {
     /// Reported by the provider's model API.
     Provider,
     /// Filled from the bundled `model-registry.toml`.
+    #[default]
     Registry,
     /// Inferred from the model identifier by an adapter rule.
     Heuristic,
@@ -177,14 +178,101 @@ fn push_unique<T: PartialEq + Ord>(items: &mut Vec<T>, item: T) {
     }
 }
 
+/// Token and size limits for one model.
+///
+/// `None` always means *unknown*, never "unlimited". Values come from the
+/// provider's model API where it reports them (Anthropic `max_input_tokens` /
+/// `max_tokens`, Gemini `inputTokenLimit` / `outputTokenLimit`, Ollama
+/// `context_length`) and otherwise from the bundled registry, which records the
+/// vendor-documented figures; `capabilities.sources` says which applied.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct GaiseModelLimits {
+    /// The model's context window in tokens: the vendor-documented total a
+    /// single request can hold. OpenAI, Anthropic, Bedrock, and Ollama
+    /// document one shared window for prompt plus generation; Google
+    /// documents an *input* token limit with a separate output limit, and
+    /// that input limit is recorded here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u64>,
+    /// Maximum tokens in one input where the provider reports an input-side
+    /// ceiling distinct from the window: the per-text limit of embedding
+    /// models, Anthropic's `max_input_tokens`, Gemini's `inputTokenLimit`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_input_tokens: Option<u64>,
+    /// Maximum tokens the model can generate in one response.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_output_tokens: Option<u64>,
+    /// Maximum input characters per request, for models billed and bounded
+    /// by characters rather than tokens (text-to-speech).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_input_characters: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub embedding_dimensions: Option<u32>,
+}
+
+impl GaiseModelLimits {
+    /// Fill every unknown field from `other`. Returns `true` if anything was
+    /// applied; known values are never replaced.
+    pub fn fill(&mut self, other: &GaiseModelLimits) -> bool {
+        let mut applied = false;
+        if self.context_window.is_none() && other.context_window.is_some() {
+            self.context_window = other.context_window;
+            applied = true;
+        }
+        if self.max_input_tokens.is_none() && other.max_input_tokens.is_some() {
+            self.max_input_tokens = other.max_input_tokens;
+            applied = true;
+        }
+        if self.max_output_tokens.is_none() && other.max_output_tokens.is_some() {
+            self.max_output_tokens = other.max_output_tokens;
+            applied = true;
+        }
+        if self.max_input_characters.is_none() && other.max_input_characters.is_some() {
+            self.max_input_characters = other.max_input_characters;
+            applied = true;
+        }
+        if self.embedding_dimensions.is_none() && other.embedding_dimensions.is_some() {
+            self.embedding_dimensions = other.embedding_dimensions;
+            applied = true;
+        }
+        applied
+    }
+
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// One row of the registry limits matrix: the documented limits of one
+/// registry entry, independent of any provider credentials.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct GaiseModelLimitsEntry {
+    /// Routable `provider::model` identifier (registry wildcards such as
+    /// `ollama::qwen3:*` are kept verbatim).
+    pub id: String,
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aliases: Vec<String>,
+    #[serde(default)]
+    pub status: GaiseModelStatus,
+    /// GAISe operations the entry maps to (see [`GaiseModelCapabilities`]).
+    #[serde(default)]
+    pub operations: Vec<GaiseOperation>,
+    #[serde(flatten)]
+    pub limits: GaiseModelLimits,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+}
+
+/// The registry's model × limits matrix, as served by `GET /v1/models/limits`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct GaiseModelLimitsMatrix {
+    /// Date the bundled registry was last audited against vendor docs.
+    pub audited_on: String,
+    /// Provenance of every row; always `registry`.
+    pub source: GaiseMetadataSource,
+    #[serde(default)]
+    pub models: Vec<GaiseModelLimitsEntry>,
 }
 
 /// A model as seen through GAISe.
@@ -368,6 +456,45 @@ mod tests {
         assert_eq!(rfc3339_from_unix(1_686_935_002), "2023-06-16T17:03:22Z");
         assert_eq!(rfc3339_from_unix(1_709_164_800), "2024-02-29T00:00:00Z");
         assert_eq!(rfc3339_from_unix(1_784_851_200), "2026-07-24T00:00:00Z");
+    }
+
+    #[test]
+    fn limits_fill_only_replaces_unknown() {
+        let mut limits = GaiseModelLimits {
+            context_window: Some(200_000),
+            ..Default::default()
+        };
+        let registry = GaiseModelLimits {
+            context_window: Some(1_000_000),
+            max_output_tokens: Some(128_000),
+            ..Default::default()
+        };
+        assert!(limits.fill(&registry));
+        assert_eq!(limits.context_window, Some(200_000), "provider value wins");
+        assert_eq!(limits.max_output_tokens, Some(128_000));
+        assert!(!limits.fill(&registry), "nothing left to fill");
+        assert!(GaiseModelLimits::default().is_empty());
+    }
+
+    #[test]
+    fn limits_entry_flattens_limits_into_the_row() {
+        let entry = GaiseModelLimitsEntry {
+            id: "openai::gpt-5.6".into(),
+            provider: "openai".into(),
+            limits: GaiseModelLimits {
+                context_window: Some(400_000),
+                max_output_tokens: Some(128_000),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&entry).unwrap();
+        assert_eq!(json["context_window"], 400_000);
+        assert_eq!(json["max_output_tokens"], 128_000);
+        assert!(json.get("max_input_tokens").is_none());
+        assert!(json.get("limits").is_none());
+        let back: GaiseModelLimitsEntry = serde_json::from_value(json).unwrap();
+        assert_eq!(back, entry);
     }
 
     #[test]
