@@ -48,6 +48,7 @@ tokio = { version = "1", features = ["full"] }
 # gaise-provider-vertexai = "0.2"
 # gaise-provider-bedrock = "0.2"
 # gaise-provider-ollama = "0.2"
+# gaise-provider-elevenlabs = "0.2"
 ```
 
 ## Router quick start
