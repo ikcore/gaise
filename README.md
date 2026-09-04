@@ -12,7 +12,7 @@ Written by Ian Knowles. Project page: [BadAI](https://badai.company/open-source/
 ## What is included
 
 - A shared `GaiseClient` trait with `instruct`, `instruct_stream`, and `embeddings`.
-- Router-style model names such as `gemini::gemini-3.6-flash`.
+- Router-style model names such as `gemini::gemini-3.8-flash`.
 - Ordered multimodal content: text, reasoning summaries, images, audio, files, and nested parts.
 - Tool calling with nested JSON schemas and provider thought-signature round trips.
 - Model-aware reasoning controls, prompt caching, retry handling, modality-aware input/output/total usage reporting, and robust stream framing.
@@ -24,12 +24,12 @@ Written by Ian Knowles. Project page: [BadAI](https://badai.company/open-source/
 
 | Provider | Main API surface | Current model examples |
 |---|---|---|
-| OpenAI | Chat Completions, Embeddings, Realtime | GPT-5.6 family, GPT-5.5/5.4, text-embedding-3, Realtime 2.1 |
-| Anthropic | Messages | Claude Fable 5, Opus 4.8, Sonnet 5, Haiku 4.5 |
-| Gemini | generateContent, Embeddings, Live | Gemini 3.6 Flash, 3.5 Flash/Lite, 3.1 Pro/image, 3.1 Flash Live |
-| Vertex AI | generateContent, Embeddings | Google Cloud Gemini catalog, including image-output models |
-| Bedrock | Converse, ConverseStream, InvokeModel | Claude, Amazon Nova, Titan and Cohere embeddings |
-| Ollama | Chat and Embeddings | Any installed compatible tag; vision, thinking, and tools are model-dependent |
+| OpenAI | Chat Completions, Embeddings, Realtime | GPT-6 Astra (text and images; tool calling is Responses-only), GPT-5.6 Sol/Terra/Luna, GPT-5.5/5.4/5.2/5.1, GPT-4.1, text-embedding-3, Realtime 2.1 |
+| Anthropic | Messages | Claude Fable 5.1, Opus 5, Sonnet 5, Haiku 4.5; Fable 5 and the Opus/Sonnet 4.x line stay available as legacy |
+| Gemini | generateContent, Embeddings, Live | Gemini 3.8/3.7/3.6 Flash, 3.5 Flash/Flash-Lite, 3.1 Pro preview, 3.1 Flash Image, 3.1 Flash Live, gemini-embedding-2 |
+| Vertex AI | generateContent, Embeddings | Gemini 3.8 Flash through 3.1 Flash-Lite, 3.1 Pro preview, image-output models, gemini-embedding-001 and text-embedding-005 |
+| Bedrock | Converse, ConverseStream, InvokeModel | Claude Fable 5.1 / Opus 5 / Sonnet 5 / Haiku 4.5, Amazon Nova 2 Lite and Nova Pro/Lite/Micro, OpenAI GPT-5.6 and gpt-oss, xAI Grok 4.6, DeepSeek V3.2, Mistral Large 3, Llama 4, Qwen3 Coder; Titan, Cohere, and Nova embeddings |
+| Ollama | Chat and Embeddings | Any installed tag (Qwen 3.5–3.8, GPT-OSS, Gemma 4, DeepSeek R1, Llama 4, Muse Glimmer, Laguna S 2.1, and the common embedding families); vision, thinking, and tools are model-dependent |
 
 GAISe also wraps ElevenLabs for text-to-speech and realtime voice (`POST /v1/speech*`, `GET /v1/live`). Model availability changes quickly. [`gaise-core/model-registry.toml`](gaise-core/model-registry.toml) records the 2026-09-04 audit, including provider-specific retirement dates, and is bundled into the `gaise` crate so `list_models` can enrich what each provider's model API leaves out. The [wiki](wiki/README.md) is the complete developer guide: [HTTP API](wiki/api.md), [Rust SDK](wiki/sdk.md), [capabilities](wiki/capabilities.md), the full [model catalog](wiki/models.md), [flow diagrams](wiki/flows.md), [examples](wiki/examples.md), and one page per vendor ([OpenAI](wiki/vendor-openai.md), [Anthropic](wiki/vendor-anthropic.md), [Gemini](wiki/vendor-gemini.md), [Vertex AI](wiki/vendor-vertexai.md), [Bedrock](wiki/vendor-bedrock.md), [Ollama](wiki/vendor-ollama.md), [ElevenLabs](wiki/vendor-elevenlabs.md)).
 
@@ -65,7 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     });
 
     let request = GaiseInstructRequest {
-        model: "gemini::gemini-3.6-flash".to_string(),
+        model: "gemini::gemini-3.8-flash".to_string(),
         input: OneOrMany::One(GaiseMessage {
             role: "user".to_string(),
             content: Some(OneOrMany::One(GaiseContent::Text {
@@ -82,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 ```
 
-The router strips the provider prefix before calling the adapter. Direct provider clients therefore receive `gemini-3.6-flash`, while `GaiseClientService` receives `gemini::gemini-3.6-flash`.
+The router strips the provider prefix before calling the adapter. Direct provider clients therefore receive `gemini-3.8-flash`, while `GaiseClientService` receives `gemini::gemini-3.8-flash`.
 
 ## Multimodal input
 
