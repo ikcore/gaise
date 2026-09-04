@@ -57,8 +57,8 @@ flowchart TD
 
 ```toml
 [dependencies]
-gaise-core = { package = "gaise", version = "0.1" }
-gaise-client = { version = "0.1", default-features = false, features = ["openai", "anthropic", "live"] }
+gaise-core = { package = "gaise", version = "0.2" }
+gaise-client = { version = "0.2", default-features = false, features = ["openai", "anthropic", "live"] }
 ```
 
 [`gaise-client`](../gaise-client/Cargo.toml) enables all seven providers by default. The `live` feature adds `GaiseLiveClient` support for whichever of `openai` and `gemini` are also enabled.
