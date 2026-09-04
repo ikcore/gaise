@@ -11,7 +11,7 @@ Before packaging a release:
 3. Regenerate `Cargo.lock` and confirm every local `gaise*` package has the release version.
 4. Run the offline workspace checks before contacting a registry.
 
-For release 0.2.0, both the workspace package version and all internal dependency requirements must be `0.2.0`. Leaving an internal requirement at `0.1.2` makes a provider tarball compile against the old registry core, which does not contain the current multimodal, reasoning, tool-signature, and usage contracts.
+For release 0.2.1, both the workspace package version and all internal dependency requirements must be `0.2.1`. Leaving an internal requirement at `0.1.2` makes a provider tarball compile against the old registry core, which does not contain the current multimodal, reasoning, tool-signature, and usage contracts.
 
 ## Dependency and publish order
 
