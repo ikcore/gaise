@@ -171,9 +171,10 @@ fn openai_audio_format(format: Option<&str>) -> String {
     }
 }
 
-/// Chat Completions parameter rules per model family, audited 2026-08-20
-/// against the OpenAI model pages, the latest-model guide, and the Chat
-/// Completions reference (see `wiki/vendor-openai.md#model-family-rules`).
+/// Chat Completions parameter rules per model family, audited 2026-09-04
+/// against the OpenAI model pages, the latest-model guide, the reasoning
+/// guide, and the Chat Completions reference (see
+/// `wiki/vendor-openai.md#model-family-rules`).
 ///
 /// Unknown models get a pass-through profile so new releases keep working;
 /// known families get exact constraints so invalid combinations are never
@@ -197,6 +198,9 @@ pub struct OpenAIChatRules {
     pub original_image_detail: bool,
 }
 
+/// GPT-6 Astra: `none` and `minimal` return HTTP 400 (reasoning guide,
+/// 2026-09-03); the default is not documented.
+const EFFORT_6: &[&str] = &["low", "medium", "high", "xhigh", "max"];
 const EFFORT_56: &[&str] = &["none", "low", "medium", "high", "xhigh", "max"];
 const EFFORT_55: &[&str] = &["none", "low", "medium", "high", "xhigh"];
 const EFFORT_51: &[&str] = &["none", "low", "medium", "high"];
@@ -248,9 +252,12 @@ pub fn openai_chat_rules(model: &str) -> OpenAIChatRules {
     let starts = |p: &str| base.starts_with(p);
     let has = |p: &str| base.contains(p);
 
-    if has("-pro") && (starts("gpt-5") || starts("o1") || starts("o3"))
+    // `-pro` variants, `gpt-5.6-cyber`, and the Daybreak program models
+    // (`gpt-daybreak-red-latest`, `gpt-daybreak-blue-latest`) are served by
+    // the Responses API only.
+    if has("-pro") && (starts("gpt-5") || starts("gpt-6") || starts("o1") || starts("o3"))
         || has("cyber")
-        || starts("daybreak")
+        || has("daybreak")
     {
         return OpenAIChatRules {
             chat_supported: false,
@@ -259,6 +266,22 @@ pub fn openai_chat_rules(model: &str) -> OpenAIChatRules {
     }
     if has("chat-latest") || starts("chat-latest") {
         return NON_REASONING;
+    }
+    if starts("gpt-6") {
+        // GPT-6 Astra (released 2026-09-03). Chat Completions is served, but
+        // `reasoning.effort` `none`/`minimal` return 400, `temperature` /
+        // `top_p` are rejected, and function tools require the Responses API
+        // (see `chat_tools_require_responses`). `detail: original` is kept as
+        // on GPT-5.4+; OpenAI has not documented it for GPT-6 either way.
+        return OpenAIChatRules {
+            chat_supported: true,
+            reasoning: true,
+            effort_levels: EFFORT_6,
+            default_effort: None,
+            sampling_requires_none: false,
+            sampling_never: true,
+            original_image_detail: true,
+        };
     }
     if starts("gpt-audio")
         || has("-audio")
@@ -366,6 +389,32 @@ fn chat_tools_require_none_reasoning(model: &str) -> bool {
         || model
             .strip_prefix("gpt-5.6")
             .is_some_and(|suffix| suffix.starts_with('-'))
+}
+
+/// GPT-6 models are served by Chat Completions without function calling:
+/// "tool calling requires Responses" (latest-model guide, 2026-09-03), and
+/// unlike GPT-5.6 there is no `reasoning_effort: "none"` escape hatch because
+/// `none` itself returns 400. The instruct client fails fast with a clear
+/// message instead of forwarding a request OpenAI will reject.
+pub fn chat_tools_require_responses(model: &str) -> bool {
+    let m = model.to_ascii_lowercase();
+    let m = m.strip_prefix("ft:").unwrap_or(&m);
+    m.starts_with("gpt-6")
+}
+
+/// Fail fast when the request carries function tools that the model's Chat
+/// Completions surface cannot execute.
+fn ensure_chat_tools_supported(
+    request: &GaiseInstructRequest,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if has_function_tools(request) && chat_tools_require_responses(&request.model) {
+        return Err(format!(
+            "OpenAI model '{}' does not support function tools on Chat Completions; tool calling requires the Responses API, which the GAISe OpenAI instruct client does not implement yet. Remove `tools` or choose a GPT-5.x model",
+            request.model
+        )
+        .into());
+    }
+    Ok(())
 }
 
 fn has_function_tools(request: &GaiseInstructRequest) -> bool {
@@ -790,6 +839,7 @@ impl GaiseClient for GaiseClientOpenAI {
         Box<dyn std::error::Error + Send + Sync>,
     > {
         ensure_chat_supported(&request.model)?;
+        ensure_chat_tools_supported(request)?;
         let url = format!("{}/chat/completions", self.api_url);
 
         let mut openai_request = OpenAIChatRequest::from(request);
@@ -858,6 +908,7 @@ impl GaiseClient for GaiseClientOpenAI {
         request: &GaiseInstructRequest,
     ) -> Result<GaiseInstructResponse, Box<dyn std::error::Error + Send + Sync>> {
         ensure_chat_supported(&request.model)?;
+        ensure_chat_tools_supported(request)?;
         let url = format!("{}/chat/completions", self.api_url);
 
         let mut openai_request = OpenAIChatRequest::from(request);

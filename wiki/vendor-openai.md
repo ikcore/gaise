@@ -99,16 +99,18 @@ Mapped by [`map_content_parts`](../gaise-provider-openai/src/openai_client.rs#L1
 |---|---|---|
 | GPT-5.6 function tools require `reasoning_effort: "none"` | [`chat_tools_require_none_reasoning`](../gaise-provider-openai/src/openai_client.rs#L170) matches `gpt-5.6` exactly or any `gpt-5.6-*` suffix (Sol/Terra/Luna and dated snapshots); [`has_function_tools`](../gaise-provider-openai/src/openai_client.rs#L177) requires a non-empty `tools` array | `reasoning_effort` is forced to `"none"` regardless of `thinking_effort`; tool-free GPT-5.6 requests and all other families keep the configured effort. Tested in [`mapping_tests.rs#L464`](../gaise-provider-openai/tests/mapping_tests.rs#L464) and [`#L486`](../gaise-provider-openai/tests/mapping_tests.rs#L486) |
 | Forward-compatible structured-error retry | [`should_retry_chat_tools_with_none`](../gaise-provider-openai/src/openai_client.rs#L396) | On HTTP 400 with `error.type == "invalid_request_error"`, `error.param == "reasoning_effort"`, and a message containing `function tools`, `reasoning_effort`, and `none`, and only when tools are present and the effort was not already `none`, [`send_chat_with_reasoning_fallback`](../gaise-provider-openai/src/openai_client.rs#L487) resends once with `reasoning_effort: "none"`. Unrelated 400s (bad schema, etc.) are never retried |
+| GPT-6 function tools require the Responses API | [`chat_tools_require_responses`](../gaise-provider-openai/src/openai_client.rs) matches any `gpt-6*` id (fine-tune prefixes stripped) | `instruct` / `instruct_stream` return an error naming the model and the Responses requirement when `tools` is non-empty; tool-free GPT-6 requests are sent normally. Pinned in [`parameter_matrix_tests.rs`](../gaise-provider-openai/tests/parameter_matrix_tests.rs) (`gpt6_astra_never_samples_and_needs_responses_for_tools`) |
 | Reasoning families | none | No allowlist: `reasoning_effort` is sent whenever configured. The catalog heuristics in [`classify_openai_model_id`](../gaise-provider-openai/src/contracts/catalog.rs#L53) recognize `gpt-`, `chatgpt-`, `o1`/`o3`/`o4`, `codex` as Chat but do not gate request fields |
 | Fixed-sampling models | none | `temperature`/`top_p` are never suppressed per model |
 
-### Parameter compatibility (audited 2026-08-20)
+### Parameter compatibility (audited 2026-09-04)
 
 [`openai_chat_rules`](../gaise-provider-openai/src/openai_client.rs) drives per-family filtering before a Chat Completions request is serialized; [`tests/parameter_matrix_tests.rs`](../gaise-provider-openai/tests/parameter_matrix_tests.rs) pins every row.
 
 | Family | `max_tokens` | `temperature` / `top_p` | `reasoning_effort` values (default) | `detail: original` | Chat Completions |
 |---|---|---|---|---|---|
-| GPT-5.6 (sol/terra/luna) | always `max_completion_tokens` | only while effective effort is `none` | none, low, medium, high, xhigh, max (medium) | yes | yes; function tools force `none` |
+| GPT-6 (`gpt-6-astra`, 2026-09-03) | always `max_completion_tokens` | **never** (rejected, with `logprobs`) | low, medium, high, xhigh, max (undocumented); `none`/`minimal` → `low` | yes (assumed, as on GPT-5.4+) | yes for text and images; **function tools fail fast** — "tool calling requires Responses" and there is no `none` escape hatch ([`chat_tools_require_responses`](../gaise-provider-openai/src/openai_client.rs)) |
+| GPT-5.6 (sol/terra/luna) | ″ | only while effective effort is `none` | none, low, medium, high, xhigh, max (medium) | yes | yes; function tools force `none` |
 | GPT-5.5 | ″ | only with `none` | none … xhigh (medium); `max` → `xhigh` | yes | yes |
 | GPT-5.4 | ″ | only with `none` (the default, so accepted unless effort is set) | none … xhigh (none) | yes | yes |
 | GPT-5.4-mini / nano, GPT-5.3, GPT-5.2 | ″ | only with `none` | none … xhigh (none) | → `high` | yes |
@@ -117,10 +119,10 @@ Mapped by [`map_content_parts`](../gaise-provider-openai/src/openai_client.rs#L1
 | o1 / o3 / o4-mini | ″ | never | low, medium, high (medium) | → `high` | yes |
 | `*-codex` | ″ | never | low … xhigh (medium) | → `high` | yes |
 | GPT-4.1, GPT-4o, `*-chat-latest`, `chat-latest`, `gpt-audio*`, fine-tunes of them | ″ | accepted | **never sent** | → `high` | yes |
-| `gpt-5.5-pro`, `gpt-5.2-pro`, `gpt-5-pro`, `o3-pro`, `gpt-5.6-cyber`, `daybreak-*` | — | — | — | — | **no** — `instruct` fails fast with a Responses-API error |
+| `gpt-5.5-pro`, `gpt-5.2-pro`, `gpt-5-pro`, `o3-pro`, `o1-pro`, `gpt-5.6-cyber`, `gpt-daybreak-*` | — | — | — | — | **no** — `instruct` fails fast with a Responses-API error |
 | Unknown model | ″ | forwarded | forwarded | forwarded | assumed yes |
 
-Realtime: `reasoning.effort` is sent only to `gpt-realtime-2` and later ([`realtime_model_supports_reasoning`](../gaise-provider-openai/src/openai_live_client.rs)); `max_output_tokens` is clamped to 1–4096. Sources: Chat Completions reference, latest-model guide ("parameter compatibility"), model pages, images guide.
+Realtime: `reasoning.effort` is sent only to `gpt-realtime-2` and later ([`realtime_model_supports_reasoning`](../gaise-provider-openai/src/openai_live_client.rs)); the session reference now enumerates `minimal`, `low`, `medium`, `high`, `xhigh` (no `none` or `max`), and `max_output_tokens` is clamped to 1–4096 as the session schema requires even though the 2.x model pages document 32K output. Other Chat Completions contract notes from the 2026-09-04 audit: `service_tier: "fast"` joined `priority` (Fast mode, 2026-07-30), `prompt_cache_retention` is deprecated in favour of `prompt_cache_options.ttl` (GAISe sends neither, only `prompt_cache_key`), a `moderation` object can be attached to any request, and 429 `slow_down` / 503 `server_is_overloaded` responses carry `Retry-After` (the adapter already retries both with backoff). Sources: Chat Completions reference, latest-model guide ("parameter compatibility"), reasoning guide, model pages, images guide, changelog.
 
 ## Response mapping
 
@@ -208,43 +210,64 @@ Tests: [`catalog.rs#L167-L283`](../gaise-provider-openai/src/contracts/catalog.r
 
 ## Models
 
-From `model-registry.toml` (audited 2026-08-20). Status is the registry string; dates are `shutdown_date` / `retirement_not_before`.
+From `model-registry.toml` (audited 2026-09-04). Status is the registry string; dates are `shutdown_date` / `retirement_not_before`.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| `gpt-5.6` | `gpt-5.6-sol` | active | — | text, image | text | instruct, instruct_stream | none, low, medium, high, xhigh, max | chat-compatible features | OpenAI documents gpt-5.6-sol as the snapshot ID and gpt-5.6 as the alias that routes to it. On Chat Completions, functio… |
-| `gpt-5.6-terra` | — | active | — | text, image | text | instruct, instruct_stream | none, low, medium, high, xhigh, max | chat-compatible features | On Chat Completions, function tools require reasoning_effort='none'; the adapter applies this automatically. Use Respons… |
-| `gpt-5.6-luna` | — | active | — | text, image | text | instruct, instruct_stream | none, low, medium, high, xhigh, max | chat-compatible features | On Chat Completions, function tools require reasoning_effort='none'; the adapter applies this automatically. Use Respons… |
-| `gpt-5.5` | — | active | — | text, image | text | instruct, instruct_stream | none, low, medium, high, xhigh | chat-compatible features | Defaults to medium reasoning effort. |
-| `gpt-5.5-pro` | — | active | — | text, image | text | — | medium, high, xhigh | not reachable through the Chat Completions instruct client | OpenAI lists Chat Completions as not supported; Responses and Batch only. Streaming is not listed among supported featur… |
-| `gpt-5.4` | — | active | — | text, image | text | instruct, instruct_stream | none, low, medium, high, xhigh | chat-compatible features | |
-| `gpt-5.4-mini` | — | active | — | text, image | text | instruct, instruct_stream | none, low, medium, high, xhigh | chat-compatible features | |
-| `gpt-5.4-nano` | — | active | — | text, image | text | instruct, instruct_stream | none, low, medium, high, xhigh | chat-compatible features | |
-| `text-embedding-3-large` | — | active | — | text | embedding | embeddings | — | native |  |
-| `text-embedding-3-small` | — | active | — | text | embedding | embeddings | — | native |  |
-| `text-embedding-ada-002` | — | active | — | text | embedding | embeddings | — | native | Previous generation; fixed 1536 dimensions, no retirement date published. |
-| `gpt-realtime-2.1` | — | active | — | text, image, audio | text, audio | live | minimal, low, medium, high, xhigh | realtime transport | OpenAI documents configurable reasoning effort without enumerating values for 2.1; the list mirrors gpt-realtime-2. 'max… |
-| `gpt-realtime-2.1-mini` | — | active | — | text, image, audio | text, audio | live | minimal, low, medium, high, xhigh | realtime transport | |
-| `gpt-realtime-2` | — | active | — | text, image, audio | text, audio | live | minimal, low, medium, high, xhigh | realtime transport | |
-| `gpt-realtime-1.5` | — | active | — | text, image, audio | text, audio | live | — | realtime transport | No reasoning controls. |
-| `gpt-audio-1.5` | — | active | — | text, audio | text, audio | instruct, instruct_stream | — | Chat audio input is native; audio output is not mapped by the current instruct client | Chat Completions supported; Responses not supported. |
-| `gpt-image-2` | — | active | — | image | image | — | — | not yet native | Requires OpenAI Images or Responses image-generation tooling; the GAISe OpenAI instruct client currently uses Chat Compl… |
-| `gpt-5-chat-latest` | — | retired | shutdown 2026-07-23 | — | — | — | — | — | |
-| `gpt-5.1-chat-latest` | — | retired | shutdown 2026-07-23 | — | — | — | — | — | |
-| `gpt-5.2-chat-latest` | — | retired | shutdown 2026-08-10 | — | — | — | — | — | |
-| `gpt-5.3-chat-latest` | — | retired | shutdown 2026-08-10 | — | — | — | — | — | |
-| `gpt-5-2025-08-07` | — | deprecated | shutdown 2026-12-11 | — | — | — | — | — | |
-| `gpt-5-mini-2025-08-07` | — | deprecated | shutdown 2026-12-11 | — | — | — | — | — | |
-| `gpt-5-nano-2025-08-07` | — | deprecated | shutdown 2026-12-11 | — | — | — | — | — | |
-| `gpt-5-pro-2025-10-06` | — | deprecated | shutdown 2026-12-11 | — | — | — | — | — | |
-| `o3-2025-04-16` | — | deprecated | shutdown 2026-12-11 | — | — | — | — | — | |
-| `o3-pro-2025-06-10` | — | deprecated | shutdown 2026-12-11 | — | — | — | — | — | |
-| `o4-mini` | `o4-mini-2025-04-16` | deprecated | shutdown 2026-10-23 | — | — | — | — | — | |
-| `gpt-4.1-nano` | `gpt-4.1-nano-2025-04-14` | deprecated | shutdown 2026-10-23 | — | — | — | — | — | |
-| `gpt-image-1` | — | deprecated | shutdown 2026-10-23 | — | — | — | — | — | |
-| `gpt-image-1.5` | `gpt-image-1-mini`, `chatgpt-image-latest` | deprecated | shutdown 2026-12-01 | — | — | — | — | — | |
-| `gpt-realtime` | `gpt-4o-realtime`, `gpt-realtime-mini`, `gpt-4o-mini-realtime` | deprecated | shutdown 2027-01-20 | — | — | — | — | — | |
-| `gpt-audio` | `gpt-4o-audio`, `gpt-audio-mini`, `gpt-4o-mini-audio` | deprecated | shutdown 2027-01-20 | — | — | — | — | — | |
+| `gpt-6-astra` | — | `limited_availability` | — | text, image | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features without function tools | Released 2026-09-03 for Trusted Access Program enterprises first; broader availability announced as following. Knowledge cutoff 2026-04-30.… |
+| `gpt-5.6` | `gpt-5.6-sol` | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features | OpenAI documents gpt-5.6-sol as the snapshot ID and gpt-5.6 as the alias that routes to it. On Chat Completions, function tools require reas… |
+| `gpt-5.6-terra` | — | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features | On Chat Completions, function tools require reasoning_effort='none'; the adapter applies this automatically. Use Responses for reasoning wit… |
+| `gpt-5.6-luna` | — | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features | On Chat Completions, function tools require reasoning_effort='none'; the adapter applies this automatically. Use Responses for reasoning wit… |
+| `gpt-5.5` | — | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh` | chat-compatible features | Defaults to medium reasoning effort. |
+| `gpt-5.5-pro` | — | `active` | — | text, image | text | — | `medium`, `high`, `xhigh` | not reachable through the Chat Completions instruct client | OpenAI lists Chat Completions as not supported; Responses and Batch only. Streaming is not listed among supported features. |
+| `gpt-5.4` | — | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh` | chat-compatible features | — |
+| `gpt-5.4-mini` | — | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh` | chat-compatible features | — |
+| `gpt-5.4-nano` | — | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh` | chat-compatible features | — |
+| `gpt-5.2` | `gpt-5.2-2025-12-11` | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh` | chat-compatible features | Previous flagship; OpenAI recommends GPT-6 Astra or GPT-5.6. Not on the deprecations page as of 2026-09-04 (only gpt-5.2-chat-latest retired… |
+| `gpt-5.1` | `gpt-5.1-2025-11-13` | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high` | chat-compatible features | Not on the deprecations page as of 2026-09-04 (only gpt-5.1-chat-latest and the 5.1 Codex family retired). |
+| `gpt-4.1` | `gpt-4.1-2025-04-14` | `active` | — | text, image | text | instruct, instruct_stream | — | chat-compatible features | Non-reasoning; sampling accepted; image detail limited to low/high/auto. gpt-4.1-nano retires 2026-10-23 but gpt-4.1 and gpt-4.1-mini carry… |
+| `gpt-4.1-mini` | `gpt-4.1-mini-2025-04-14` | `active` | — | text, image | text | instruct, instruct_stream | — | chat-compatible features | — |
+| `gpt-4o` | `gpt-4o-2024-11-20`, `gpt-4o-2024-08-06` | `active` | — | text, image | text | instruct, instruct_stream | — | chat-compatible features | gpt-4o resolves to gpt-4o-2024-08-06. The gpt-4o-2024-05-13 snapshot alone retires 2026-10-23 and has its own entry. |
+| `gpt-4o-mini` | `gpt-4o-mini-2024-07-18` | `active` | — | text, image | text | instruct, instruct_stream | — | chat-compatible features | — |
+| `text-embedding-3-large` | — | `active` | — | text | embedding | embeddings | — | native | — |
+| `text-embedding-3-small` | — | `active` | — | text | embedding | embeddings | — | native | — |
+| `text-embedding-ada-002` | — | `active` | — | text | embedding | embeddings | — | native | Previous generation; fixed 1536 dimensions, no retirement date published. |
+| `gpt-realtime-2.1` | — | `active` | — | text, image, audio | text, audio | live | `minimal`, `low`, `medium`, `high`, `xhigh` | realtime transport | The Realtime session reference enumerates reasoning.effort as minimal, low, medium, high, xhigh (2026-09-04); 'none' and 'max' are not accep… |
+| `gpt-realtime-2.1-mini` | — | `active` | — | text, image, audio | text, audio | live | `minimal`, `low`, `medium`, `high`, `xhigh` | realtime transport | — |
+| `gpt-realtime-2` | — | `active` | — | text, image, audio | text, audio | live | `minimal`, `low`, `medium`, `high`, `xhigh` | realtime transport | — |
+| `gpt-realtime-1.5` | — | `active` | — | text, image, audio | text, audio | live | — | realtime transport | No reasoning controls. |
+| `gpt-realtime-translate` | — | `active` | — | audio | audio | — | — | not supported: the /v1/realtime/translations endpoint uses its own session and event vocabulary | Streaming speech-to-speech translation (audio in; audio and transcript out), billed per minute. The target language is set through session.a… |
+| `gpt-audio-1.5` | — | `active` | — | text, audio | text, audio | instruct, instruct_stream | — | Chat audio input is native; audio output is not mapped by the current instruct client | Chat Completions supported; Responses not supported. |
+| `gpt-image-2` | — | `active` | — | image | image | — | — | not yet native | Requires OpenAI Images or Responses image-generation tooling; the GAISe OpenAI instruct client currently uses Chat Completions. Default snap… |
+| `gpt-5.6-cyber` | — | `limited_availability` | — | text, image | text | — | supported | not reachable: Responses API only, Daybreak program approval required | Daybreak Red model (2026-08-12). 400K context (not the 1.05M of the GPT-5.6 family); 272K max input. The instruct client fails fast. |
+| `gpt-daybreak-*` | — | `limited_availability` | — | text | text | — | supported | not reachable: Responses API only, Daybreak program approval required | gpt-daybreak-red-latest and gpt-daybreak-blue-latest (Daybreak Security Tiers, 2026-08-07). Detail pages were not fetched; limits unknown. |
+| `gpt-transcribe` | — | `active` | — | text, audio | text | — | — | not supported: speech-to-text has no GAISe surface | Released 2026-07-28; /v1/audio/transcriptions and realtime transcription sessions; streaming; billed per minute. |
+| `gpt-live-transcribe` | — | `active` | — | text, audio | text | — | — | not supported: realtime transcription sessions have no GAISe surface | Released 2026-07-28; /v1/realtime/transcription_sessions only; 'delay' accepts minimal, low, medium, high, xhigh. |
+| `gpt-realtime-whisper` | — | `active` | — | text, audio | text | — | — | not supported: realtime transcription sessions have no GAISe surface | turn_detection must be null for this model. |
+| `gpt-4o-mini-tts` | `gpt-4o-mini-tts-2025-12-15`, `gpt-4o-mini-tts-2025-03-20` | `active` | — | text | text, audio | — | — | not supported: OpenAI text-to-speech has no GAISe surface (use elevenlabs::) | /v1/audio/speech only; 2,000 input tokens; the 2025-12-15 snapshot is the default. |
+| `gpt-5-chat-latest` | — | `retired` | shutdown 2026-07-23 | unknown | unknown | — | — | — | Replacement `gpt-5.6-sol`. |
+| `gpt-5.1-chat-latest` | — | `retired` | shutdown 2026-07-23 | unknown | unknown | — | — | — | Replacement `gpt-5.6-sol`. |
+| `gpt-5.2-chat-latest` | — | `retired` | shutdown 2026-08-10 | unknown | unknown | — | — | — | Replacement `gpt-5.6-sol`. |
+| `gpt-5.3-chat-latest` | — | `retired` | shutdown 2026-08-10 | unknown | unknown | — | — | — | Replacement `gpt-5.6-sol`. |
+| `gpt-5-2025-08-07` | `gpt-5` | `deprecated` | shutdown 2026-12-11 | unknown | unknown | — | — | — | The deprecations page lists the dated snapshot; the gpt-5 alias resolves to it and has no other snapshot. Replacement `gpt-5.6-sol`. |
+| `gpt-5-mini-2025-08-07` | `gpt-5-mini` | `deprecated` | shutdown 2026-12-11 | unknown | unknown | — | — | — | Replacement `gpt-5.6-terra`. |
+| `gpt-5-nano-2025-08-07` | `gpt-5-nano` | `deprecated` | shutdown 2026-12-11 | unknown | unknown | — | — | — | Replacement `gpt-5.6-luna`. |
+| `gpt-5-pro-2025-10-06` | `gpt-5-pro` | `deprecated` | shutdown 2026-12-11 | unknown | unknown | — | — | — | Responses and Batch only; reasoning.effort high only. Replacement `gpt-5.6-sol (reasoning.mode: pro)`. |
+| `o3-2025-04-16` | `o3` | `deprecated` | shutdown 2026-12-11 | unknown | unknown | — | — | — | Replacement `gpt-5.6-sol`. |
+| `o3-pro-2025-06-10` | `o3-pro` | `deprecated` | shutdown 2026-12-11 | unknown | unknown | — | — | — | Responses and Batch only. Replacement `gpt-5.6-sol (reasoning.mode: pro)`. |
+| `o4-mini` | `o4-mini-2025-04-16` | `deprecated` | shutdown 2026-10-23 | unknown | unknown | — | — | — | Replacement `gpt-5.6-terra`. |
+| `o1` | `o1-2024-12-17`, `o1-pro`, `o1-pro-2025-03-19` | `deprecated` | shutdown 2026-10-23 | unknown | unknown | — | — | — | Announced 2026-04-22. o1-pro is Responses-only and replaced by gpt-5.6-sol with reasoning.mode pro. Replacement `gpt-5.6-sol`. |
+| `o3-mini` | `o3-mini-2025-01-31` | `deprecated` | shutdown 2026-10-23 | unknown | unknown | — | — | — | Replacement `gpt-5.6-sol`. |
+| `gpt-4o-2024-05-13` | — | `deprecated` | shutdown 2026-10-23 | unknown | unknown | — | — | — | Only this gpt-4o snapshot retires; gpt-4o and the 2024-08-06 / 2024-11-20 snapshots carry no deprecation. Replacement `gpt-5.6-sol`. |
+| `gpt-4-turbo` | `gpt-4-turbo-2024-04-09` | `deprecated` | shutdown 2026-10-23 | unknown | unknown | — | — | — | Replacement `gpt-5.6-sol`. |
+| `gpt-4` | `gpt-4-0613`, `gpt-4-1106-preview` | `deprecated` | shutdown 2026-10-23 | unknown | unknown | — | — | — | gpt-4-1106-preview is 128K context. Replacement `gpt-5.6-sol`. |
+| `gpt-3.5-turbo` | `gpt-3.5-turbo-0125` | `deprecated` | shutdown 2026-10-23 | unknown | unknown | — | — | — | gpt-3.5-turbo-1106, gpt-3.5-turbo-instruct, babbage-002, and davinci-002 shut down earlier, on 2026-09-28. Replacement `gpt-5.6-terra`. |
+| `gpt-4.1-nano` | `gpt-4.1-nano-2025-04-14` | `deprecated` | shutdown 2026-10-23 | unknown | unknown | — | — | — | Replacement `gpt-5.6-luna`. |
+| `gpt-image-1` | — | `deprecated` | shutdown 2026-10-23 | unknown | unknown | — | — | — | Replacement `gpt-image-2`. |
+| `gpt-image-1.5` | `gpt-image-1-mini`, `chatgpt-image-latest` | `deprecated` | shutdown 2026-12-01 | unknown | unknown | — | — | — | Replacement `gpt-image-2`. |
+| `gpt-realtime` | `gpt-4o-realtime`, `gpt-realtime-mini`, `gpt-4o-mini-realtime` | `deprecated` | shutdown 2027-01-20 | unknown | unknown | — | — | — | Announced 2026-07-20. Context 32K for gpt-realtime, gpt-realtime-mini, and gpt-4o-realtime. The gpt-4o-*-realtime-preview family and the Ope… |
+| `gpt-audio` | `gpt-4o-audio`, `gpt-audio-mini`, `gpt-4o-mini-audio` | `deprecated` | shutdown 2027-01-20 | unknown | unknown | — | — | — | Replacement `gpt-audio-1.5`. |
+| `whisper-1` | `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`, `gpt-4o-transcribe-diarize` | `deprecated` | shutdown 2027-02-26 | text, audio | text | — | — | not supported: speech-to-text has no GAISe surface | Deprecation announced 2026-08-26 for the whole legacy transcription family. Replacement `gpt-transcribe or gpt-live-transcribe`. |
 
 The registry is advisory: any `openai::<id>` string is routed as-is, so new snapshots work before this table is updated.
 

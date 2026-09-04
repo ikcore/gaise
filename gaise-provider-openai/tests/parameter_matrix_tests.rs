@@ -1,6 +1,6 @@
 //! Per-family request-shape matrix for Chat Completions.
 //!
-//! Sources (audited 2026-08-20): the Chat Completions reference, the
+//! Sources (audited 2026-09-04): the Chat Completions reference, the
 //! latest-model guide ("parameter compatibility" for GPT-5.2/5.4), each model
 //! page's effort list, and the images guide for `detail: original`. See
 //! `wiki/vendor-openai.md#model-family-rules`.
@@ -9,7 +9,9 @@ use gaise_core::contracts::{
     GaiseContent, GaiseGenerationConfig, GaiseInstructRequest, GaiseMessage, GaiseTool, OneOrMany,
 };
 use gaise_provider_openai::contracts::models::OpenAIChatRequest;
-use gaise_provider_openai::openai_client::{normalize_chat_effort, openai_chat_rules};
+use gaise_provider_openai::openai_client::{
+    chat_tools_require_responses, normalize_chat_effort, openai_chat_rules,
+};
 
 fn approx(value: &serde_json::Value, expected: f64) -> bool {
     value.as_f64().is_some_and(|v| (v - expected).abs() < 1e-5)
@@ -192,6 +194,13 @@ fn effort_values_are_clamped_per_family() {
         "GPT-5 has minimal, not none"
     );
     assert_eq!(effort("gpt-5", "max").as_deref(), Some("high"));
+    assert_eq!(
+        effort("gpt-6-astra", "none").as_deref(),
+        Some("low"),
+        "GPT-6 Astra rejects none and minimal: the floor is low"
+    );
+    assert_eq!(effort("gpt-6-astra", "minimal").as_deref(), Some("low"));
+    assert_eq!(effort("gpt-6-astra", "ultra").as_deref(), Some("max"));
     assert_eq!(effort("o3", "none").as_deref(), Some("low"));
     assert_eq!(effort("o4-mini", "xhigh").as_deref(), Some("high"));
     assert_eq!(effort("gpt-5.3-codex", "none").as_deref(), Some("low"));
@@ -298,6 +307,8 @@ fn responses_only_models_are_identified() {
         "o3-pro",
         "gpt-5.6-cyber",
         "daybreak-red-latest",
+        "gpt-daybreak-red-latest",
+        "gpt-daybreak-blue-latest",
     ] {
         assert!(!openai_chat_rules(model).chat_supported, "{model}");
     }
@@ -306,9 +317,44 @@ fn responses_only_models_are_identified() {
         "gpt-5.4-nano",
         "gpt-4.1",
         "o4-mini",
+        "gpt-6-astra",
         "gpt-7-hypothetical",
     ] {
         assert!(openai_chat_rules(model).chat_supported, "{model}");
+    }
+}
+
+#[test]
+fn gpt6_astra_never_samples_and_needs_responses_for_tools() {
+    // Model page + latest-model guide (2026-09-03): Chat Completions is
+    // served, but temperature/top_p/logprobs are rejected, `none`/`minimal`
+    // effort return 400, and function tools require the Responses API.
+    let rules = openai_chat_rules("gpt-6-astra");
+    assert!(rules.chat_supported);
+    assert!(rules.sampling_never);
+    assert_eq!(
+        rules.effort_levels,
+        ["low", "medium", "high", "xhigh", "max"]
+    );
+    assert_eq!(rules.default_effort, None, "OpenAI documents no default");
+
+    let json = build("gpt-6-astra", sink(Some("none")), false);
+    assert_eq!(json["reasoning_effort"], "low");
+    assert!(json.get("temperature").is_none());
+    assert!(json.get("top_p").is_none());
+    assert_eq!(json["max_completion_tokens"], 2048);
+    assert_eq!(image_detail(&json), "original");
+
+    let json = build("gpt-6-astra", sink(None), false);
+    assert!(
+        json.get("reasoning_effort").is_none(),
+        "no effort configured: let OpenAI apply its default"
+    );
+
+    assert!(chat_tools_require_responses("gpt-6-astra"));
+    assert!(chat_tools_require_responses("ft:gpt-6-astra:acme::abc"));
+    for model in ["gpt-5.6", "gpt-5.5", "gpt-4.1", "gpt-7-hypothetical"] {
+        assert!(!chat_tools_require_responses(model), "{model}");
     }
 }
 

@@ -189,7 +189,7 @@ pub struct GoogleInlineData {
     pub data: String,
 }
 
-/// Gemini family rules for `generationConfig`, audited 2026-08-20 against
+/// Gemini family rules for `generationConfig`, audited 2026-09-04 against
 /// the Gemini API and Vertex AI thinking/model pages (see
 /// `wiki/vendor-gemini.md#model-family-rules`). Gemini 3.x uses
 /// `thinkingLevel`, 2.5 uses `thinkingBudget`; sampling parameters are
@@ -208,13 +208,29 @@ const LEVELS_IMAGE: &[&str] = &["MINIMAL", "HIGH"];
 const LEVELS_HIGH_ONLY: &[&str] = &["HIGH"];
 
 /// `thinkingLevel` values a Gemini 3.x family accepts.
+/// Gemini 3.7 Flash (2026-08-13) and 3.8 Flash (2026-09-02) both reject
+/// `MINIMAL`; treat every `gemini-3.<minor>` with minor >= 7 the same way so a
+/// 3.9 release clamps to `LOW` (harmless) instead of sending a level that
+/// might be rejected. Earlier 3.x Flash models keep `MINIMAL`.
+fn gemini_3_minor_without_minimal(model: &str) -> bool {
+    model
+        .strip_prefix("gemini-3.")
+        .map(|rest| {
+            rest.chars()
+                .take_while(char::is_ascii_digit)
+                .collect::<String>()
+        })
+        .and_then(|digits| digits.parse::<u32>().ok())
+        .is_some_and(|minor| minor >= 7)
+}
+
 pub fn thinking_levels_for(model: &str) -> &'static [&'static str] {
     let m = model.to_ascii_lowercase();
     if m.contains("pro-image") {
         LEVELS_HIGH_ONLY
     } else if m.contains("-image") {
         LEVELS_IMAGE
-    } else if m.starts_with("gemini-3.7")
+    } else if gemini_3_minor_without_minimal(&m)
         || m.contains("gemini-3.1-pro")
         || m.contains("gemini-3-pro")
     {

@@ -110,7 +110,7 @@ fn realtime_reasoning_effort_from_tokens(tokens: usize) -> String {
 
 /// `gpt-realtime-2` and later are reasoning models; `gpt-realtime`,
 /// `gpt-realtime-1.5`, `gpt-realtime-mini`, and the `gpt-4o-*-realtime`
-/// family are not (model pages, audited 2026-08-20).
+/// family are not (model pages, audited 2026-09-04).
 pub fn realtime_model_supports_reasoning(model: &str) -> bool {
     let m = model.to_ascii_lowercase();
     let Some(rest) = m.strip_prefix("gpt-realtime-") else {

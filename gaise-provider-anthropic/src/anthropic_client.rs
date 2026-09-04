@@ -171,10 +171,12 @@ fn collect_text(content: &GaiseContent, output: &mut Vec<String>) {
     }
 }
 
-/// Per-family request rules for the Messages API, audited 2026-08-20 against
+/// Per-family request rules for the Messages API, audited 2026-09-04 against
 /// the thinking-troubleshooting, effort, and model-overview pages. Unknown
 /// Claude models fall back to the most permissive manual-thinking profile so
-/// new releases keep working; known families get exact constraints.
+/// new releases keep working; known families get exact constraints. Matching
+/// is by substring, so `claude-fable-5-1` / `claude-mythos-5-1` (2026-09-01)
+/// inherit the always-on Fable 5 profile, which is what their docs specify.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClaudeFamilyRules {
     /// `thinking.type: "enabled"` / `budget_tokens` are rejected (400).

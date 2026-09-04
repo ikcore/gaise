@@ -1,6 +1,6 @@
 # GAISe wiki
 
-GAISe (Generative AI Service) is a Rust workspace that maps one provider-neutral contract onto seven vendor APIs — OpenAI, Anthropic, Google Gemini, Google Vertex AI, Amazon Bedrock, Ollama, and ElevenLabs — for chat (`instruct`), streaming, embeddings, text-to-speech, model discovery, and live/realtime sessions. This wiki documents the implementation as audited on **2026-08-20**; every page links to the source it describes.
+GAISe (Generative AI Service) is a Rust workspace that maps one provider-neutral contract onto seven vendor APIs — OpenAI, Anthropic, Google Gemini, Google Vertex AI, Amazon Bedrock, Ollama, and ElevenLabs — for chat (`instruct`), streaming, embeddings, text-to-speech, model discovery, and live/realtime sessions. This wiki documents the implementation as audited on **2026-09-04**; every page links to the source it describes.
 
 ## Pages
 
@@ -12,7 +12,7 @@ GAISe (Generative AI Service) is a Rust workspace that maps one provider-neutral
 | [**reasoning.md**](reasoning.md) | The universal thinking/reasoning vocabulary (`none`…`ultra` + aliases), the resolution rules, the per-vendor mapping, and a generated model × level matrix showing exactly what each provider receives. |
 | [**embeddings.md**](embeddings.md) | Every embedding model per provider — dimensions, token and batch limits, task types, normalization, lifecycle — with best practices per vendor and the `task` / `dimensions` / `normalize` contract. |
 | [**limits.md**](limits.md) | Every model's documented context window, max output, per-input token limit, embedding dimensions, and character budget — one typed `limits` object, a generated model × limits matrix, and `GET /v1/models/limits` to serve it without credentials. |
-| [**models.md**](models.md) | Every model in the bundled registry (149 entries), per vendor, with modalities, operations, reasoning values, lifecycle dates, and GAISe support notes; plus the retirement calendar and maintenance procedure. |
+| [**models.md**](models.md) | Every model in the bundled registry (215 entries), per vendor, with modalities, operations, reasoning values, lifecycle dates, and GAISe support notes; plus the retirement calendar and maintenance procedure. |
 | [**flows.md**](flows.md) | Mermaid diagrams of routing, instruct, multimodal mapping, streaming, tool loops, usage normalization, embeddings, model discovery, live sessions, and retries. |
 | [**examples.md**](examples.md) | Rust request examples for text, media, files, reasoning, generated images, tools, streaming, embeddings, discovery, and live. |
 | [**releasing.md**](releasing.md) | Version synchronization, package verification, and crates.io publish order. |
@@ -41,7 +41,7 @@ Each vendor page follows the same outline — configuration, request mapping (ro
 - **Will model Z accept this parameter?** [capabilities.md#parameter-compatibility-by-family](capabilities.md#parameter-compatibility-by-family) and the vendor page's "Parameter compatibility" table — the adapters filter requests to what each family accepts.
 - **Which models exist and when do they retire?** [models.md](models.md) and `GET /v1/models` ([api.md#get-v1models](api.md#get-v1models)).
 - **How big is model Z's context window?** [limits.md](limits.md) — the matrix, the `limits` object on every `GET /v1/models` record, and `GET /v1/models/limits` ([api.md#get-v1modelslimits](api.md#get-v1modelslimits)) for the registry figures without credentials.
-- **Extending an adapter?** The vendor page's "Request mapping" and "Tests" sections, then [CLAUDE.md](../CLAUDE.md) for the repository rules.
+- **Extending an adapter?** The vendor page's "Request mapping" and "Tests" sections, then the [design rules](#design-rules) below and [models.md#maintaining-the-registry](models.md#maintaining-the-registry).
 
 ## Architecture
 
@@ -106,7 +106,6 @@ flowchart TD
 | [`gaise-chatbot/`](../gaise-chatbot/) | Minimal CLI example | [sdk.md](sdk.md) |
 | [`gaise_postman_collection.json`](../gaise_postman_collection.json) | Ready-to-run HTTP requests for every route and vendor | [api.md](api.md) |
 | [`API_DOCUMENTATION.md`](../API_DOCUMENTATION.md) | Short wire-contract summary at the repo root | [api.md](api.md) |
-| [`CLAUDE.md`](../CLAUDE.md) | Rules for coding agents working on the repository | — |
 | [`.claude/agents/model-audit.md`](../.claude/agents/model-audit.md) | Agent definition that re-audits the registry | [models.md#maintaining-the-registry](models.md#maintaining-the-registry) |
 
 ## Build and test
@@ -116,7 +115,8 @@ cargo build --workspace
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-targets --all-features
-cargo run -p gaise --example registry_json   # dump the registry used to generate models.md
+cargo run -p gaise --example models_page > wiki/models.md   # regenerate the model catalog page
+cargo run -p gaise --example registry_json   # dump the registry as JSON (vendor-page tables, tooling)
 cargo run -p gaise --example limits_matrix   # regenerate the matrix in limits.md
 ```
 
