@@ -408,7 +408,9 @@ impl GaiseClientBedrock {
     }
 
     /// Claude-on-Bedrock family rules (same constraints as the direct Claude
-    /// API, audited 2026-08-20; see `wiki/vendor-bedrock.md#model-family-rules`).
+    /// API, audited 2026-09-04; see `wiki/vendor-bedrock.md#model-family-rules`).
+    /// Substring matching gives `anthropic.claude-fable-5-1` and
+    /// `anthropic.claude-mythos-5-1` (2026-09-01) the always-on Fable 5 profile.
     /// Returns `(adaptive_only, adaptive, always_on, effort_levels, fixed_sampling)`.
     fn claude_rules(model: &str) -> Option<(bool, bool, bool, &'static [&'static str], bool)> {
         const FIVE: &[&str] = &["low", "medium", "high", "xhigh", "max"];

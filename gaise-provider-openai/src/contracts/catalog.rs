@@ -70,6 +70,8 @@ pub fn classify_openai_model_id(id: &str) -> OpenAIModelKind {
         "computer-use",
         "sora",
         "daybreak",
+        // Daybreak program ids are documented as `gpt-daybreak-{red,blue}-latest`.
+        "gpt-daybreak",
     ];
     if OTHER_PREFIXES.iter().any(|p| base.starts_with(p)) {
         return OpenAIModelKind::Other;
@@ -267,6 +269,18 @@ mod tests {
             OpenAIModelKind::Other
         );
         assert_eq!(classify_openai_model_id("o3-pro"), OpenAIModelKind::Chat);
+        assert_eq!(
+            classify_openai_model_id("gpt-6-astra"),
+            OpenAIModelKind::Chat
+        );
+        assert_eq!(
+            classify_openai_model_id("gpt-daybreak-red-latest"),
+            OpenAIModelKind::Other
+        );
+        assert_eq!(
+            classify_openai_model_id("gpt-transcribe"),
+            OpenAIModelKind::Other
+        );
         assert_eq!(
             classify_openai_model_id("chatgpt-image-latest"),
             OpenAIModelKind::Image

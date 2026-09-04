@@ -1,6 +1,6 @@
 //! Per-family `generationConfig` matrix for Vertex AI.
 //!
-//! Sources (audited 2026-08-20): Gemini API / Vertex AI thinking guides,
+//! Sources (audited 2026-09-04): Gemini API / Vertex AI thinking guides,
 //! the generateContent reference, model pages, and the 2026-07-21 changelog
 //! deprecating sampling parameters (see `wiki/vendor-vertexai.md#model-family-rules`).
 
@@ -38,6 +38,7 @@ fn sink(effort: Option<&str>, tokens: Option<usize>) -> GaiseGenerationConfig {
 }
 
 const GEMINI_3_TEXT: &[&str] = &[
+    "gemini-3.8-flash",
     "gemini-3.7-flash",
     "gemini-3.6-flash",
     "gemini-3.5-flash",
@@ -164,9 +165,17 @@ fn thinking_levels_are_clamped_per_family() {
             .and_then(|t| t.thinking_level)
             .unwrap()
     };
-    // minimal is rejected by 3.7 Flash and the Pro families.
+    // minimal is rejected by 3.7 Flash, 3.8 Flash, and the Pro families.
     assert_eq!(level("gemini-3.7-flash", "minimal"), "LOW");
     assert_eq!(level("gemini-3.7-flash", "none"), "LOW");
+    assert_eq!(level("gemini-3.8-flash", "minimal"), "LOW");
+    assert_eq!(level("gemini-3.8-flash", "none"), "LOW");
+    assert_eq!(level("gemini-3.8-flash", "ultra"), "HIGH");
+    assert_eq!(
+        level("gemini-3.9-flash", "minimal"),
+        "LOW",
+        "3.7+ Flash releases are assumed to keep rejecting minimal"
+    );
     assert_eq!(level("gemini-3.1-pro-preview", "minimal"), "LOW");
     assert_eq!(level("gemini-3.6-flash", "minimal"), "MINIMAL");
     assert_eq!(

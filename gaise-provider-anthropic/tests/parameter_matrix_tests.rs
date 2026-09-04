@@ -3,7 +3,7 @@
 //! Every current Claude family is given the same "kitchen sink" generation
 //! config and the serialized request is checked against the parameters that
 //! family accepts. Sources: the Claude model overview, thinking-troubleshooting
-//! ("configurations each model rejects"), and effort pages, audited 2026-08-20
+//! ("configurations each model rejects"), and effort pages, audited 2026-09-04
 //! (see `wiki/vendor-anthropic.md#model-family-rules`).
 
 use gaise_core::contracts::{

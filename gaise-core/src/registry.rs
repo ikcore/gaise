@@ -431,8 +431,10 @@ fn join_notes(support: Option<&str>, notes: Option<&str>) -> Option<String> {
     }
 }
 
+/// Bedrock geo / global inference-profile prefixes seen on the model cards
+/// (`in.` = India, added 2026-08-18; `us-gov.` = GovCloud).
 const INFERENCE_PROFILE_PREFIXES: &[&str] = &[
-    "global.", "us.", "eu.", "apac.", "ap.", "jp.", "au.", "ca.", "il.", "us-gov.",
+    "global.", "us.", "eu.", "apac.", "ap.", "jp.", "au.", "ca.", "il.", "in.", "us-gov.",
 ];
 
 /// Strip a Bedrock cross-region inference-profile prefix from a model id.
@@ -877,12 +879,25 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
                 .operations
                 .contains(&GaiseOperation::InstructStream)
         );
-        assert_eq!(model.status, GaiseModelStatus::Active);
+        assert_eq!(
+            model.status,
+            GaiseModelStatus::Legacy,
+            "Anthropic labels Opus 4.6 Legacy since 2026-09-01; the registry mirrors it"
+        );
         assert!(model.retirement_not_before.is_some());
         assert_eq!(
             model.capabilities.sources,
             vec![GaiseMetadataSource::Provider, GaiseMetadataSource::Registry]
         );
+
+        // A provider-reported status is never overridden by the registry.
+        let mut reported = GaiseModel::new("anthropic", "claude-opus-4-6");
+        reported.status = GaiseModelStatus::Active;
+        reported
+            .capabilities
+            .add_source(GaiseMetadataSource::Provider);
+        assert!(registry.enrich(&mut reported));
+        assert_eq!(reported.status, GaiseModelStatus::Active);
 
         let mut unknown = GaiseModel::new("openai", "totally-new-model");
         assert!(!registry.enrich(&mut unknown));
@@ -899,12 +914,46 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
                 .unwrap_or_else(|| panic!("no registry entry for {provider}::{id}"))
         };
         assert_eq!(find("anthropic", "claude-opus-5"), "claude-opus-5");
+        assert_eq!(find("anthropic", "claude-fable-5-1"), "claude-fable-5-1");
+        assert_eq!(
+            find("anthropic", "claude-fable-5"),
+            "claude-fable-5",
+            "5-1 is a separate model, not a snapshot of fable-5"
+        );
         assert_eq!(
             find("anthropic", "claude-sonnet-4-5"),
             "claude-sonnet-4-5-20250929"
         );
+        assert_eq!(find("openai", "gpt-6-astra"), "gpt-6-astra");
         assert_eq!(find("openai", "gpt-5.6-sol"), "gpt-5.6");
         assert_eq!(find("openai", "gpt-5.4-2026-03-05"), "gpt-5.4");
+        assert_eq!(
+            find("openai", "gpt-5"),
+            "gpt-5-2025-08-07",
+            "undated alias resolves to the deprecated snapshot"
+        );
+        assert_eq!(find("openai", "gpt-4o-2024-05-13"), "gpt-4o-2024-05-13");
+        assert_eq!(find("openai", "gpt-4o-2024-08-06"), "gpt-4o");
+        assert_eq!(find("openai", "gpt-daybreak-red-latest"), "gpt-daybreak-*");
+        assert_eq!(
+            find("bedrock", "us.anthropic.claude-fable-5-1"),
+            "anthropic.claude-fable-5-1"
+        );
+        assert_eq!(
+            find("bedrock", "anthropic.claude-haiku-4-5"),
+            "anthropic.claude-haiku-4-5-20251001-v1:0"
+        );
+        assert_eq!(
+            find("bedrock", "in.openai.gpt-5.6-terra"),
+            "openai.gpt-5.6-terra"
+        );
+        assert_eq!(find("bedrock", "global.xai.grok-4.6"), "xai.grok-4.6");
+        assert_eq!(find("ollama", "qwen3.8:27b"), "qwen3.8:*");
+        assert_eq!(
+            find("ollama", "gpt-oss:120b-cloud"),
+            "gpt-oss:*",
+            "cloud tags match the family glob"
+        );
         assert_eq!(
             find("gemini", "gemini-2.5-flash-lite"),
             "gemini-2.5-flash-lite"
@@ -979,11 +1028,43 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
             .classified()
             .unwrap();
         assert_eq!(conversational.operations, vec![GaiseOperation::Live]);
-        assert!(registry.find("openai", "gpt-5.6-cyber").is_none());
 
         // Explicit operation overrides: describable but not drivable.
         let pro = registry.find("openai", "gpt-5.5-pro").unwrap();
         assert!(pro.classified().unwrap().operations.is_empty());
+        let cyber = registry.find("openai", "gpt-5.6-cyber").unwrap();
+        assert!(cyber.classified().unwrap().operations.is_empty());
+        assert_eq!(cyber.context_window, Some(400_000));
+        let translate = registry.find("openai", "gpt-realtime-translate").unwrap();
+        assert!(translate.classified().unwrap().operations.is_empty());
+        let astra = registry.find("openai", "gpt-6-astra").unwrap();
+        assert_eq!(
+            astra.classified().unwrap().tools,
+            GaiseSupport::Unsupported,
+            "Chat Completions cannot call tools on GPT-6"
+        );
+        assert_eq!(
+            astra.reasoning_values.as_deref(),
+            Some(&["low", "medium", "high", "xhigh", "max"].map(String::from)[..])
+        );
+        let mythos_51 = registry
+            .find("bedrock", "global.anthropic.claude-mythos-5-1")
+            .unwrap();
+        assert!(
+            mythos_51
+                .classified()
+                .unwrap()
+                .operations
+                .contains(&GaiseOperation::Instruct),
+            "Mythos 5.1 is served on bedrock-runtime, unlike Mythos 5"
+        );
+        assert_eq!(
+            registry
+                .find("anthropic", "claude-fable-5")
+                .unwrap()
+                .status(),
+            GaiseModelStatus::Legacy
+        );
         let tts = registry
             .find("gemini", "gemini-3.1-flash-tts-preview")
             .unwrap();
@@ -1031,6 +1112,14 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
         assert_eq!(
             strip_inference_profile_prefix("us.anthropic.x"),
             "anthropic.x"
+        );
+        assert_eq!(
+            strip_inference_profile_prefix("in.openai.gpt-5.6-terra"),
+            "openai.gpt-5.6-terra"
+        );
+        assert_eq!(
+            strip_inference_profile_prefix("us-gov.openai.gpt-oss-120b-1:0"),
+            "openai.gpt-oss-120b-1:0"
         );
         assert_eq!(strip_inference_profile_prefix("anthropic.x"), "anthropic.x");
     }

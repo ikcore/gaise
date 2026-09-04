@@ -136,17 +136,20 @@ Mapping functions: [`stream_input_events`](../gaise-provider-elevenlabs/src/elev
 
 ## Models
 
-| Model | Aliases | Status | Input | Output | Ops | GAISe support / notes |
-|---|---|---|---|---|---|---|
-| `eleven_v3` | — | active | text | audio | speech, live | Flagship, 70+ languages, 5,000 chars/request; realtime via text-to-dialogue; no request stitching; audio tags in text |
-| `eleven_v3_conversational` | — | active | text | audio | live | ~280 ms realtime variant, one voice, text-to-dialogue WebSocket only |
-| `eleven_multilingual_v2` | — | active | text | audio | speech, live | Default model; 29 languages; 10,000 chars; rejects `language_code` |
-| `eleven_flash_v2_5` | — | active | text | audio | speech, live | ~75 ms; 32 languages; 40,000 chars; accepts `language_code` |
-| `eleven_flash_v2` | — | active | text | audio | speech, live | English; 30,000 chars |
-| `eleven_turbo_v2_5` | — | deprecated → `eleven_flash_v2_5` | text | audio | speech, live | Functionally equivalent to Flash v2.5 |
-| `eleven_turbo_v2` | — | deprecated → `eleven_flash_v2` | text | audio | speech, live | |
-| `eleven_multilingual_sts_v2` | `eleven_english_sts_v2` | active | audio | audio | — | Speech-to-speech; no GAISe surface |
-| `scribe_v2` | `scribe_v2_realtime` | active | audio | text | — | Speech-to-text; no GAISe surface yet |
+| Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
+|---|---|---|---|---|---|---|---|---|---|
+| `eleven_v3` | — | `active` | — | text | audio | speech, live | — | speech via /v1/text-to-speech; realtime via the text-to-dialogue WebSocket | Flagship, 70+ languages, 5,000 characters per request on /v1/text-to-speech; the text-to-dialogue endpoints (GAISe's realtime path for v3) d… |
+| `eleven_v3_conversational` | — | `active` | — | text | text, audio | live | — | realtime only via the text-to-dialogue WebSocket (one voice) | ~280 ms latency variant of v3 for realtime use. |
+| `eleven_multilingual_v2` | — | `active` | — | text | audio | speech, live | — | native | Default model; 29 languages; 10,000 characters per request. language_code is documented as not supported (ignored) for multilingual_v2, so t… |
+| `eleven_flash_v2_5` | — | `active` | — | text | audio | speech, live | — | native | ~75 ms latency, 32 languages, 40,000 characters per request, accepts language_code. Numbers are not normalized by default. |
+| `eleven_flash_v2` | — | `active` | — | text | audio | speech, live | — | native | English only; 30,000 characters per request. |
+| `eleven_turbo_v2_5` | — | `deprecated` | — | text | audio | speech, live | — | native while available | Functionally equivalent to eleven_flash_v2_5; no shutdown date published. Character limit as for the functionally equivalent eleven_flash_v2… |
+| `eleven_turbo_v2` | — | `deprecated` | — | text | audio | speech, live | — | native while available | Character limit as for the functionally equivalent eleven_flash_v2. Replacement `eleven_flash_v2`. |
+| `eleven_multilingual_sts_v2` | `eleven_english_sts_v2` | `active` | — | audio | audio | — | — | not supported: speech-to-speech has no GAISe surface | — |
+| `scribe_v2` | `scribe_v2_realtime` | `active` | — | text, audio | text | — | — | not supported: speech-to-text has no GAISe surface yet | scribe_v2_realtime is listed as its own model (~150 ms, 90+ languages); scribe_v1 is deprecated with no shutdown date. |
+| `eleven_ttv_v3` | `eleven_multilingual_ttv_v2` | `active` | — | text | text, audio | — | — | not supported: voice design (/v1/text-to-voice/design) has no GAISe surface | Text-to-voice design models; the endpoint defaults to eleven_multilingual_ttv_v2 and takes 100-1,000 characters of description. |
+| `music_v2` | `music_v1` | `active` | — | text | text, audio | — | — | not supported: music generation (/v1/music) has no GAISe surface | music_v2 outclasses music_v1, which remains the endpoint default; 3-600 s clips. |
+| `eleven_text_to_sound_v2` | — | `active` | — | text | text, audio | — | — | not supported: sound effects (/v1/sound-generation) have no GAISe surface | 0.5-30 s effects with optional looping. |
 
 Full generated table: [models.md#elevenlabs](models.md#elevenlabs).
 

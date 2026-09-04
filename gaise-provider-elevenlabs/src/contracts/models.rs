@@ -1,6 +1,6 @@
 //! ElevenLabs wire types and pure mapping helpers.
 //!
-//! Surfaces (API reference audited 2026-08-20):
+//! Surfaces (API reference audited 2026-09-04):
 //! - `POST /v1/text-to-speech/{voice_id}` (binary audio) and
 //!   `/with-timestamps` (JSON with base64 audio + character alignment)
 //! - `POST /v1/text-to-speech/{voice_id}/stream` (chunked audio) and

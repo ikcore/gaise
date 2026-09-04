@@ -111,7 +111,7 @@ The only hard-coded family rule is a case-insensitive `contains("gpt-oss")` chec
 | all other tags | `None`, `thinking_tokens = Some(n)` | `n > 0` | [L228](../gaise-provider-ollama/src/ollama_client.rs#L228) |
 | any | both `None`, or no `generation_config` | key omitted | [L194](../gaise-provider-ollama/src/ollama_client.rs#L194) |
 
-The adapter does not validate the level string against Ollama's accepted set; an unknown level is forwarded and the daemon decides. There are no sampling restrictions, no reasoning-family allowlists, and no per-model max-token rules — Ollama accepts `options` for every tag.
+The adapter does not validate the level string against Ollama's accepted set; an unknown level is forwarded and the daemon decides. Since Ollama v0.33 the daemon accepts `think` as `true`/`false` or exactly `low`, `medium`, `high`, `max` (anything else is rejected at unmarshal); GPT-OSS ignores booleans and needs a level. Families that document their own effort strings (Muse Glimmer `low`…`xhigh`, Qwen 3.8 `reasoning_effort`) still receive the boolean form from GAISe, which Ollama documents as accepted for "most models". There are no sampling restrictions, no reasoning-family allowlists, and no per-model max-token rules — Ollama accepts `options` for every tag.
 
 ## Response mapping
 
@@ -210,26 +210,34 @@ Catalog tests: [`maps_tags_and_show_details`](../gaise-provider-ollama/src/contr
 
 ## Models
 
-Registry entries for `ollama` (audited 2026-08-20). Every entry is a family glob with `status = dynamic_local` (mapped to `Active`); no lifecycle dates exist because Ollama has no central retirement calendar. Which tags actually exist, and their vision/tool/thinking support, comes from the local daemon.
+Registry entries for `ollama` (audited 2026-09-04). Every entry is a family glob with `status = dynamic_local` (mapped to `Active`); no lifecycle dates exist because Ollama has no central retirement calendar. Which tags actually exist, and their vision/tool/thinking support, comes from the local daemon.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| `qwen3:*` | — | `dynamic_local` | — | text | text | instruct, instruct_stream | `true`, `false` | native | tools supported, reasoning supported |
-| `gpt-oss:*` | — | `dynamic_local` | — | text | text | instruct, instruct_stream | `low`, `medium`, `high` | native | tools supported; `think` is sent as a level string, not a boolean |
-| `deepseek-r1:*` | `deepseek-v3.1:*` | `dynamic_local` | — | text | text | instruct, instruct_stream | `true`, `false` | native | reasoning supported, tools unsupported |
-| `gemma4:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | — | native when the installed tag advertises vision | reasoning unsupported, tools unsupported |
-| `embeddinggemma:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | EmbeddingGemma 300m; Matryoshka 768/512/256/128; 2,048-token context; Google prompt-instruction convention. |
-| `nomic-embed-text:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | nomic-embed-text v1.5; Matryoshka 64-768; 8,192-token context (raise num_ctx); prefixes are required for good… |
-| `nomic-embed-text-v2-moe:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | Multilingual MoE; Matryoshka 256-768; 512-token context. |
-| `qwen3-embedding:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | 0.6b/4b/8b = 1024/2560/4096 dimensions (Matryoshka 32-4096); 32k context; queries take an instruction. |
-| `mxbai-embed-large:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | mixedbread mxbai-embed-large-v1; fixed 1024; 512-token context; queries take an instruction. |
-| `bge-m3:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | BAAI bge-m3; fixed 1024; 8,192-token context; multilingual; no prefix. |
-| `bge-large:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | BAAI bge-large-en-v1.5; fixed 1024; 512-token context; optional query instruction. |
-| `all-minilm:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | all-MiniLM-L6/L12; fixed 384; 256-token context; English. |
-| `snowflake-arctic-embed:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | Arctic-embed v1 22m-335m; 384-1024 dimensions by tag; 512-token context; queries take an instruction. |
-| `snowflake-arctic-embed2:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | Arctic-embed 2.0; 1024 dimensions (Matryoshka to 256); 8,192-token context; multilingual; queries take `query… |
-| `granite-embedding:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | IBM Granite 30m (384, English) / 278m (768, 12 languages); 512-token context; no prefix. |
-| `paraphrase-multilingual:*` | — | dynamic_local | — | text | embedding | embeddings | — | native | paraphrase-multilingual-MiniLM-L12-v2; fixed 768; 128-token context; 50+ languages. |
+| `qwen3:*` | — | `dynamic_local` | — | text | text | instruct, instruct_stream | `true`, `false` | native | Context 40,960 on the original dense tags (0.6b-32b); the 2507 builds, 4b, 30b, and 235b are 262,144. Ollama serves a smaller default num_ct… |
+| `gpt-oss:*` | — | `dynamic_local` | — | text | text | instruct, instruct_stream | `low`, `medium`, `high` | native | Context 131,072 on 20b and 120b. |
+| `deepseek-r1:*` | `deepseek-v3.1:*` | `dynamic_local` | — | text | text | instruct, instruct_stream | `true`, `false` | native | Context 131,072 on the distilled tags; deepseek-r1:671b and deepseek-v3.1 are 163,840. The library lists the tools badge for both families (… |
+| `gemma4:*` | — | `dynamic_local` | — | text, image, audio | text | instruct, instruct_stream | `true`, `false` | native when the installed tag advertises the capability (/api/show) | Context 131,072 on e2b/e4b; 12b, 26b, and 31b are 262,144. Library badges as of 2026-09-04: vision, tools, thinking, audio, cloud. Audio inp… |
+| `qwen3.8:*` | `qwen3.8-flash-next:*` | `dynamic_local` | — | text, image | text | instruct, instruct_stream | `true`, `false` | native | Qwen 3.8 27B (Ollama v0.32.12, 2026-08-14) and the MLX-only Qwen 3.8 Flash Next 125B-A6B (v0.33.1, 2026-08-26); 256K context, vision, tools,… |
+| `qwen3.6:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | `true`, `false` | native | 27b and 35b tags; 256K context; retains reasoning context across turns. |
+| `qwen3.5:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | `true`, `false` | native | 0.8b-122b tags, all 256K context; multimodal; cloud tags available. |
+| `muse-glimmer:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | `true`, `false` | native (boolean thinking toggle) | Meta's 30B open model for local agents (2026-08-10, Apache 2.0); documents reasoning strength low/medium/high/xhigh, which the adapter does… |
+| `nemotron-3.5-lightning:*` | — | `dynamic_local` | — | text | text | instruct, instruct_stream | `true`, `false` | native | NVIDIA 30B-A3B MoE for always-on agents (2026-08-11); 1M context on the GGUF tag, 256K on MLX. |
+| `laguna-s-2.1:*` | — | `dynamic_local` | — | text | text | instruct, instruct_stream | `true`, `false` | native | Ollama's own 118B-A8B model for long-horizon work (OpenMDW-1.1 licence); tool calling and interleaved thinking, toggled per request. |
+| `mistral-medium-3.5:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | `true`, `false` | native | 128B single-weight model with a configurable reasoning mode; 256K context. |
+| `llama4:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | — | native | Scout 16x17b (10M context) and Maverick 128x17b (1M); vision and tools, no thinking. Context recorded as the family floor. |
+| `embeddinggemma:*` | — | `dynamic_local` | — | text | embedding | embeddings | — | native | EmbeddingGemma 300m; Matryoshka 768/512/256/128; 2,048-token context; Google prompt-instruction convention. |
+| `nomic-embed-text:*` | — | `dynamic_local` | — | text | embedding | embeddings | — | native | nomic-embed-text v1.5; Matryoshka 64-768; 8,192-token context (raise num_ctx); prefixes are required for good retrieval. |
+| `nomic-embed-text-v2-moe:*` | — | `dynamic_local` | — | text | embedding | embeddings | — | native | Multilingual MoE; Matryoshka 256-768; 512-token context. |
+| `qwen3-embedding:*` | — | `dynamic_local` | — | text | embedding | embeddings | — | native | 0.6b/4b/8b = 1024/2560/4096 dimensions (Matryoshka 32-4096); 32k context per the model card (the Ollama library serves 4b/8b with a 40K defa… |
+| `mxbai-embed-large:*` | — | `dynamic_local` | — | text | embedding | embeddings | — | native | mixedbread mxbai-embed-large-v1; fixed 1024; 512-token context; queries take an instruction. |
+| `bge-m3:*` | — | `dynamic_local` | — | text | embedding | embeddings | — | native | BAAI bge-m3; fixed 1024; 8,192-token context; multilingual; no prefix. |
+| `bge-large:*` | — | `dynamic_local` | — | text | embedding | embeddings | — | native | BAAI bge-large-en-v1.5; fixed 1024; 512-token context; optional query instruction. |
+| `all-minilm:*` | — | `dynamic_local` | — | text | embedding | embeddings | — | native | all-MiniLM-L6/L12; fixed 384; 256-token context; English. |
+| `snowflake-arctic-embed:*` | — | `dynamic_local` | — | text | embedding | embeddings | — | native | Arctic-embed v1 22m-335m; 384-1024 dimensions by tag; 512-token context except the 137m (m-long) tag, which accepts 2,048; queries take an i… |
+| `snowflake-arctic-embed2:*` | — | `dynamic_local` | — | text | embedding | embeddings | — | native | Arctic-embed 2.0; 1024 dimensions (Matryoshka to 256); 8,192-token context; multilingual; queries take `query: `. |
+| `granite-embedding:*` | — | `dynamic_local` | — | text | embedding | embeddings | — | native | IBM Granite 30m (384, English) / 278m (768, 12 languages); 512-token context; no prefix. |
+| `paraphrase-multilingual:*` | — | `dynamic_local` | — | text | embedding | embeddings | — | native | paraphrase-multilingual-MiniLM-L12-v2; fixed 768; 128-token context; 50+ languages. |
 
 Any other installed tag is accepted as-is (`ollama::<tag>`); the registry is advisory and does not gate requests.
 
