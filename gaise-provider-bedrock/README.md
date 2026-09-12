@@ -2,7 +2,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/gaise-provider-bedrock.svg)](https://crates.io/crates/gaise-provider-bedrock)
 [![docs.rs](https://docs.rs/gaise-provider-bedrock/badge.svg)](https://docs.rs/gaise-provider-bedrock)
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/ikcore/gaise#license)
 
 AWS Bedrock provider for [GAISe](https://crates.io/crates/gaise) — implements the `GaiseClient` trait using the AWS Bedrock Runtime SDK.
 
@@ -28,7 +28,7 @@ use gaise_provider_bedrock::bedrock_client::GaiseClientBedrock;
 let client = GaiseClientBedrock::new().await;
 
 let request = GaiseInstructRequest {
-    model: "anthropic.claude-fable-5".to_string(),
+    model: "anthropic.claude-fable-5-1".to_string(),
     input: OneOrMany::One(GaiseMessage {
         role: "user".to_string(),
         content: Some(OneOrMany::One(GaiseContent::Text {
@@ -52,4 +52,4 @@ let response = client.instruct(&request).await?;
 
 ## Part of [GAISe](https://github.com/ikcore/gaise)
 
-License: AGPL-3.0-only
+License: MIT OR Apache-2.0, at your option (see `LICENSE-APACHE` and `LICENSE-MIT`). Versions 0.2.2 and earlier remain AGPL-3.0-only on crates.io.

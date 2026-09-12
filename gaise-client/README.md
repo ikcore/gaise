@@ -97,9 +97,9 @@ The `GaiseClientService` parses the `model` string to identify the provider.
 2. The part before `::` is used as the provider ID.
 3. The part after `::` is passed to the specific provider as the actual model name.
 
-If you request `ollama::llama3`, the service will:
+If you request `ollama::qwen3.8`, the service will:
 1. Initialize (or retrieve) the Ollama client.
-2. Call the Ollama client with `model: "llama3"`.
+2. Call the Ollama client with `model: "qwen3.8"`.
 
 ### Live / Realtime Sessions (feature = "live")
 

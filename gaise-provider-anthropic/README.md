@@ -2,7 +2,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/gaise-provider-anthropic.svg)](https://crates.io/crates/gaise-provider-anthropic)
 [![docs.rs](https://docs.rs/gaise-provider-anthropic/badge.svg)](https://docs.rs/gaise-provider-anthropic)
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/ikcore/gaise#license)
 
 Anthropic Claude provider for [GAISe](https://crates.io/crates/gaise) — implements the `GaiseClient` trait using the Anthropic Messages API.
 
@@ -74,4 +74,4 @@ Anthropic does not support embeddings. Calling `embeddings()` returns an error.
 
 ## Part of [GAISe](https://github.com/ikcore/gaise)
 
-License: AGPL-3.0-only
+License: MIT OR Apache-2.0, at your option (see `LICENSE-APACHE` and `LICENSE-MIT`). Versions 0.2.2 and earlier remain AGPL-3.0-only on crates.io.

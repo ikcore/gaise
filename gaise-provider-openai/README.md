@@ -2,7 +2,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/gaise-provider-openai.svg)](https://crates.io/crates/gaise-provider-openai)
 [![docs.rs](https://docs.rs/gaise-provider-openai/badge.svg)](https://docs.rs/gaise-provider-openai)
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/ikcore/gaise#license)
 
 OpenAI provider for [GAISe](https://crates.io/crates/gaise) — implements the `GaiseClient` trait using the OpenAI Chat Completions and Embeddings APIs.
 
@@ -33,7 +33,7 @@ let client = GaiseClientOpenAI::new(
 );
 
 let request = GaiseInstructRequest {
-    model: "gpt-5.6-terra".to_string(),
+    model: "gpt-6-astra".to_string(),
     input: OneOrMany::One(GaiseMessage {
         role: "user".to_string(),
         content: Some(OneOrMany::One(GaiseContent::Text {
@@ -51,7 +51,7 @@ let response = client.instruct(&request).await?;
 
 ```rust
 let request = GaiseInstructRequest {
-    model: "gpt-5.6-terra".to_string(),
+    model: "gpt-6-astra".to_string(),
     generation_config: Some(GaiseGenerationConfig {
         thinking_effort: Some("high".to_string()),
         max_tokens: Some(32000),
@@ -110,4 +110,4 @@ let session = client.live_connect(&config).await?;
 
 ## Part of [GAISe](https://github.com/ikcore/gaise)
 
-License: AGPL-3.0-only
+License: MIT OR Apache-2.0, at your option (see `LICENSE-APACHE` and `LICENSE-MIT`). Versions 0.2.2 and earlier remain AGPL-3.0-only on crates.io.

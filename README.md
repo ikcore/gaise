@@ -3,9 +3,9 @@
 [![crates.io](https://img.shields.io/crates/v/gaise.svg)](https://crates.io/crates/gaise)
 [![docs.rs](https://docs.rs/gaise/badge.svg)](https://docs.rs/gaise)
 [![Rust](https://img.shields.io/badge/rust-1.91%2B-orange.svg)](https://www.rust-lang.org)
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/ikcore/gaise#license)
 
-GAISe is a Rust abstraction over OpenAI, Anthropic, Google Gemini, Vertex AI, Amazon Bedrock, and Ollama. It provides one request/response contract for text, reasoning, tools, images, audio, files, embeddings, and streaming.
+GAISe is a Rust abstraction over OpenAI, Anthropic, Google Gemini, Vertex AI, Amazon Bedrock, Ollama, and ElevenLabs. It provides one request/response contract for text, reasoning, tools, images, audio, files, embeddings, and streaming.
 
 Written by Ian Knowles. Project page: [BadAI](https://badai.company/open-source/gaise).
 
@@ -22,11 +22,13 @@ Written by Ian Knowles. Project page: [BadAI](https://badai.company/open-source/
 
 ## Provider coverage
 
+Model registry audited **2026-09-12**. Newest additions: GPT-6 Astra (generally available) and GPT-Live 1 at OpenAI; Claude Fable 5.1 and Mythos 5.1 at Anthropic; Gemini 3.8 Flash on the Gemini API and Vertex AI; GPT-6 Astra on Bedrock; GLM 5.3, Granite 4.2, DeepSeek V4.1 Flash, and Kimi K3 on Ollama. New model ids work before the registry is updated; the registry only adds limits, lifecycle dates, and per-family parameter rules.
+
 | Provider | Main API surface | Current model examples |
 |---|---|---|
-| OpenAI | Chat Completions, Embeddings, Realtime | GPT-6 Astra (text and images; tool calling is Responses-only), GPT-5.6 Sol/Terra/Luna, GPT-5.5/5.4/5.2/5.1, GPT-4.1, text-embedding-3, Realtime 2.1 |
-| Anthropic | Messages | Claude Fable 5.1, Opus 5, Sonnet 5, Haiku 4.5; Fable 5 and the Opus/Sonnet 4.x line stay available as legacy |
-| Gemini | generateContent, Embeddings, Live | Gemini 3.8/3.7/3.6 Flash, 3.5 Flash/Flash-Lite, 3.1 Pro preview, 3.1 Flash Image, 3.1 Flash Live, gemini-embedding-2 |
+| OpenAI | Chat Completions, Embeddings, Realtime | GPT-6 Astra (GA 2026-09; text and images, tool calling is Responses-only), GPT-5.6 Sol/Terra/Luna, GPT-5.5, GPT-5.4, Realtime 2.1, text-embedding-3; older GPT-5.x and 4.x ids still resolve. GPT-Live 1, GPT Image 2.5, and GPT-Rosalind are catalogued but served by APIs outside the chat client |
+| Anthropic | Messages | Claude Fable 5.1 and Mythos 5.1 (2026-09-01), Opus 5, Sonnet 5, Haiku 4.5; Fable 5 and the Opus/Sonnet 4.x line stay available as legacy |
+| Gemini | generateContent, Embeddings, Live | Gemini 3.8 Flash (GA 2026-09-02), 3.7 and 3.6 Flash, 3.5 Flash/Flash-Lite, 3.1 Pro preview, 3.1 Flash Image, 3.1 Flash Live, gemini-embedding-2 |
 | Vertex AI | generateContent, Embeddings | Gemini 3.8 Flash through 3.1 Flash-Lite, 3.1 Pro preview, image-output models, gemini-embedding-001 and text-embedding-005 |
 | Bedrock | Converse, ConverseStream, InvokeModel | Claude Fable 5.1 / Opus 5 / Sonnet 5 / Haiku 4.5, Amazon Nova 2 Lite and Nova Pro/Lite/Micro, OpenAI GPT-6 Astra, GPT-5.6, and gpt-oss, xAI Grok 4.6, DeepSeek V3.2, Mistral Large 3, Llama 4, Qwen3 Coder; Titan, Cohere, and Nova embeddings |
 | Ollama | Chat and Embeddings | Any installed tag (Qwen 3.5–3.8, GPT-OSS, Gemma 4, GLM 5.3, Granite 4.2, DeepSeek R1 and V4.1 Flash, Kimi K3, Llama 4, Muse Glimmer, Laguna S/XS 2.1, and the common embedding families); vision, thinking, and tools are model-dependent |
@@ -155,7 +157,7 @@ let config = GaiseGenerationConfig {
 
 | Common field | OpenAI | Anthropic | Gemini / Vertex | Bedrock | Ollama |
 |---|---|---|---|---|---|
-| `thinking_effort` | `reasoning_effort` | `output_config.effort` plus model-aware thinking | Gemini 3 thinking level | Claude effort or Nova reasoning config | Boolean thinking or GPT-OSS level |
+| `thinking_effort` | `reasoning_effort` | `output_config.effort` plus model-aware thinking | Gemini 3 thinking level | Claude effort or Nova reasoning config | Boolean thinking, or a level string for GPT-OSS, GLM 5.3, and Granite 4.2 |
 | `thinking_tokens` | Included in completion budget | Manual `budget_tokens` where supported | Gemini 2.5 thinking budget; mapped to a level on 3.x | Provider-specific reasoning budget | Enables thinking where supported |
 | `include_thoughts` | Reasoning summary where exposed | `thinking.display` | `includeThoughts` | Returned reasoning content where exposed | Returned `thinking` field |
 | `max_tokens` | `max_completion_tokens` | `max_tokens` | `maxOutputTokens` | `maxTokens` | `num_predict` |
@@ -201,7 +203,7 @@ let response = service.embeddings(&request).await?;
 println!("dimensions: {}", response.output[0].len());
 ```
 
-OpenAI text-embedding-3, Gemini/Vertex embeddings, Bedrock Titan/Cohere, and Ollama embeddings are supported. The common embedding request is currently text-oriented even where a provider offers multimodal embeddings.
+OpenAI text-embedding-3, Gemini/Vertex embeddings (gemini-embedding-2), Bedrock Titan/Cohere/Nova, and Ollama embeddings are supported. The common embedding request is currently text-oriented even where a provider offers multimodal embeddings.
 
 ## Tool calling
 
@@ -286,4 +288,13 @@ The default suite does not call provider APIs. Tests requiring credentials, a ru
 
 ## License
 
-AGPLv3
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <https://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or <https://opensource.org/licenses/MIT>)
+
+at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
+
+Versions 0.2.2 and earlier were published to crates.io under AGPL-3.0-only and remain so; 0.2.3 onward are MIT OR Apache-2.0.
