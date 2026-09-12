@@ -1006,7 +1006,7 @@ dependencies = [
 
 [[package]]
 name = "gaise"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -1020,7 +1020,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-api"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "async-trait",
  "axum",
@@ -1041,7 +1041,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-chatbot"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "futures-util",
  "gaise",
@@ -1055,7 +1055,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-client"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -1074,7 +1074,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-anthropic"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "async-trait",
  "base64",
@@ -1087,7 +1087,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-bedrock"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -1108,7 +1108,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-elevenlabs"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "async-trait",
  "base64",
@@ -1128,7 +1128,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-gemini"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "async-trait",
  "base64",
@@ -1145,7 +1145,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-ollama"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "async-trait",
  "base64",
@@ -1160,7 +1160,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-openai"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "async-trait",
  "base64",
@@ -1179,7 +1179,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-vertexai"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "async-trait",
  "base64",
