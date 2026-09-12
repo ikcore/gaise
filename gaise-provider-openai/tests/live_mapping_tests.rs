@@ -422,3 +422,17 @@ mod tests {
         );
     }
 }
+
+#[test]
+fn gpt_live_models_are_refused_by_the_realtime_transport() {
+    use gaise_provider_openai::openai_live_client::realtime_model_uses_live_api;
+    // GPT-Live 1 (GA 2026-09-10) is served by /v1/live/sessions only and its
+    // model page lists Realtime as not supported; gpt-live-transcribe uses
+    // transcription sessions. Realtime ids keep connecting.
+    assert!(realtime_model_uses_live_api("gpt-live-1"));
+    assert!(realtime_model_uses_live_api("GPT-Live-1"));
+    assert!(realtime_model_uses_live_api("gpt-live-transcribe"));
+    assert!(!realtime_model_uses_live_api("gpt-realtime-2.1"));
+    assert!(!realtime_model_uses_live_api("gpt-realtime-1.5"));
+    assert!(!realtime_model_uses_live_api("gpt-4o-realtime-preview"));
+}

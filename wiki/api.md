@@ -373,7 +373,7 @@ sequenceDiagram
 
 ```json
 {
-  "audited_on": "2026-09-04",
+  "audited_on": "2026-09-12",
   "source": "registry",
   "models": [
     {

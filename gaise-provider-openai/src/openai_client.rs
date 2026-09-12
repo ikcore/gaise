@@ -264,6 +264,17 @@ pub fn openai_chat_rules(model: &str) -> OpenAIChatRules {
             ..PASS_THROUGH
         };
     }
+    if starts("gpt-live-") {
+        // GPT-Live 1 (generally available 2026-09-10) is served only by the
+        // Live API (`wss://api.openai.com/v1/live/sessions`, `session.start`
+        // event vocabulary); its model page lists Chat Completions, Responses,
+        // and Realtime as not supported. The same prefix covers
+        // `gpt-live-transcribe` (realtime transcription sessions).
+        return OpenAIChatRules {
+            chat_supported: false,
+            ..PASS_THROUGH
+        };
+    }
     if has("chat-latest") || starts("chat-latest") {
         return NON_REASONING;
     }
@@ -374,7 +385,7 @@ fn ensure_chat_supported(model: &str) -> Result<(), Box<dyn std::error::Error + 
         Ok(())
     } else {
         Err(format!(
-            "OpenAI model '{model}' is not available on Chat Completions; it requires the Responses API, which the GAISe OpenAI instruct client does not implement yet"
+            "OpenAI model '{model}' is not available on Chat Completions; OpenAI serves it through another surface (the Responses API, the Images API, or the Live API) that the GAISe OpenAI instruct client does not implement yet"
         )
         .into())
     }

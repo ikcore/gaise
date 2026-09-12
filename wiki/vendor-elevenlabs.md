@@ -148,7 +148,9 @@ Mapping functions: [`stream_input_events`](../gaise-provider-elevenlabs/src/elev
 | `eleven_multilingual_sts_v2` | `eleven_english_sts_v2` | `active` | — | audio | audio | — | — | not supported: speech-to-speech has no GAISe surface | — |
 | `scribe_v2` | `scribe_v2_realtime` | `active` | — | text, audio | text | — | — | not supported: speech-to-text has no GAISe surface yet | scribe_v2_realtime is listed as its own model (~150 ms, 90+ languages); scribe_v1 is deprecated with no shutdown date. |
 | `eleven_ttv_v3` | `eleven_multilingual_ttv_v2` | `active` | — | text | text, audio | — | — | not supported: voice design (/v1/text-to-voice/design) has no GAISe surface | Text-to-voice design models; the endpoint defaults to eleven_multilingual_ttv_v2 and takes 100-1,000 characters of description. |
-| `music_v2` | `music_v1` | `active` | — | text | text, audio | — | — | not supported: music generation (/v1/music) has no GAISe surface | music_v2 outclasses music_v1, which remains the endpoint default; 3-600 s clips. |
+| `music_v2` | — | `active` | — | text | text, audio | — | — | not supported: music generation (/v1/music) has no GAISe surface | Studio-grade music with composition plans, audio reference, and inpainting; superseded as the flagship by music_v2_5 (2026-09). Section dura… |
+| `music_v2_5` | — | `active` | — | text | text, audio | — | — | not supported: music generation (/v1/music) has no GAISe surface | Most advanced music model (listed by 2026-09-12; /v1/music/compose model_id enum music_v1, music_v2, music_v2_5). Section durations are alwa… |
+| `music_v1` | — | `deprecated` | — | text | text, audio | — | — | not supported: music generation (/v1/music) has no GAISe surface | Listed under Deprecated models by 2026-09-12 (outclassed by music_v2 and music_v2_5); still the /v1/music default; no shutdown date publishe… |
 | `eleven_text_to_sound_v2` | — | `active` | — | text | text, audio | — | — | not supported: sound effects (/v1/sound-generation) have no GAISe surface | 0.5-30 s effects with optional looping. |
 
 Full generated table: [models.md#elevenlabs](models.md#elevenlabs).

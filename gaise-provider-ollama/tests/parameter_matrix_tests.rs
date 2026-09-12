@@ -170,3 +170,59 @@ fn embedding_requests_apply_family_prefixes_and_dimension_rules() {
     assert_eq!(json["dimensions"], 123);
     assert!(!resolved.normalize_locally);
 }
+
+#[test]
+fn glm_5_3_and_granite_4_2_take_levels() {
+    // GLM 5.3 / GLM 5.3 Flash library pages (2026-08-28): reasoning_effort
+    // low / high / max, Flash always on. Granite 4.2: reasoning_effort
+    // low / high. Ollama accepts only low/medium/high/max as strings.
+    assert_eq!(
+        think("glm-5.3:cloud", Some("max"), None),
+        Some("max".into())
+    );
+    assert_eq!(
+        think("glm-5.3-flash:cloud", Some("medium"), None),
+        Some("high".into())
+    );
+    assert_eq!(
+        think("glm-5.3:cloud", Some("xhigh"), None),
+        Some("max".into())
+    );
+    assert_eq!(
+        think("glm-5.3:cloud", Some("none"), None),
+        Some(false.into())
+    );
+    assert_eq!(
+        think("glm-5.3:cloud", Some("auto"), None),
+        Some(true.into())
+    );
+    assert_eq!(
+        think("glm-5.3:cloud", None, Some(4096)),
+        Some("high".into())
+    );
+    assert_eq!(
+        think("granite4.2:8b", Some("medium"), None),
+        Some("high".into())
+    );
+    assert_eq!(
+        think("granite4.2:8b", Some("max"), None),
+        Some("high".into())
+    );
+    assert_eq!(
+        think("granite4.2:8b", Some("low"), None),
+        Some("low".into())
+    );
+    assert_eq!(
+        think("granite4.2:8b", None, Some(2048)),
+        Some("high".into())
+    );
+    // Families without documented levels keep the boolean form.
+    assert_eq!(
+        think("laguna-xs-2.1", Some("high"), None),
+        Some(true.into())
+    );
+    assert_eq!(
+        think("deepseek-v4.1-flash:cloud", Some("max"), None),
+        Some(true.into())
+    );
+}

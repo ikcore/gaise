@@ -163,6 +163,21 @@ fn build_tool_declarations(tools: &[GaiseTool]) -> Vec<GeminiLiveFunctionDeclara
         .collect()
 }
 
+/// `startOfSpeechSensitivity` / `endOfSpeechSensitivity` values for the Live
+/// API's automatic activity detection. The reference enumerates only HIGH and
+/// LOW for both (the default is HIGH), so any other value is omitted and the
+/// server default applies; before 2026-09-12 the adapter sent a
+/// `*_SENSITIVITY_MEDIUM` value that does not exist.
+pub fn live_vad_sensitivity(start: bool, value: &str) -> Option<&'static str> {
+    match (start, value.to_ascii_lowercase().as_str()) {
+        (true, "high") => Some("START_SENSITIVITY_HIGH"),
+        (true, "low") => Some("START_SENSITIVITY_LOW"),
+        (false, "high") => Some("END_SENSITIVITY_HIGH"),
+        (false, "low") => Some("END_SENSITIVITY_LOW"),
+        _ => None,
+    }
+}
+
 fn build_setup_message(config: &GaiseLiveConfig, api_model_path: &str) -> GeminiLiveSetup {
     let modalities: Vec<String> = if config.modalities.is_empty() {
         vec!["AUDIO".to_string()]
@@ -193,34 +208,27 @@ fn build_setup_message(config: &GaiseLiveConfig, api_model_path: &str) -> Gemini
         .filter(|t| t.output)
         .map(|_| serde_json::json!({}));
 
-    let realtime_input_config = config.vad_config.as_ref().map(|vad| {
-        let sensitivity_map = |s: &str| match s {
-            "high" => "START_SENSITIVITY_HIGH",
-            "low" => "START_SENSITIVITY_LOW",
-            _ => "START_SENSITIVITY_MEDIUM",
-        };
-        let end_sensitivity_map = |s: &str| match s {
-            "high" => "END_SENSITIVITY_HIGH",
-            "low" => "END_SENSITIVITY_LOW",
-            _ => "END_SENSITIVITY_MEDIUM",
-        };
-
-        GeminiLiveRealtimeInputConfig {
-            automatic_activity_detection: Some(GeminiLiveVadConfig {
-                disabled: Some(!vad.enabled),
-                start_of_speech_sensitivity: vad
-                    .start_sensitivity
-                    .as_deref()
-                    .map(|s| sensitivity_map(s).to_string()),
-                end_of_speech_sensitivity: vad
-                    .end_sensitivity
-                    .as_deref()
-                    .map(|s| end_sensitivity_map(s).to_string()),
-                prefix_padding_ms: vad.prefix_padding_ms,
-                silence_duration_ms: vad.silence_duration_ms,
-            }),
-        }
-    });
+    let realtime_input_config =
+        config
+            .vad_config
+            .as_ref()
+            .map(|vad| GeminiLiveRealtimeInputConfig {
+                automatic_activity_detection: Some(GeminiLiveVadConfig {
+                    disabled: Some(!vad.enabled),
+                    start_of_speech_sensitivity: vad
+                        .start_sensitivity
+                        .as_deref()
+                        .and_then(|s| live_vad_sensitivity(true, s))
+                        .map(str::to_string),
+                    end_of_speech_sensitivity: vad
+                        .end_sensitivity
+                        .as_deref()
+                        .and_then(|s| live_vad_sensitivity(false, s))
+                        .map(str::to_string),
+                    prefix_padding_ms: vad.prefix_padding_ms,
+                    silence_duration_ms: vad.silence_duration_ms,
+                }),
+            });
 
     let temperature = config
         .generation_config

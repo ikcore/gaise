@@ -103,7 +103,7 @@ Mapped by [`map_content_parts`](../gaise-provider-openai/src/openai_client.rs#L1
 | Reasoning families | none | No allowlist: `reasoning_effort` is sent whenever configured. The catalog heuristics in [`classify_openai_model_id`](../gaise-provider-openai/src/contracts/catalog.rs#L53) recognize `gpt-`, `chatgpt-`, `o1`/`o3`/`o4`, `codex` as Chat but do not gate request fields |
 | Fixed-sampling models | none | `temperature`/`top_p` are never suppressed per model |
 
-### Parameter compatibility (audited 2026-09-04)
+### Parameter compatibility (audited 2026-09-12)
 
 [`openai_chat_rules`](../gaise-provider-openai/src/openai_client.rs) drives per-family filtering before a Chat Completions request is serialized; [`tests/parameter_matrix_tests.rs`](../gaise-provider-openai/tests/parameter_matrix_tests.rs) pins every row.
 
@@ -119,10 +119,11 @@ Mapped by [`map_content_parts`](../gaise-provider-openai/src/openai_client.rs#L1
 | o1 / o3 / o4-mini | ″ | never | low, medium, high (medium) | → `high` | yes |
 | `*-codex` | ″ | never | low … xhigh (medium) | → `high` | yes |
 | GPT-4.1, GPT-4o, `*-chat-latest`, `chat-latest`, `gpt-audio*`, fine-tunes of them | ″ | accepted | **never sent** | → `high` | yes |
-| `gpt-5.5-pro`, `gpt-5.2-pro`, `gpt-5-pro`, `o3-pro`, `o1-pro`, `gpt-5.6-cyber`, `gpt-daybreak-*` | — | — | — | — | **no** — `instruct` fails fast with a Responses-API error |
+| `gpt-5.5-pro`, `gpt-5.2-pro`, `gpt-5-pro`, `o3-pro`, `o1-pro`, `gpt-5.6-cyber`, `gpt-daybreak-*` | — | — | — | — | **no** — `instruct` fails fast (the error names the Responses, Images, and Live APIs) |
+| `gpt-live-1`, `gpt-live-transcribe` (`gpt-live-` prefix; GPT-Live 1 GA 2026-09-10) | — | — | — | — | **no** — Live API only (`wss://api.openai.com/v1/live/sessions`); `instruct` fails fast and the catalog classifies the prefix as non-chat |
 | Unknown model | ″ | forwarded | forwarded | forwarded | assumed yes |
 
-Realtime: `reasoning.effort` is sent only to `gpt-realtime-2` and later ([`realtime_model_supports_reasoning`](../gaise-provider-openai/src/openai_live_client.rs)); the session reference now enumerates `minimal`, `low`, `medium`, `high`, `xhigh` (no `none` or `max`), and `max_output_tokens` is clamped to 1–4096 as the session schema requires even though the 2.x model pages document 32K output. Other Chat Completions contract notes from the 2026-09-04 audit: `service_tier: "fast"` joined `priority` (Fast mode, 2026-07-30), `prompt_cache_retention` is deprecated in favour of `prompt_cache_options.ttl` (GAISe sends neither, only `prompt_cache_key`), a `moderation` object can be attached to any request, and 429 `slow_down` / 503 `server_is_overloaded` responses carry `Retry-After` (the adapter already retries both with backoff). Sources: Chat Completions reference, latest-model guide ("parameter compatibility"), reasoning guide, model pages, images guide, changelog.
+Realtime: `gpt-live-*` ids are refused before any connection ([`realtime_model_uses_live_api`](../gaise-provider-openai/src/openai_live_client.rs); GPT-Live 1 is served by `/v1/live/sessions`, not `/v1/realtime`); `reasoning.effort` is sent only to `gpt-realtime-2` and later ([`realtime_model_supports_reasoning`](../gaise-provider-openai/src/openai_live_client.rs)); the session reference now enumerates `minimal`, `low`, `medium`, `high`, `xhigh` (no `none` or `max`), and `max_output_tokens` is clamped to 1–4096 as the session schema requires even though the 2.x model pages document 32K output. Other Chat Completions contract notes from the 2026-09-04 audit: `service_tier: "fast"` joined `priority` (Fast mode, 2026-07-30), `prompt_cache_retention` is deprecated in favour of `prompt_cache_options.ttl` (GAISe sends neither, only `prompt_cache_key`), a `moderation` object can be attached to any request, and 429 `slow_down` / 503 `server_is_overloaded` responses carry `Retry-After` (the adapter already retries both with backoff). Re-checked 2026-09-12 with no wire change: `service_tier` also accepts `scale`, `prompt_cache_options` is `{mode: implicit|explicit, ttl: "30m"}` on GPT-5.6 and later, and `usage.prompt_tokens_details` gained `image_tokens`/`text_tokens` (ignored by the parser); GPT-6 Astra is generally available since 2026-09-04 with the same rules. Sources: Chat Completions reference, latest-model guide ("parameter compatibility"), reasoning guide, model pages, images guide, changelog.
 
 ## Response mapping
 
@@ -210,11 +211,11 @@ Tests: [`catalog.rs#L167-L283`](../gaise-provider-openai/src/contracts/catalog.r
 
 ## Models
 
-From `model-registry.toml` (audited 2026-09-04). Status is the registry string; dates are `shutdown_date` / `retirement_not_before`.
+From `model-registry.toml` (audited 2026-09-12). Status is the registry string; dates are `shutdown_date` / `retirement_not_before`.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| `gpt-6-astra` | — | `limited_availability` | — | text, image | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features without function tools | Released 2026-09-03 for Trusted Access Program enterprises first; broader availability announced as following. Knowledge cutoff 2026-04-30.… |
+| `gpt-6-astra` | — | `active` | — | text, image | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features without function tools | Released 2026-09-03 as a limited preview and generally available in the API since 2026-09-04 (the model page carries the standard rate-limit… |
 | `gpt-5.6` | `gpt-5.6-sol` | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features | OpenAI documents gpt-5.6-sol as the snapshot ID and gpt-5.6 as the alias that routes to it. On Chat Completions, function tools require reas… |
 | `gpt-5.6-terra` | — | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features | On Chat Completions, function tools require reasoning_effort='none'; the adapter applies this automatically. Use Responses for reasoning wit… |
 | `gpt-5.6-luna` | — | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features | On Chat Completions, function tools require reasoning_effort='none'; the adapter applies this automatically. Use Responses for reasoning wit… |
@@ -239,8 +240,12 @@ From `model-registry.toml` (audited 2026-09-04). Status is the registry string; 
 | `gpt-realtime-translate` | — | `active` | — | audio | audio | — | — | not supported: the /v1/realtime/translations endpoint uses its own session and event vocabulary | Streaming speech-to-speech translation (audio in; audio and transcript out), billed per minute. The target language is set through session.a… |
 | `gpt-audio-1.5` | — | `active` | — | text, audio | text, audio | instruct, instruct_stream | — | Chat audio input is native; audio output is not mapped by the current instruct client | Chat Completions supported; Responses not supported. |
 | `gpt-image-2` | — | `active` | — | image | image | — | — | not yet native | Requires OpenAI Images or Responses image-generation tooling; the GAISe OpenAI instruct client currently uses Chat Completions. Default snap… |
+| `gpt-image-2.5-sunburst` | — | `active` | — | image | image | — | — | not yet native | Released 2026-09-08 (default snapshot gpt-image-2.5-sunburst-2026-09-08); the editing-precision GPT Image 2.5 model. Images API generations… |
+| `gpt-image-2.5-flare` | — | `active` | — | image | image | — | — | not yet native | Released 2026-09-08 (default snapshot gpt-image-2.5-flare-2026-09-08); the fast everyday GPT Image 2.5 model. Images API generations and edi… |
+| `gpt-live-1` | — | `active` | — | text, audio | text, audio | — | — | not supported: the Live API (wss://api.openai.com/v1/live/sessions) has its own session.start / session.input_audio.append / delegation event vocabulary; Chat Completions, Responses, and Realtime are not supported for this model (the instruct and live clients fail fast) | Full-duplex voice model, generally available 2026-09-10. Delegates reasoning and tools to a backend Responses model (session.delegation.type… |
 | `gpt-5.6-cyber` | — | `limited_availability` | — | text, image | text | — | supported | not reachable: Responses API only, Daybreak program approval required | Daybreak Red model (2026-08-12). 400K context (not the 1.05M of the GPT-5.6 family); 272K max input. The instruct client fails fast. |
 | `gpt-daybreak-*` | — | `limited_availability` | — | text | text | — | supported | not reachable: Responses API only, Daybreak program approval required | gpt-daybreak-red-latest and gpt-daybreak-blue-latest (Daybreak Security Tiers, 2026-08-07). Detail pages were not fetched; limits unknown. |
+| `gpt-rosalind-research` | — | `limited_availability` | — | text | text | — | supported | not verified: no model page is published and trusted-access approval is required; the instruct client forwards requests unchanged | GPT-Rosalind life-sciences reasoning model. Changelog 2026-09-08: generally available through the trusted-access program for approved intern… |
 | `gpt-transcribe` | — | `active` | — | text, audio | text | — | — | not supported: speech-to-text has no GAISe surface | Released 2026-07-28; /v1/audio/transcriptions and realtime transcription sessions; streaming; billed per minute. |
 | `gpt-live-transcribe` | — | `active` | — | text, audio | text | — | — | not supported: realtime transcription sessions have no GAISe surface | Released 2026-07-28; /v1/realtime/transcription_sessions only; 'delay' accepts minimal, low, medium, high, xhigh. |
 | `gpt-realtime-whisper` | — | `active` | — | text, audio | text | — | — | not supported: realtime transcription sessions have no GAISe surface | turn_detection must be null for this model. |
@@ -273,7 +278,7 @@ The registry is advisory: any `openai::<id>` string is routed as-is, so new snap
 
 ## Limitations and explicit fallbacks
 
-- Chat Completions only. `gpt-5.5-pro`, `gpt-5.6-cyber`, Daybreak, `gpt-image-*`, and every Responses-only feature (`input_file`, hosted tools, persisted reasoning, pro mode, image generation) are unreachable through `instruct`.
+- Chat Completions only. `gpt-5.5-pro`, `gpt-5.6-cyber`, Daybreak, `gpt-image-*`, `gpt-live-1` (Live API), and every Responses-only feature (`input_file`, hosted tools, persisted reasoning, pro mode, image generation) are unreachable through `instruct`.
 - Binary `File` input becomes the marker text `[Unsupported binary document for OpenAI Chat Completions; use the Responses API input_file feature: <name>]`; UTF-8 files become `<attached_document>` tagged text.
 - `Reasoning` input is replayed as `<reasoning_summary>` text without its signature; `RedactedReasoning` becomes a placeholder string.
 - Audio input formats other than WAV are labeled `mp3`. Chat audio **output**, returned `image_url`/`input_audio` parts, and `finish_reason` are dropped.

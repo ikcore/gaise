@@ -108,9 +108,19 @@ fn realtime_reasoning_effort_from_tokens(tokens: usize) -> String {
     .to_string()
 }
 
+/// `gpt-live-*` ids are not served by the Realtime endpoint: GPT-Live 1
+/// (generally available 2026-09-10) uses the separate Live API
+/// (`wss://api.openai.com/v1/live/sessions`, `session.start` event
+/// vocabulary) and `gpt-live-transcribe` uses transcription sessions. Its
+/// model page lists Realtime as not supported, so `live_connect` refuses the
+/// id instead of dialing `/v1/realtime?model=`.
+pub fn realtime_model_uses_live_api(model: &str) -> bool {
+    model.to_ascii_lowercase().starts_with("gpt-live-")
+}
+
 /// `gpt-realtime-2` and later are reasoning models; `gpt-realtime`,
 /// `gpt-realtime-1.5`, `gpt-realtime-mini`, and the `gpt-4o-*-realtime`
-/// family are not (model pages, audited 2026-09-04).
+/// family are not (model pages, audited 2026-09-04; unchanged 2026-09-12).
 pub fn realtime_model_supports_reasoning(model: &str) -> bool {
     let m = model.to_ascii_lowercase();
     let Some(rest) = m.strip_prefix("gpt-realtime-") else {
@@ -319,6 +329,13 @@ impl GaiseLiveClient for GaiseClientOpenAILive {
         &self,
         config: &GaiseLiveConfig,
     ) -> Result<GaiseLiveSession, Box<dyn std::error::Error + Send + Sync>> {
+        if realtime_model_uses_live_api(&config.model) {
+            return Err(std::io::Error::other(format!(
+                "OpenAI model '{}' is not served by the Realtime endpoint: GPT-Live models use the Live API (/v1/live/sessions) and gpt-live-transcribe uses transcription sessions, neither of which the GAISe OpenAI live client implements yet; choose a gpt-realtime model",
+                config.model
+            ))
+            .into());
+        }
         // Build WebSocket URL: wss://api.openai.com/v1/realtime?model=MODEL
         let base = self
             .api_url
