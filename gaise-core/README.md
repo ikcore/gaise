@@ -2,7 +2,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/gaise.svg)](https://crates.io/crates/gaise)
 [![docs.rs](https://docs.rs/gaise/badge.svg)](https://docs.rs/gaise)
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/ikcore/gaise#license)
 
 Core trait and contracts for **GAISe** (Generative AI Service) — a unified Rust abstraction across GenAI providers.
 
@@ -93,12 +93,13 @@ let response = client.instruct(&request).await?;
 
 | Crate | Provider |
 |-------|----------|
-| [`gaise-provider-openai`](https://crates.io/crates/gaise-provider-openai) | OpenAI (GPT-4o, GPT-5, o3, o4-mini) |
-| [`gaise-provider-anthropic`](https://crates.io/crates/gaise-provider-anthropic) | Anthropic (Claude 4.x, extended thinking) |
-| [`gaise-provider-gemini`](https://crates.io/crates/gaise-provider-gemini) | Google Gemini (v1beta API) |
+| [`gaise-provider-openai`](https://crates.io/crates/gaise-provider-openai) | OpenAI (GPT-6 Astra, GPT-5.6, GPT-5.5, Realtime 2.1, text-embedding-3) |
+| [`gaise-provider-anthropic`](https://crates.io/crates/gaise-provider-anthropic) | Anthropic (Claude Fable 5.1, Opus 5, Sonnet 5, Haiku 4.5; adaptive and extended thinking) |
+| [`gaise-provider-gemini`](https://crates.io/crates/gaise-provider-gemini) | Google Gemini (Gemini 3.8 Flash and the 3.x line, Live, gemini-embedding-2) |
 | [`gaise-provider-vertexai`](https://crates.io/crates/gaise-provider-vertexai) | Google Vertex AI |
-| [`gaise-provider-bedrock`](https://crates.io/crates/gaise-provider-bedrock) | AWS Bedrock |
-| [`gaise-provider-ollama`](https://crates.io/crates/gaise-provider-ollama) | Ollama (local) |
+| [`gaise-provider-bedrock`](https://crates.io/crates/gaise-provider-bedrock) | AWS Bedrock (Claude, Nova, GPT-6 Astra and GPT-5.6, third-party Converse families) |
+| [`gaise-provider-ollama`](https://crates.io/crates/gaise-provider-ollama) | Ollama (local and cloud tags: Qwen 3.8, GPT-OSS, Gemma 4, GLM 5.3, Granite 4.2) |
+| [`gaise-provider-elevenlabs`](https://crates.io/crates/gaise-provider-elevenlabs) | ElevenLabs text-to-speech and realtime voice |
 | [`gaise-client`](https://crates.io/crates/gaise-client) | Router — `"provider::model"` string routing |
 | [`gaise-api`](https://crates.io/crates/gaise-api) | Axum HTTP server with SSE streaming |
 
@@ -123,4 +124,4 @@ generation_config: Some(GaiseGenerationConfig {
 
 ## License
 
-AGPL-3.0-only
+MIT OR Apache-2.0, at your option (see `LICENSE-APACHE` and `LICENSE-MIT`, bundled in the crate and in the repository). Versions 0.2.2 and earlier remain AGPL-3.0-only on crates.io.

@@ -26,14 +26,14 @@ To use only specific providers, disable default features in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gaise-client = { version = "0.2.2", default-features = false, features = ["openai"] }
+gaise-client = { version = "0.2.3", default-features = false, features = ["openai"] }
 ```
 
 To enable live/realtime sessions:
 
 ```toml
 [dependencies]
-gaise-client = { version = "0.2.2", features = ["live"] }
+gaise-client = { version = "0.2.3", features = ["live"] }
 ```
 
 ## Supported Providers
@@ -97,9 +97,9 @@ The `GaiseClientService` parses the `model` string to identify the provider.
 2. The part before `::` is used as the provider ID.
 3. The part after `::` is passed to the specific provider as the actual model name.
 
-If you request `ollama::llama3`, the service will:
+If you request `ollama::qwen3.8`, the service will:
 1. Initialize (or retrieve) the Ollama client.
-2. Call the Ollama client with `model: "llama3"`.
+2. Call the Ollama client with `model: "qwen3.8"`.
 
 ### Live / Realtime Sessions (feature = "live")
 

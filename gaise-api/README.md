@@ -2,7 +2,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/gaise-api.svg)](https://crates.io/crates/gaise-api)
 [![docs.rs](https://docs.rs/gaise-api/badge.svg)](https://docs.rs/gaise-api)
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/ikcore/gaise#license)
 
 Axum HTTP server for [GAISe](https://crates.io/crates/gaise) — exposes all GenAI providers behind a unified REST API with SSE streaming.
 
@@ -43,7 +43,7 @@ curl -X POST http://localhost:3000/v1/instruct \
   }'
 ```
 
-Change `"model"` to `"anthropic::claude-sonnet-5"` or `"gemini::gemini-3.6-flash"` — same endpoint, same format.
+Change `"model"` to `"anthropic::claude-sonnet-5"` or `"gemini::gemini-3.8-flash"` — same endpoint, same format.
 
 ### Live / Realtime (feature = "live")
 
@@ -85,4 +85,4 @@ let app = create_app(state);
 
 ## Part of [GAISe](https://github.com/ikcore/gaise)
 
-License: AGPL-3.0-only
+License: MIT OR Apache-2.0, at your option (see `LICENSE-APACHE` and `LICENSE-MIT`). Versions 0.2.2 and earlier remain AGPL-3.0-only on crates.io.
