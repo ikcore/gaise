@@ -8,6 +8,7 @@ use gaise_core::contracts::*;
 mod tests {
     use super::*;
     use gaise_provider_gemini::contracts::live_models::*;
+    use gaise_provider_gemini::gemini_live_client::live_vad_sensitivity;
 
     #[test]
     fn test_setup_message_basic_audio() {
@@ -98,6 +99,40 @@ mod tests {
         assert_eq!(vad["endOfSpeechSensitivity"], "END_SENSITIVITY_LOW");
         assert_eq!(vad["silenceDurationMs"], 500);
         assert_eq!(vad["prefixPaddingMs"], 40);
+    }
+
+    #[test]
+    fn test_vad_sensitivity_outside_high_low_is_omitted() {
+        // The Live API reference (checked 2026-09-12) enumerates only
+        // START_SENSITIVITY_HIGH/LOW and END_SENSITIVITY_HIGH/LOW (default
+        // HIGH); the adapter used to emit a non-existent *_MEDIUM value.
+        assert_eq!(
+            live_vad_sensitivity(true, "high"),
+            Some("START_SENSITIVITY_HIGH")
+        );
+        assert_eq!(
+            live_vad_sensitivity(false, "LOW"),
+            Some("END_SENSITIVITY_LOW")
+        );
+        assert_eq!(live_vad_sensitivity(true, "medium"), None);
+        assert_eq!(live_vad_sensitivity(false, "medium"), None);
+
+        let config = GaiseLiveConfig {
+            model: "gemini-3.1-flash-live-preview".to_string(),
+            vad_config: Some(GaiseVadConfig {
+                enabled: true,
+                start_sensitivity: Some("medium".to_string()),
+                end_sensitivity: Some("medium".to_string()),
+                silence_duration_ms: None,
+                prefix_padding_ms: None,
+            }),
+            ..Default::default()
+        };
+        let json = serde_json::to_value(build_test_setup(&config)).unwrap();
+        let vad = &json["setup"]["realtimeInputConfig"]["automaticActivityDetection"];
+        assert_eq!(vad["disabled"], false);
+        assert!(vad["startOfSpeechSensitivity"].is_null());
+        assert!(vad["endOfSpeechSensitivity"].is_null());
     }
 
     #[test]
@@ -340,22 +375,16 @@ mod tests {
                 .map(|vad| GeminiLiveRealtimeInputConfig {
                     automatic_activity_detection: Some(GeminiLiveVadConfig {
                         disabled: Some(!vad.enabled),
-                        start_of_speech_sensitivity: vad.start_sensitivity.as_deref().map(|s| {
-                            match s {
-                                "high" => "START_SENSITIVITY_HIGH",
-                                "low" => "START_SENSITIVITY_LOW",
-                                _ => "START_SENSITIVITY_MEDIUM",
-                            }
-                            .to_string()
-                        }),
-                        end_of_speech_sensitivity: vad.end_sensitivity.as_deref().map(|s| {
-                            match s {
-                                "high" => "END_SENSITIVITY_HIGH",
-                                "low" => "END_SENSITIVITY_LOW",
-                                _ => "END_SENSITIVITY_MEDIUM",
-                            }
-                            .to_string()
-                        }),
+                        start_of_speech_sensitivity: vad
+                            .start_sensitivity
+                            .as_deref()
+                            .and_then(|s| live_vad_sensitivity(true, s))
+                            .map(str::to_string),
+                        end_of_speech_sensitivity: vad
+                            .end_sensitivity
+                            .as_deref()
+                            .and_then(|s| live_vad_sensitivity(false, s))
+                            .map(str::to_string),
                         prefix_padding_ms: vad.prefix_padding_ms,
                         silence_duration_ms: vad.silence_duration_ms,
                     }),

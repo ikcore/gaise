@@ -143,7 +143,7 @@ Worked examples (from [`mapping_tests.rs`](../gaise-provider-anthropic/tests/map
 | `claude-opus-5` | effort `xhigh`, temp/top_p/top_k set | `{"type":"adaptive"}` | `{"effort":"xhigh"}` | none |
 | `claude-sonnet-4-5-20250929` | temp 0.4, top_p 0.8 | none | none | `temperature: 0.4` |
 
-### Parameter compatibility (audited 2026-09-04)
+### Parameter compatibility (audited 2026-09-12)
 
 [`claude_family_rules`](../gaise-provider-anthropic/src/anthropic_client.rs), [`normalize_effort`](../gaise-provider-anthropic/src/anthropic_client.rs), and [`resolve_output_budget`](../gaise-provider-anthropic/src/anthropic_client.rs) enforce the table below; [`tests/parameter_matrix_tests.rs`](../gaise-provider-anthropic/tests/parameter_matrix_tests.rs) pins it.
 
@@ -157,7 +157,7 @@ Worked examples (from [`mapping_tests.rs`](../gaise-provider-anthropic/tests/map
 | Sonnet 4.5, Haiku 4.5 | `enabled` + budget | as above | none (effort dropped) | either temperature or top_p | 64k |
 | Unknown Claude | manual | as above | forwarded | forwarded | 128k |
 
-`minimal` maps to `low` everywhere; unknown future effort strings are forwarded. Family matching is by substring, so `claude-fable-5-1` and `claude-mythos-5-1` inherit the Fable 5 row without a code change. Contract changes noted on 2026-09-04 that need no adapter change: Fable 5.1 / Mythos 5.1 reject `tool_choice` `any`/`tool` (GAISe never sends `tool_choice`), bind thinking blocks to the producing model and, for accounts created on or after 2026-08-31, to an unchanged conversation prefix (GAISe replays `Reasoning` blocks and signatures unchanged, which is the documented requirement), and default `thinking.display` to `omitted` (`include_thoughts: true` opts into `summarized`; the beta `updates` value is not mapped). `stop_reason` may now be `refusal` (with `stop_details`) or `model_context_window_exceeded`; both pass through `finish_reason` as strings. Anthropic labels Fable 5, Opus 4.8/4.7/4.6/4.5, and Sonnet 4.6/4.5 as Legacy (still served, no dates); the registry mirrors that as `status = "legacy"` while the Models API keeps reporting them as active. Sources: thinking-troubleshooting ("configurations each model rejects"), effort, extended-thinking (budget rules), models overview, release notes 2026-09-01.
+`minimal` maps to `low` everywhere; unknown future effort strings are forwarded. Family matching is by substring, so `claude-fable-5-1` and `claude-mythos-5-1` inherit the Fable 5 row without a code change. Contract changes noted on 2026-09-04 that need no adapter change: Fable 5.1 / Mythos 5.1 reject `tool_choice` `any`/`tool` (GAISe never sends `tool_choice`), bind thinking blocks to the producing model and, for accounts created on or after 2026-08-31, to an unchanged conversation prefix (GAISe replays `Reasoning` blocks and signatures unchanged, which is the documented requirement), and default `thinking.display` to `omitted` (`include_thoughts: true` opts into `summarized`; the beta `updates` value is not mapped). `stop_reason` may now be `refusal` (with `stop_details`) or `model_context_window_exceeded`; both are tolerated by the parser but, like every stop reason, not surfaced on `GaiseInstructResponse` (see [Limitations](#limitations-and-explicit-fallbacks)); re-checked 2026-09-12 with no contract change (the reference now also documents `stop_details.category` and the server-side `fallbacks` beta, neither sent nor parsed). Anthropic labels Fable 5, Opus 4.8/4.7/4.6/4.5, and Sonnet 4.6/4.5 as Legacy (still served, no dates); the registry mirrors that as `status = "legacy"` while the Models API keeps reporting them as active. Sources: thinking-troubleshooting ("configurations each model rejects"), effort, extended-thinking (budget rules), models overview, release notes 2026-09-01.
 
 ## Response mapping
 
@@ -253,7 +253,7 @@ There are no heuristics from the model name and no opt-in detail calls (`include
 
 ## Models
 
-From `gaise-core/model-registry.toml` (audited 2026-09-04), entries with `provider = "anthropic"`. The registry is advisory; arbitrary IDs are accepted. Dates are the direct Claude API lifecycle — Bedrock-hosted Claude is tracked separately.
+From `gaise-core/model-registry.toml` (audited 2026-09-12), entries with `provider = "anthropic"`. The registry is advisory; arbitrary IDs are accepted. Dates are the direct Claude API lifecycle — Bedrock-hosted Claude is tracked separately.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|

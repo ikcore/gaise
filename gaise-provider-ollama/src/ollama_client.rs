@@ -227,35 +227,55 @@ pub fn ollama_embed_request(
     )
 }
 
+/// Families whose `think` takes an effort string instead of a boolean, with
+/// the levels each one documents (Ollama itself accepts only `low`, `medium`,
+/// `high`, and `max` as strings). Every other family gets `true` / `false`.
+///
+/// - GPT-OSS requires a level (`low`, `medium`, `high`; library page).
+/// - GLM 5.3 and GLM 5.3 Flash (cloud tags, 2026-08-28) document
+///   `reasoning_effort` `low` / `high` / `max` (default `max`); Flash's
+///   reasoning is always on, so a boolean loses the effort.
+/// - Granite 4.2 (2026-08) documents `reasoning_effort` `low` / `high`
+///   (default `high`) and `"think": "high"` over REST.
+pub fn ollama_think_levels(model: &str) -> Option<&'static [&'static str]> {
+    let m = model.to_ascii_lowercase();
+    if m.contains("gpt-oss") {
+        Some(&["low", "medium", "high"])
+    } else if m.starts_with("glm-5.3") {
+        Some(&["low", "high", "max"])
+    } else if m.starts_with("granite4.2") {
+        Some(&["low", "high"])
+    } else {
+        None
+    }
+}
+
 pub fn ollama_think(
     model: &str,
     config: &gaise_core::contracts::GaiseGenerationConfig,
 ) -> Option<OllamaThink> {
-    const GPT_OSS_LEVELS: &[&str] = &["low", "medium", "high"];
-    let gpt_oss = model.to_ascii_lowercase().contains("gpt-oss");
+    let levels = ollama_think_levels(model);
     if let Some(effort) = config.reasoning_effort() {
-        return Some(match effort {
-            GaiseReasoningEffort::None => OllamaThink::Enabled(false),
-            GaiseReasoningEffort::Auto => OllamaThink::Enabled(true),
-            GaiseReasoningEffort::Custom(raw) if gpt_oss => OllamaThink::Level(raw),
-            GaiseReasoningEffort::Custom(_) => OllamaThink::Enabled(true),
-            level if gpt_oss => OllamaThink::Level(
+        return Some(match (effort, levels) {
+            (GaiseReasoningEffort::None, _) => OllamaThink::Enabled(false),
+            (GaiseReasoningEffort::Auto, _) => OllamaThink::Enabled(true),
+            (GaiseReasoningEffort::Custom(raw), Some(_)) => OllamaThink::Level(raw),
+            (GaiseReasoningEffort::Custom(_), None) => OllamaThink::Enabled(true),
+            (level, Some(levels)) => OllamaThink::Level(
                 level
-                    .clamp_to(&GaiseReasoningEffort::levels(GPT_OSS_LEVELS))
+                    .clamp_to(&GaiseReasoningEffort::levels(levels))
                     .as_str()
                     .to_string(),
             ),
-            _ => OllamaThink::Enabled(true),
+            (_, None) => OllamaThink::Enabled(true),
         });
     }
-    config.thinking_tokens.map(|tokens| {
-        if tokens == 0 {
-            OllamaThink::Enabled(false)
-        } else if gpt_oss {
-            OllamaThink::Level("medium".into())
-        } else {
-            OllamaThink::Enabled(true)
-        }
+    config.thinking_tokens.map(|tokens| match levels {
+        _ if tokens == 0 => OllamaThink::Enabled(false),
+        // A token budget has no level equivalent; use the family's middle
+        // level (`medium` for GPT-OSS, `high` for GLM 5.3 and Granite 4.2).
+        Some(levels) => OllamaThink::Level(levels[levels.len() / 2].into()),
+        None => OllamaThink::Enabled(true),
     })
 }
 

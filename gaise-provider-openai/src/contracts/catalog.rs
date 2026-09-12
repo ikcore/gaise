@@ -60,7 +60,9 @@ pub fn classify_openai_model_id(id: &str) -> OpenAIModelKind {
         "gpt-4o-transcribe",
         "gpt-4o-mini-transcribe",
         "gpt-transcribe",
-        "gpt-live-transcribe",
+        // `gpt-live-transcribe` and GPT-Live 1 (`gpt-live-1`, Live API only,
+        // 2026-09-10) share the prefix; neither is a Chat Completions model.
+        "gpt-live-",
         "gpt-realtime-whisper",
         "gpt-realtime-translate",
         "omni-moderation",
@@ -280,6 +282,18 @@ mod tests {
         assert_eq!(
             classify_openai_model_id("gpt-transcribe"),
             OpenAIModelKind::Other
+        );
+        assert_eq!(
+            classify_openai_model_id("gpt-live-1"),
+            OpenAIModelKind::Other
+        );
+        assert_eq!(
+            classify_openai_model_id("gpt-live-transcribe"),
+            OpenAIModelKind::Other
+        );
+        assert_eq!(
+            classify_openai_model_id("gpt-image-2.5-sunburst"),
+            OpenAIModelKind::Image
         );
         assert_eq!(
             classify_openai_model_id("chatgpt-image-latest"),

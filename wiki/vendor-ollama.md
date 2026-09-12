@@ -82,8 +82,8 @@ Tool-result messages: a `role: "tool"` message is sent with its flattened `conte
 | `top_p` | `options.top_p` | Direct copy |
 | `top_k` | `options.top_k` | Direct copy |
 | `max_tokens` | `options.num_predict` | Direct copy |
-| `thinking_effort` | `think` | Boolean for most tags; level string for GPT-OSS — see [Model-family rules](#model-family-rules) |
-| `thinking_tokens` | `think` | Only consulted when `thinking_effort` is `None`: `0` → `false`, `>0` → `true` (or `"medium"` on GPT-OSS) |
+| `thinking_effort` | `think` | Boolean for most tags; level string for GPT-OSS, GLM 5.3, and Granite 4.2 — see [Model-family rules](#model-family-rules) |
+| `thinking_tokens` | `think` | Only consulted when `thinking_effort` is `None`: `0` → `false`, `>0` → `true` (or the family's middle level on level families: `"medium"` on GPT-OSS, `"high"` on GLM 5.3 and Granite 4.2) |
 | `include_thoughts` | — | Not mapped; Ollama returns `thinking` whenever `think` is on |
 | `response_modalities` | — | Not mapped |
 | `image_config` | — | Not mapped |
@@ -98,20 +98,22 @@ Tool-result messages: a `role: "tool"` message is sent with its flattened `conte
 
 ### Model-family rules
 
-The only hard-coded family rule is a case-insensitive `contains("gpt-oss")` check on the model tag ([L195](../gaise-provider-ollama/src/ollama_client.rs#L195)). [`OllamaThink`](../gaise-provider-ollama/src/contracts/models.rs#L19) is `#[serde(untagged)]`, so it serializes as either a JSON boolean or a string.
+[`ollama_think_levels`](../gaise-provider-ollama/src/ollama_client.rs) is the only family table: a case-insensitive `contains("gpt-oss")` check plus the `glm-5.3` and `granite4.2` prefixes (added 2026-09-12 from the library pages, which document `reasoning_effort` levels for both) select the level-string form with each family's documented set; every other tag gets a boolean. [`OllamaThink`](../gaise-provider-ollama/src/contracts/models.rs#L19) is `#[serde(untagged)]`, so it serializes as either a JSON boolean or a string.
 
 | Family | `thinking_effort` value | `think` sent | Source |
 |---|---|---|---|
-| `*gpt-oss*` | `false`, `none`, `off`, `disabled`, `0` (case-insensitive) | `false` | [L200](../gaise-provider-ollama/src/ollama_client.rs#L200) |
-| `*gpt-oss*` | any other string (`low`, `medium`, `high`, …) | that string, lower-cased, as a level | [L203](../gaise-provider-ollama/src/ollama_client.rs#L203) |
-| `*gpt-oss*` | `None`, `thinking_tokens = Some(0)` | `false` | [L206](../gaise-provider-ollama/src/ollama_client.rs#L206) |
-| `*gpt-oss*` | `None`, `thinking_tokens = Some(n > 0)` | `"medium"` | [L210](../gaise-provider-ollama/src/ollama_client.rs#L210) |
-| all other tags | `false`, `none`, `off`, `disabled`, `0` | `false` | [L219](../gaise-provider-ollama/src/ollama_client.rs#L219) |
-| all other tags | any other string | `true` | [L223](../gaise-provider-ollama/src/ollama_client.rs#L223) |
-| all other tags | `None`, `thinking_tokens = Some(n)` | `n > 0` | [L228](../gaise-provider-ollama/src/ollama_client.rs#L228) |
-| any | both `None`, or no `generation_config` | key omitted | [L194](../gaise-provider-ollama/src/ollama_client.rs#L194) |
+| level families: `*gpt-oss*` (`low`, `medium`, `high`), `glm-5.3*` (`low`, `high`, `max`), `granite4.2*` (`low`, `high`) | `false`, `none`, `off`, `disabled`, `0` (case-insensitive) | `false` | [`ollama_think`](../gaise-provider-ollama/src/ollama_client.rs) |
+| level families | `auto` | `true` | ″ |
+| level families | a canonical level (`minimal` … `ultra`) | the nearest level in the family's set: `minimal` → `low`, `xhigh`/`max`/`ultra` → the family top, `medium` → `high` on GLM 5.3 and Granite 4.2 | ″ |
+| level families | any other string | that string, as a level | ″ |
+| level families | `None`, `thinking_tokens = Some(0)` | `false` | ″ |
+| level families | `None`, `thinking_tokens = Some(n > 0)` | the family's middle level (`"medium"` on GPT-OSS, `"high"` on GLM 5.3 and Granite 4.2) | ″ |
+| all other tags | `false`, `none`, `off`, `disabled`, `0` | `false` | ″ |
+| all other tags | any other string | `true` | ″ |
+| all other tags | `None`, `thinking_tokens = Some(n)` | `n > 0` | ″ |
+| any | both `None`, or no `generation_config` | key omitted | ″ |
 
-The adapter does not validate the level string against Ollama's accepted set; an unknown level is forwarded and the daemon decides. Since Ollama v0.33 the daemon accepts `think` as `true`/`false` or exactly `low`, `medium`, `high`, `max` (anything else is rejected at unmarshal); GPT-OSS ignores booleans and needs a level. Families that document their own effort strings (Muse Glimmer `low`…`xhigh`, Qwen 3.8 `reasoning_effort`) still receive the boolean form from GAISe, which Ollama documents as accepted for "most models". There are no sampling restrictions, no reasoning-family allowlists, and no per-model max-token rules — Ollama accepts `options` for every tag.
+The adapter does not validate the level string against Ollama's accepted set; an unknown level is forwarded and the daemon decides. Since Ollama v0.33 the daemon accepts `think` as `true`/`false` or exactly `low`, `medium`, `high`, `max` (anything else is rejected at unmarshal); GPT-OSS ignores booleans and needs a level; GLM 5.3 (reasoning always on) and Granite 4.2 document `reasoning_effort` levels and receive the level form since 2026-09-12. Families that document their own effort strings but are not in the table (Muse Glimmer `low`…`xhigh`, Qwen 3.8 `reasoning_effort`) still receive the boolean form from GAISe, which Ollama documents as accepted for "most models". There are no sampling restrictions, no reasoning-family allowlists, and no per-model max-token rules — Ollama accepts `options` for every tag.
 
 ## Response mapping
 
@@ -210,7 +212,7 @@ Catalog tests: [`maps_tags_and_show_details`](../gaise-provider-ollama/src/contr
 
 ## Models
 
-Registry entries for `ollama` (audited 2026-09-04). Every entry is a family glob with `status = dynamic_local` (mapped to `Active`); no lifecycle dates exist because Ollama has no central retirement calendar. Which tags actually exist, and their vision/tool/thinking support, comes from the local daemon.
+Registry entries for `ollama` (audited 2026-09-12). Every entry is a family glob with `status = dynamic_local` (mapped to `Active`); no lifecycle dates exist because Ollama has no central retirement calendar. Which tags actually exist, and their vision/tool/thinking support, comes from the local daemon.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
@@ -223,7 +225,14 @@ Registry entries for `ollama` (audited 2026-09-04). Every entry is a family glob
 | `qwen3.5:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | `true`, `false` | native | 0.8b-122b tags, all 256K context; multimodal; cloud tags available. |
 | `muse-glimmer:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | `true`, `false` | native (boolean thinking toggle) | Meta's 30B open model for local agents (2026-08-10, Apache 2.0); documents reasoning strength low/medium/high/xhigh, which the adapter does… |
 | `nemotron-3.5-lightning:*` | — | `dynamic_local` | — | text | text | instruct, instruct_stream | `true`, `false` | native | NVIDIA 30B-A3B MoE for always-on agents (2026-08-11); 1M context on the GGUF tag, 256K on MLX. |
-| `laguna-s-2.1:*` | — | `dynamic_local` | — | text | text | instruct, instruct_stream | `true`, `false` | native | Ollama's own 118B-A8B model for long-horizon work (OpenMDW-1.1 licence); tool calling and interleaved thinking, toggled per request. |
+| `laguna-s-2.1:*` | — | `dynamic_local` | — | text | text | instruct, instruct_stream | `true`, `false` | native | Ollama's own 118B-A8B model for long-horizon work (OpenMDW-1.1 licence); tool calling and interleaved thinking, toggled per request. 256K on… |
+| `laguna-xs-2.1:*` | — | `dynamic_local` | — | text | text | instruct, instruct_stream | `true`, `false` | native | Ollama's 33B-A3B MoE for local agentic coding (OpenMDW-1.1 licence, 2026-09); 256K on every tag (q4_K_M, q8_0, bf16, mxfp8 MLX); tools and p… |
+| `glm-5.3:*` | — | `dynamic_local` | — | text | text | instruct, instruct_stream | `low`, `high`, `max` | native (cloud tag only; served through ollama.com with an API key) | Z.ai GLM-5.3, cloud-only glm-5.3:cloud (open weights 2026-08-28); 1M context; reasoning_effort low/high/max (default max) and clear_thinking… |
+| `glm-5.3-flash:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | `low`, `high`, `max` | native (cloud tag only; served through ollama.com with an API key) | GLM-5.3 Flash, 320B-A18B natively multimodal (MIT), cloud-only glm-5.3-flash:cloud; 1M context; reasoning is always on with effort low/high/… |
+| `deepseek-v4.1-flash:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | `true`, `false` | native (cloud tag only; served through ollama.com with an API key) | DeepSeek V4.1 Flash (2026-09-10), 763B MoE on a 552B backbone with native vision, cloud-only deepseek-v4.1-flash:cloud; 1M context; library… |
+| `kimi-k3:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | `true`, `false` | native (cloud tag only; served through ollama.com with an API key) | Moonshot Kimi K3, 2.81T-parameter open-weight multimodal agentic model, cloud-only kimi-k3:cloud (listed 2026-08); 1M context; no think leve… |
+| `granite4.2:*` | — | `dynamic_local` | — | text | text | instruct, instruct_stream | `low`, `high` | native | IBM Granite 4.2 3b/8b/30b (Apache 2.0, 2026-08); 128K context; tool use, structured JSON output, and thinking (enable_thinking true/false, r… |
+| `ornith-1.5:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | — | native | Ornith 1.5 9b/35b/397b (2026-08); 256K context; vision badge only (no tools or thinking badge, unlike the older ornith family). |
 | `mistral-medium-3.5:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | `true`, `false` | native | 128B single-weight model with a configurable reasoning mode; 256K context. |
 | `llama4:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | — | native | Scout 16x17b (10M context) and Maverick 128x17b (1M); vision and tools, no thinking. Context recorded as the family floor. |
 | `embeddinggemma:*` | — | `dynamic_local` | — | text | embedding | embeddings | — | native | EmbeddingGemma 300m; Matryoshka 768/512/256/128; 2,048-token context; Google prompt-instruction convention. |

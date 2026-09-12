@@ -117,7 +117,7 @@ All rules are substring matches on the lower-cased model ID, so inference-profil
 
 Any other model (Titan text, Llama, Mistral, OpenAI GPT-5.6 / gpt-oss, xAI Grok, DeepSeek, Qwen, …) receives no `additionalModelRequestFields` and full sampling, so their provider-specific reasoning controls (Grok's always-on effort, GPT-5.6's `reasoning_effort`) are not mapped on Converse. The Nova 2 user guide now documents `reasoningConfig` (`type: enabled`, `maxReasoningEffort: low|medium|high`, off by default) for Nova 2 Lite as the registry records, so the adapter's emission is verified rather than forward-compatible; it also warns that `temperature`/`topP`/`topK` cannot accompany `maxReasoningEffort: high`, which the "Nova high effort" rule already covers.
 
-### Parameter compatibility (audited 2026-09-04)
+### Parameter compatibility (audited 2026-09-12)
 
 [`claude_rules`](../gaise-provider-bedrock/src/bedrock_client.rs), [`sampling_plan`](../gaise-provider-bedrock/src/bedrock_client.rs), [`resolved_max_tokens`](../gaise-provider-bedrock/src/bedrock_client.rs), and [`additional_request_fields`](../gaise-provider-bedrock/src/bedrock_client.rs) enforce the table; the `claude_family_parameter_matrix_without_aws_client` and `nova_and_claude_sampling_rules_without_aws_client` unit tests pin it.
 
@@ -235,7 +235,7 @@ Not supported. `amazon.nova-2-sonic-v1:0` requires `InvokeModelWithBidirectional
 
 ## Models
 
-From the 2026-09-04 registry audit; advisory only. Dates are AWS Bedrock lifecycle dates and are independent of the direct Claude API. Availability depends on region and inference profile.
+From the 2026-09-12 registry audit; advisory only. Dates are AWS Bedrock lifecycle dates and are independent of the direct Claude API. Availability depends on region and inference profile.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
@@ -271,9 +271,12 @@ From the 2026-09-04 registry audit; advisory only. Dates are AWS Bedrock lifecyc
 | `openai.gpt-5.6-terra` | — | `active` | — | text, image | text | instruct, instruct_stream | supported | Converse text, images, and tools; reasoning effort is not mapped on Converse | Converse on bedrock-runtime since 2026-08-17. Profiles us., global., in. (India, ap-south-1/ap-south-2, 2026-08-18); GovCloud in August 2026… |
 | `openai.gpt-5.6-luna` | — | `active` | — | text, image | text | instruct, instruct_stream | supported | Converse text, images, and tools; reasoning effort is not mapped on Converse | Converse on bedrock-runtime since 2026-08-17. Profiles us., global., in.; GovCloud in August 2026. The only GPT-5.6 variant with structured… |
 | `openai.gpt-5.6-cyber` | — | `limited_availability` | — | text, image | text | — | supported | not reachable: Responses API on bedrock-mantle only (us-east-2), Trusted Access for Cyber | OpenAI Daybreak Red on Bedrock, 2026-08-12. |
+| `openai.gpt-6-astra` | — | `active` | — | text, image | text | instruct, instruct_stream | supported | Converse text, images, and tools; reasoning effort is not mapped on Converse | Launched on Bedrock 2026-09-08 (GA); the first card under the 2026-09-07 lifecycle policy (EOL no sooner than 2027-09-08, Legacy period at l… |
+| `openai.gpt-daybreak-blue-5.6-sol` | — | `limited_availability` | — | text, image | text | — | supported | not reachable: Responses and Chat Completions on bedrock-mantle only (us-east-2), Trusted Access for Cyber required | OpenAI Daybreak Blue on Bedrock since 2026-08-12 (defensive-security variant of GPT-5.6 Sol; Daybreak Red is openai.gpt-5.6-cyber). bedrock-… |
 | `openai.gpt-oss-120b-1:0` | — | `active` | — | text | text | instruct, instruct_stream | supported | native via Converse; reasoning effort is not mapped on Converse | Open-weight; Converse, InvokeModel, Chat Completions, and Responses on bedrock-runtime; us-gov. profile in GovCloud. |
 | `openai.gpt-oss-20b-1:0` | — | `active` | — | text | text | instruct, instruct_stream | supported | native via Converse; reasoning effort is not mapped on Converse | — |
 | `xai.grok-4.6` | — | `active` | — | text, image | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh` | Converse text, images, and tools; reasoning content and effort are Responses-API only | Launched 2026-08-18 (GovCloud 2026-08-28). Profiles us., global.; in-region us-west-2 on bedrock-mantle. Reasoning is always active (default… |
+| `xai.grok-4.3` | — | `active` | — | text | text | — | `none`, `low`, `medium`, `high` | not reachable: Responses and Chat Completions on bedrock-mantle only (Converse and InvokeModel are not supported) | Launched 2026-06-15 (GovCloud us-gov-west-1 since 2026-07). In-Region only: us-west-2, us-east-1, us-east-2, us-gov-west-1; no cross-region… |
 | `deepseek.v3.2` | — | `active` | — | text | text | instruct, instruct_stream | supported | native via Converse | Launched 2025-12-01; Converse, InvokeModel, Chat Completions; structured outputs supported. |
 | `mistral.mistral-large-3-675b-instruct` | — | `active` | — | text, image | text | instruct, instruct_stream | — | native via Converse | Converse, InvokeModel, Chat Completions; structured outputs supported. |
 | `meta.llama4-maverick-17b-instruct-v1:0` | — | `active` | — | text, image | text | instruct, instruct_stream | — | native via Converse | us. profile; structured outputs not supported. |
@@ -286,7 +289,7 @@ From the 2026-09-04 registry audit; advisory only. Dates are AWS Bedrock lifecyc
 | `twelvelabs.marengo-embed-3-0-v1:0` | — | `active` | — | text, image, audio, video | embedding | — | — | not supported: the InvokeModel embedding builder covers Titan, Cohere, and Nova schemas only | Launched 2025-10-29; text, image, audio, and video input; us. and eu. profiles; sync InvokeModel and StartAsyncInvoke. |
 | `anthropic.claude-opus-4-1-20250805-v1:0` | — | `legacy` | shutdown 2027-01-08 | unknown | unknown | — | — | — | Legacy since 2026-07-08; public extended access (higher pricing) from 2026-10-08. us. profile only. Replacement `anthropic.claude-opus-4-8`. |
 | `anthropic.claude-sonnet-4-20250514-v1:0` | — | `legacy` | shutdown 2026-10-14 | unknown | unknown | — | — | — | Legacy since 2026-04-14; extended-access pricing applies since 2026-07-14. Replacement `anthropic.claude-sonnet-5`. |
-| `anthropic.claude-3-haiku-20240307-v1:0` | — | `legacy` | shutdown 2026-09-10 | unknown | unknown | — | — | — | Legacy since 2026-03-10; extended access from 2026-06-10; EOL 2026-09-10 in commercial and GovCloud regions. Replacement `anthropic.claude-h… |
+| `anthropic.claude-3-haiku-20240307-v1:0` | — | `retired` | shutdown 2026-09-10 | unknown | unknown | — | — | — | Legacy since 2026-03-10; extended access from 2026-06-10; the AWS EOL date 2026-09-10 (commercial and GovCloud) has passed. The card still r… |
 | `anthropic.claude-3-5-haiku-20241022-v1:0` | — | `retired` | shutdown 2026-06-19 | unknown | unknown | — | — | — | AWS EOL date 2026-06-19 has passed; the card still reads Legacy and the id still appears in the API-compatibility matrix, so invocability is… |
 | `ai21.jamba-1-5-*` | — | `legacy` | shutdown 2026-11-26 | unknown | unknown | — | — | — | ai21.jamba-1-5-large-v1:0 and ai21.jamba-1-5-mini-v1:0. Legacy since 2026-05-26; extended access from 2026-08-26. |
 | `twelvelabs.marengo-embed-2-7-v1:0` | — | `legacy` | shutdown 2026-11-30 | text, image, audio, video | embedding | — | — | not supported: no InvokeModel embedding builder for this schema | Legacy since 2026-05-29; extended access from 2026-08-29. Replacement `twelvelabs.marengo-embed-3-0-v1:0`. |
@@ -296,7 +299,7 @@ From the 2026-09-04 registry audit; advisory only. Dates are AWS Bedrock lifecyc
 | `amazon.nova-canvas-v1:0` | — | `legacy` | shutdown 2026-09-30 | unknown | unknown | — | — | — | — |
 | `cohere.command-r-*` | — | `retired` | shutdown 2026-08-19 | unknown | unknown | — | — | — | cohere.command-r-v1:0 and cohere.command-r-plus-v1:0. |
 
-Third-party Converse families (OpenAI GPT-5.6 and gpt-oss, xAI Grok 4.6, DeepSeek V3.2, Mistral Large 3, Llama 4 Maverick, Qwen3 Coder Next, GLM 5, Kimi K2.5, Nemotron 3 Super, MiniMax M2.5) were added on 2026-09-04 with the limits printed on their model cards; their `tools` flag reflects the family's documented function calling, not a per-card Converse matrix, because AWS no longer publishes one. The adapter's own reasoning rules also recognize `amazon.nova-lite-1-5` and `amazon.nova-pro-1-5`, which have no registry entry. Lifecycle rows past their EOL date (Cohere Command R/R+, Claude 3.5 Haiku) are kept as `retired` so old ids keep resolving.
+Third-party Converse families (OpenAI GPT-6 Astra, GPT-5.6, and gpt-oss, xAI Grok 4.6, DeepSeek V3.2, Mistral Large 3, Llama 4 Maverick, Qwen3 Coder Next, GLM 5, Kimi K2.5, Nemotron 3 Super, MiniMax M2.5) were added on 2026-09-04 with the limits printed on their model cards; their `tools` flag reflects the family's documented function calling, not a per-card Converse matrix, because AWS no longer publishes one. The adapter's own reasoning rules also recognize `amazon.nova-lite-1-5` and `amazon.nova-pro-1-5`, which have no registry entry. Lifecycle rows past their EOL date (Cohere Command R/R+, Claude 3.5 Haiku) are kept as `retired` so old ids keep resolving.
 
 ## Limitations and explicit fallbacks
 

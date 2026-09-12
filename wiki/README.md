@@ -1,6 +1,6 @@
 # GAISe wiki
 
-GAISe (Generative AI Service) is a Rust workspace that maps one provider-neutral contract onto seven vendor APIs — OpenAI, Anthropic, Google Gemini, Google Vertex AI, Amazon Bedrock, Ollama, and ElevenLabs — for chat (`instruct`), streaming, embeddings, text-to-speech, model discovery, and live/realtime sessions. This wiki documents the implementation as audited on **2026-09-04**; every page links to the source it describes.
+GAISe (Generative AI Service) is a Rust workspace that maps one provider-neutral contract onto seven vendor APIs — OpenAI, Anthropic, Google Gemini, Google Vertex AI, Amazon Bedrock, Ollama, and ElevenLabs — for chat (`instruct`), streaming, embeddings, text-to-speech, model discovery, and live/realtime sessions. This wiki documents the implementation as audited on **2026-09-12**; every page links to the source it describes.
 
 ## Pages
 

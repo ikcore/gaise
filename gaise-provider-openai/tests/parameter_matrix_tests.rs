@@ -309,6 +309,8 @@ fn responses_only_models_are_identified() {
         "daybreak-red-latest",
         "gpt-daybreak-red-latest",
         "gpt-daybreak-blue-latest",
+        // GPT-Live 1 (2026-09-10) is served by the Live API only.
+        "gpt-live-1",
     ] {
         assert!(!openai_chat_rules(model).chat_supported, "{model}");
     }

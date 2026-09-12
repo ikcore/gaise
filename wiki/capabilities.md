@@ -70,11 +70,11 @@ Each adapter filters the request to what the model family accepts before seriali
 
 | Provider | Rules | Tests |
 |---|---|---|
-| OpenAI | [`max_completion_tokens` always; sampling only with effort `none` on GPT-5.x and never on GPT-6; effort sets per family (GPT-6 has no `none`/`minimal`); no effort on non-reasoning models; `original` detail only on 5.4+; Responses-only models rejected; GPT-6 function tools rejected with a Responses-API error](vendor-openai.md#parameter-compatibility-audited-2026-09-04) | [`gaise-provider-openai/tests/parameter_matrix_tests.rs`](../gaise-provider-openai/tests/parameter_matrix_tests.rs) |
-| Anthropic | [adaptive vs manual thinking, always-on families, effort clamping, budget ≥ 1024 and < `max_tokens`, 64k/128k ceilings, fixed and exclusive sampling](vendor-anthropic.md#parameter-compatibility-audited-2026-09-04) | [`gaise-provider-anthropic/tests/parameter_matrix_tests.rs`](../gaise-provider-anthropic/tests/parameter_matrix_tests.rs) |
-| Gemini / Vertex AI | [no sampling on any 3.x; `thinkingLevel` sets per family; 2.5 `thinkingBudget` ranges](vendor-gemini.md#parameter-compatibility-audited-2026-09-04) | [`gemini`](../gaise-provider-gemini/tests/parameter_matrix_tests.rs), [`vertexai`](../gaise-provider-vertexai/tests/parameter_matrix_tests.rs) |
-| Bedrock | [Claude rules as above plus `anthropic_beta` for Opus 4.5 effort; Nova either/or sampling, `topK` via AMRF, `maxTokens` caps](vendor-bedrock.md#parameter-compatibility-audited-2026-09-04) | `bedrock_client.rs` unit tests |
-| Ollama | options forwarded; `think` boolean or GPT-OSS level (daemon accepts `low`/`medium`/`high`/`max` since v0.33) | [`gaise-provider-ollama/tests/parameter_matrix_tests.rs`](../gaise-provider-ollama/tests/parameter_matrix_tests.rs) |
+| OpenAI | [`max_completion_tokens` always; sampling only with effort `none` on GPT-5.x and never on GPT-6; effort sets per family (GPT-6 has no `none`/`minimal`); no effort on non-reasoning models; `original` detail only on 5.4+; Responses-only models rejected; GPT-6 function tools rejected with a Responses-API error](vendor-openai.md#parameter-compatibility-audited-2026-09-12) | [`gaise-provider-openai/tests/parameter_matrix_tests.rs`](../gaise-provider-openai/tests/parameter_matrix_tests.rs) |
+| Anthropic | [adaptive vs manual thinking, always-on families, effort clamping, budget ≥ 1024 and < `max_tokens`, 64k/128k ceilings, fixed and exclusive sampling](vendor-anthropic.md#parameter-compatibility-audited-2026-09-12) | [`gaise-provider-anthropic/tests/parameter_matrix_tests.rs`](../gaise-provider-anthropic/tests/parameter_matrix_tests.rs) |
+| Gemini / Vertex AI | [no sampling on any 3.x; `thinkingLevel` sets per family; 2.5 `thinkingBudget` ranges](vendor-gemini.md#parameter-compatibility-audited-2026-09-12) | [`gemini`](../gaise-provider-gemini/tests/parameter_matrix_tests.rs), [`vertexai`](../gaise-provider-vertexai/tests/parameter_matrix_tests.rs) |
+| Bedrock | [Claude rules as above plus `anthropic_beta` for Opus 4.5 effort; Nova either/or sampling, `topK` via AMRF, `maxTokens` caps](vendor-bedrock.md#parameter-compatibility-audited-2026-09-12) | `bedrock_client.rs` unit tests |
+| Ollama | options forwarded; `think` boolean, or a level string for GPT-OSS, GLM 5.3, and Granite 4.2 (daemon accepts `low`/`medium`/`high`/`max` since v0.33) | [`gaise-provider-ollama/tests/parameter_matrix_tests.rs`](../gaise-provider-ollama/tests/parameter_matrix_tests.rs) |
 | ElevenLabs | [`language_code` omitted for multilingual_v2; speed 0.7–1.2; v3 realtime via text-to-dialogue](vendor-elevenlabs.md#model-family-rules) | crate unit tests |
 
 Unknown model ids fall back to pass-through profiles so new releases keep working until the registry and rules are updated.
@@ -91,7 +91,7 @@ The provider-neutral vocabulary (`none`, `auto`, `minimal`, `low`, `medium`, `hi
 | Gemini 3.x / Vertex 3.x | `thinkingConfig.thinkingLevel` | `minimal`/`low`/`medium`/`high` per family | — | `includeThoughts` | thought parts + signature |
 | Bedrock Claude | `additionalModelRequestFields.thinking` adaptive/enabled | effort where supported | `budget_tokens` | `display` | `reasoningContent` |
 | Bedrock Nova | Nova reasoning fields | — | budget | — | `reasoningContent` |
-| Ollama | `think` | GPT-OSS `low`/`medium`/`high` | — | — | `thinking` |
+| Ollama | `think` | GPT-OSS `low`/`medium`/`high`; GLM 5.3 `low`/`high`/`max`; Granite 4.2 `low`/`high` | — | — | `thinking` |
 
 Family rules (adaptive-only, fixed sampling, manual budgets) are listed per vendor: [Anthropic](vendor-anthropic.md#model-family-rules) · [Bedrock](vendor-bedrock.md#model-family-rules) · [Gemini](vendor-gemini.md#model-family-rules) · [OpenAI](vendor-openai.md#model-family-rules). Accepted values per model are in the `reasoning_values` column of [models.md](models.md).
 

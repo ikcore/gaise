@@ -966,6 +966,29 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
             find("bedrock", "us.anthropic.claude-opus-5-v1:0"),
             "anthropic.claude-opus-5"
         );
+        // 2026-09-12 additions.
+        assert_eq!(find("openai", "gpt-live-1"), "gpt-live-1");
+        assert_eq!(
+            find("openai", "gpt-image-2.5-sunburst-2026-09-08"),
+            "gpt-image-2.5-sunburst",
+            "dated snapshot resolves to its base entry"
+        );
+        assert_eq!(
+            find("bedrock", "global.openai.gpt-6-astra"),
+            "openai.gpt-6-astra"
+        );
+        assert_eq!(find("ollama", "glm-5.3-flash:cloud"), "glm-5.3-flash:*");
+        assert_eq!(find("ollama", "glm-5.3:cloud"), "glm-5.3:*");
+        assert_eq!(
+            find("ollama", "laguna-xs-2.1:q8_0"),
+            "laguna-xs-2.1:*",
+            "the XS family is not a tag of laguna-s-2.1"
+        );
+        assert_eq!(find("elevenlabs", "music_v1"), "music_v1");
+        assert_eq!(
+            find("vertexai", "gemini-omni-flash-preview"),
+            "gemini-omni-flash-preview"
+        );
         assert_eq!(
             find("bedrock", "global.anthropic.claude-opus-4-6-v1:0"),
             "anthropic.claude-opus-4-6-v1"

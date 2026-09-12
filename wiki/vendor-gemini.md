@@ -116,7 +116,7 @@ MIME inference for files uses the shared [`file_media_type`](../gaise-core/src/c
 
 No rule gates image input, audio input, tools, or `responseModalities` by model; the API returns its own error for unsupported combinations.
 
-### Parameter compatibility (audited 2026-09-04)
+### Parameter compatibility (audited 2026-09-12)
 
 [`model_uses_fixed_sampling`](../gaise-provider-gemini/src/gemini_client.rs), [`thinking_levels_for`](../gaise-provider-gemini/src/gemini_client.rs), [`normalize_thinking_level`](../gaise-provider-gemini/src/gemini_client.rs), and [`thinking_budget_for`](../gaise-provider-gemini/src/gemini_client.rs) enforce the table; [`tests/parameter_matrix_tests.rs`](../gaise-provider-gemini/tests/parameter_matrix_tests.rs) pins it.
 
@@ -130,7 +130,7 @@ No rule gates image input, audio input, tools, or `responseModalities` by model;
 | Gemini 2.5 Flash | accepted | `thinkingBudget` | 0–24,576 | → 0 |
 | Gemini 2.5 Flash-Lite | accepted | `thinkingBudget` | 0 or 512–24,576 | → 0 |
 
-On 2.5, an effort without a budget is approximated (`low` 2,048, `medium` 8,192, `high` 24,576, `minimal` 512); `xhigh`/`max` map to HIGH on 3.x. `thinkingLevel` and `thinkingBudget` are never sent together. The 2.5 numeric ranges are now published only on the Vertex thinking page; the Gemini API thinking guide is written against the Interactions API and lists 2.5 under `thinking_level`, while the REST reference still says `thinkingLevel` errors on pre-3 models, so the `thinkingBudget` path stays. Other contract notes from 2026-09-04: `embedContent`'s top-level `taskType` / `outputDimensionality` are deprecated in favour of `embedContentConfig` (still accepted; the adapter keeps the top-level form), `responseSchema` is deprecated in favour of `responseJsonSchema`, and `Part.mediaProcessing: AGENTIC` selects agentic video understanding on 3.5 Flash-Lite, 3.6, 3.7, and 3.8 (not mapped). Sources: changelog 2026-07-21 and 2026-09-02, thinking guide, Gemini 3.5 / 3.8 guides, generateContent reference, model pages.
+On 2.5, an effort without a budget is approximated (`low` 2,048, `medium` 8,192, `high` 24,576, `minimal` 512); `xhigh`/`max` map to HIGH on 3.x. `thinkingLevel` and `thinkingBudget` are never sent together. The 2.5 numeric ranges are now published only on the Vertex thinking page; the Gemini API thinking guide is written against the Interactions API and lists 2.5 under `thinking_level`, while the REST reference states that `thinkingLevel` on earlier models results in an error (re-checked 2026-09-12), so the `thinkingBudget` path stays. Other contract notes from 2026-09-04: `embedContent`'s top-level `taskType` / `outputDimensionality` are deprecated in favour of `embedContentConfig` (still accepted; the adapter keeps the top-level form), `responseSchema` is deprecated in favour of `responseJsonSchema`, and `Part.mediaProcessing: AGENTIC` selects agentic video understanding on 3.5 Flash-Lite, 3.6, 3.7, and 3.8 (not mapped). Sources: changelog 2026-07-21 and 2026-09-02, thinking guide, Gemini 3.5 / 3.8 guides, generateContent reference, model pages.
 
 ## Response mapping
 
@@ -208,7 +208,7 @@ Setup mapping ([`GeminiLiveSetupConfig`](../gaise-provider-gemini/src/contracts/
 | `generation_config.input_media_resolution` | `generationConfig.mediaResolution` | Same `MEDIA_RESOLUTION_` normalization. |
 | `system_instruction` | `systemInstruction.parts[{ text }]` | — |
 | `tools` | `tools[{ functionDeclarations }]` | Same recursive schema mapper. |
-| `vad_config` | `realtimeInputConfig.automaticActivityDetection { disabled, startOfSpeechSensitivity, endOfSpeechSensitivity, prefixPaddingMs, silenceDurationMs }` | `high`/`low` map to `START_SENSITIVITY_*`/`END_SENSITIVITY_*`; anything else is `MEDIUM`. |
+| `vad_config` | `realtimeInputConfig.automaticActivityDetection { disabled, startOfSpeechSensitivity, endOfSpeechSensitivity, prefixPaddingMs, silenceDurationMs }` | `high`/`low` (any case) map to `START_SENSITIVITY_*`/`END_SENSITIVITY_*` via [`live_vad_sensitivity`](../gaise-provider-gemini/src/gemini_live_client.rs); anything else is omitted so the server default (HIGH) applies, because the Live API enumerates only HIGH and LOW (before 2026-09-12 the adapter sent a non-existent `*_MEDIUM` value). |
 | `transcription.input` / `.output` | `inputAudioTranscription: {}` / `outputAudioTranscription: {}` | — |
 | `tool_config`, `correlation_id` | — | Not mapped. |
 
@@ -264,7 +264,7 @@ The router clears the operation filter before calling the provider and re-applie
 
 ## Models
 
-From the bundled registry (audited 2026-09-04), entries with `provider = "gemini"`. Dates are Gemini API dates only; Vertex AI has a separate lifecycle. "—" means none recorded.
+From the bundled registry (audited 2026-09-12), entries with `provider = "gemini"`. Dates are Gemini API dates only; Vertex AI has a separate lifecycle. "—" means none recorded.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
@@ -272,7 +272,7 @@ From the bundled registry (audited 2026-09-04), entries with `provider = "gemini
 | `gemini-3.7-flash` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native | GA 2026-08-13. thinkingLevel minimal is not supported (default medium). Live API not supported; agentic video understanding supported since… |
 | `gemini-3.6-flash` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | Released 2026-07-21. Fixed sampling: temperature, top_p, and top_k are deprecated (changelog 2026-07-21) and omitted by the mapper; the same… |
 | `gemini-3.5-flash` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | — |
-| `gemini-3.5-flash-lite` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | — |
+| `gemini-3.5-flash-lite` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | thinkingLevel minimal (default), low, medium, high. Agentic video understanding supported since 2026-09-01. |
 | `gemini-3.1-flash-lite` | — | `stable` | shutdown 2027-05-07 | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | thinkingLevel minimal (default), low, medium, high per the Gemini 3.5 guide's comparison table; the thinking guide itself omits this model.… |
 | `gemini-3.1-pro-preview` | — | `preview` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native | No shutdown date announced. A gemini-3.1-pro-preview-customtools variant endpoint exists. |
 | `gemini-3-flash-preview` | — | `preview` | — | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | No shutdown date announced. Replacement `gemini-3.6-flash`. |
