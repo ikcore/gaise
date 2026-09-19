@@ -13,6 +13,7 @@ muse!(gaise_content, {
 });
 muse!(gaise_message, { GaiseMessage });
 muse!(gaise_usage, { GaiseUsage });
+muse!(gaise_system_one, { GaiseSystemOneRequest, GaiseSystemOneResponse, GaiseQuestion, GaiseAnswer, GaiseNoulCriteria });
 
 muse!(gaise_reasoning, { GaiseReasoningEffort });
 muse!(gaise_connection, { GaiseConnection, redact_secrets });

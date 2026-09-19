@@ -35,6 +35,7 @@ pub enum GaiseModality {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GaiseOperation {
+    SystemOne,
     Instruct,
     InstructStream,
     Embeddings,
@@ -46,6 +47,7 @@ pub enum GaiseOperation {
 impl GaiseOperation {
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
+            "system_one" | "systemone" => Some(Self::SystemOne),
             "instruct" => Some(Self::Instruct),
             "instruct_stream" | "stream" | "streaming" => Some(Self::InstructStream),
             "embeddings" | "embedding" | "embed" => Some(Self::Embeddings),

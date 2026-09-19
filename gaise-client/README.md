@@ -20,20 +20,21 @@
 - `bedrock`: Enables the AWS Bedrock provider.
 - `anthropic`: Enables the Anthropic Claude provider.
 - `gemini`: Enables the Google Gemini provider.
+- `typesafe`: Enables Jev typed decisions via `system_one` (`typesafe::jev`).
 - `live`: Enables real-time WebSocket sessions via `GaiseLiveClient` (currently supports `openai` and `gemini`).
 
 To use only specific providers, disable default features in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gaise-client = { version = "0.2.3", default-features = false, features = ["openai"] }
+gaise-client = { version = "3.0.0", default-features = false, features = ["openai"] }
 ```
 
 To enable live/realtime sessions:
 
 ```toml
 [dependencies]
-gaise-client = { version = "0.2.3", features = ["live"] }
+gaise-client = { version = "3.0.0", features = ["live"] }
 ```
 
 ## Supported Providers
@@ -44,6 +45,7 @@ gaise-client = { version = "0.2.3", features = ["live"] }
 - `bedrock`
 - `anthropic`
 - `gemini`
+- `typesafe`
 
 ## Usage
 
@@ -149,3 +151,10 @@ let request = GaiseInstructRequest {
 
 let response = service.instruct(&request).await?;
 ```
+
+## TypeSafe configuration
+
+Use `typesafe_api_key` and optional `typesafe_api_url` in `GaiseClientConfig`,
+or per-request `connection` overrides. The default API root is
+`https://api.typesafe.ai`. Call `system_one` with model `typesafe::jev`; the adapter
+maps it to TypeSafe's `jev-latest`. See the [provider guide](../gaise-provider-typesafe/README.md).

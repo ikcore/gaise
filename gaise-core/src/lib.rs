@@ -11,6 +11,16 @@ pub mod registry;
 
 #[async_trait]
 pub trait GaiseClient: Send + Sync {
+    /// Evaluate typed questions against shared state. Unsupported by default
+    /// so existing providers and custom clients retain their behavior.
+    async fn system_one(
+        &self,
+        request: &contracts::GaiseSystemOneRequest,
+    ) -> Result<contracts::GaiseSystemOneResponse, Box<dyn std::error::Error + Send + Sync>> {
+        let _ = request;
+        Err("System One is not supported by this client".into())
+    }
+
     async fn instruct_stream(
         &self,
         request: &GaiseInstructRequest,

@@ -11,7 +11,7 @@ Before packaging a release:
 3. Regenerate `Cargo.lock` and confirm every local `gaise*` package has the release version.
 4. Run the offline workspace checks before contacting a registry.
 
-For release 0.2.3, both the workspace package version and all internal dependency requirements must be `0.2.3`. Leaving an internal requirement at `0.1.2` makes a provider tarball compile against the old registry core, which does not contain the current multimodal, reasoning, tool-signature, and usage contracts.
+For release 3.0.0, both the workspace package version and all internal dependency requirements must be `3.0.0`. Leaving an internal requirement at `0.1.2` makes a provider tarball compile against the old registry core, which does not contain the current multimodal, reasoning, tool-signature, and usage contracts.
 
 ## Dependency and publish order
 
@@ -27,9 +27,9 @@ flowchart TD
 Publish in dependency layers:
 
 1. `gaise` (the package in `gaise-core`).
-2. `gaise-provider-anthropic`, `gaise-provider-bedrock`, `gaise-provider-gemini`, `gaise-provider-ollama`, `gaise-provider-openai`, and `gaise-provider-vertexai`.
+2. `gaise-provider-anthropic`, `gaise-provider-bedrock`, `gaise-provider-gemini`, `gaise-provider-ollama`, `gaise-provider-openai`, `gaise-provider-vertexai`, `gaise-provider-elevenlabs`, and `gaise-provider-typesafe`.
 3. `gaise-client`.
-4. `gaise-api` and `gaise-chatbot`.
+4. `gaise-api`. `gaise-chatbot` is a local example with `publish = false` and is not published.
 
 Wait until crates.io's index exposes each completed layer before verifying or publishing its dependants. Published versions are immutable; source for an existing version cannot be replaced.
 

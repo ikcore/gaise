@@ -5,13 +5,13 @@
 [![Rust](https://img.shields.io/badge/rust-1.91%2B-orange.svg)](https://www.rust-lang.org)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/ikcore/gaise#license)
 
-GAISe is a Rust abstraction over OpenAI, Anthropic, Google Gemini, Vertex AI, Amazon Bedrock, Ollama, and ElevenLabs. It provides one request/response contract for text, reasoning, tools, images, audio, files, embeddings, and streaming.
+GAISe is a Rust abstraction over OpenAI, Anthropic, Google Gemini, Vertex AI, Amazon Bedrock, Ollama, ElevenLabs, and TypeSafe AI. It provides one request/response contract for text, reasoning, tools, images, audio, files, embeddings, and streaming.
 
 Written by Ian Knowles. Project page: [BadAI](https://badai.company/open-source/gaise).
 
 ## What is included
 
-- A shared `GaiseClient` trait with `instruct`, `instruct_stream`, and `embeddings`.
+- A shared `GaiseClient` trait with `instruct`, `instruct_stream`, `embeddings`, and `system_one`.
 - Router-style model names such as `gemini::gemini-3.8-flash`.
 - Ordered multimodal content: text, reasoning summaries, images, audio, files, and nested parts.
 - Tool calling with nested JSON schemas and provider thought-signature round trips.
@@ -39,18 +39,18 @@ GAISe also wraps ElevenLabs for text-to-speech and realtime voice (`POST /v1/spe
 
 ```toml
 [dependencies]
-gaise = "0.2"
-gaise-client = "0.2"
+gaise = "3"
+gaise-client = "3"
 tokio = { version = "1", features = ["full"] }
 
 # Or depend on individual adapters:
-# gaise-provider-openai = "0.2"
-# gaise-provider-anthropic = "0.2"
-# gaise-provider-gemini = "0.2"
-# gaise-provider-vertexai = "0.2"
-# gaise-provider-bedrock = "0.2"
-# gaise-provider-ollama = "0.2"
-# gaise-provider-elevenlabs = "0.2"
+# gaise-provider-openai = "3"
+# gaise-provider-anthropic = "3"
+# gaise-provider-gemini = "3"
+# gaise-provider-vertexai = "3"
+# gaise-provider-bedrock = "3"
+# gaise-provider-ollama = "3"
+# gaise-provider-elevenlabs = "3"
 ```
 
 ## Router quick start
@@ -86,6 +86,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 ```
 
 The router strips the provider prefix before calling the adapter. Direct provider clients therefore receive `gemini-3.8-flash`, while `GaiseClientService` receives `gemini::gemini-3.8-flash`.
+
+## TypeSafe Jev typed decisions
+
+Set `TYPESAFE_API_KEY` for the HTTP server, then send a request to
+`POST /v1/systemone` with model `typesafe::jev`. GAISe maps `jev` to TypeSafe's
+`jev-latest` and preserves typed `choice`, `score`, and `noul` answers.
+
+Library callers use `GaiseClient::system_one` with `GaiseSystemOneRequest` and
+`GaiseClientConfig.typesafe_api_key` / `typesafe_api_url`. The `typesafe` feature
+is enabled by default. Per-request `connection` overrides follow the same
+precedence as other providers. See [configuration and mapping](gaise-provider-typesafe/README.md).
 
 ## Multimodal input
 

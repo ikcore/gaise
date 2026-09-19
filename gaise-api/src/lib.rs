@@ -14,6 +14,7 @@ use gaise_core::{
     GaiseClient,
     contracts::{
         GaiseEmbeddingsRequest, GaiseInstructRequest, GaiseListModelsRequest, GaiseOperation,
+        GaiseSystemOneRequest,
     },
     registry,
 };
@@ -39,6 +40,7 @@ pub struct AppState {
 
 pub fn create_app(state: Arc<AppState>) -> Router {
     let router = Router::new()
+        .route("/v1/systemone", post(handle_system_one))
         .route("/v1/instruct", post(handle_instruct))
         .route("/v1/instruct/stream", post(handle_instruct_stream))
         .route("/v1/embeddings", post(handle_embeddings))
@@ -56,6 +58,22 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .route("/v1/speech/audio", post(handle_speech_audio));
 
     router.with_state(state)
+}
+
+async fn handle_system_one(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<GaiseSystemOneRequest>,
+) -> impl IntoResponse {
+    if let Err(error) = request.validate() {
+        return (StatusCode::BAD_REQUEST, error).into_response();
+    }
+    match state.client_service.system_one(&request).await {
+        Ok(response) => Json(response).into_response(),
+        Err(e) => {
+            error!("System One error: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
 }
 
 async fn handle_instruct(
@@ -109,7 +127,7 @@ pub struct ListModelsQuery {
     /// Restrict to one provider key.
     pub provider: Option<String>,
     /// Keep only models supporting this operation
-    /// (`instruct`, `instruct_stream`, `embeddings`, `live`).
+    /// (`instruct`, `instruct_stream`, `embeddings`, `speech`, `live`, `system_one`).
     pub operation: Option<String>,
     /// Fetch per-model detail where it costs extra requests (Ollama).
     #[serde(default)]

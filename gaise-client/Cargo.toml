@@ -12,6 +12,7 @@ readme = "README.md"
 
 [dependencies]
 gaise-core.workspace = true
+gaise-provider-typesafe = { workspace = true, optional = true }
 gaise-provider-ollama = { workspace = true, optional = true }
 gaise-provider-vertexai = { workspace = true, optional = true }
 gaise-provider-openai = { workspace = true, optional = true, features = [] }
@@ -27,7 +28,8 @@ serde.workspace = true
 serde_json.workspace = true
 
 [features]
-default = ["ollama", "vertexai", "openai", "bedrock", "anthropic", "gemini", "elevenlabs"]
+default = ["ollama", "vertexai", "openai", "bedrock", "anthropic", "gemini", "elevenlabs", "typesafe"]
+typesafe = ["dep:gaise-provider-typesafe"]
 ollama = ["dep:gaise-provider-ollama"]
 vertexai = ["dep:gaise-provider-vertexai"]
 openai = ["dep:gaise-provider-openai"]

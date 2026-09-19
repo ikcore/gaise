@@ -15,7 +15,7 @@ use gaise_core::registry::{ModelRegistry, RegistryModel, RegistryProvider};
 /// tables stay readable; the registry keeps the full text.
 const NOTE_LIMIT: usize = 109;
 
-const PROVIDERS: [(&str, &str, &str); 7] = [
+const PROVIDERS: [(&str, &str, &str); 8] = [
     ("openai", "OpenAI", OPENAI_INTRO),
     ("anthropic", "Anthropic", ANTHROPIC_INTRO),
     ("gemini", "Google Gemini API", GEMINI_INTRO),
@@ -23,6 +23,11 @@ const PROVIDERS: [(&str, &str, &str); 7] = [
     ("bedrock", "Amazon Bedrock", BEDROCK_INTRO),
     ("ollama", "Ollama", OLLAMA_INTRO),
     ("elevenlabs", "ElevenLabs", ELEVENLABS_INTRO),
+    (
+        "typesafe",
+        "TypeSafe AI",
+        "Typed decisions through `system_one` using `typesafe::jev`, mapped to upstream `jev-latest`. See the [provider guide](../gaise-provider-typesafe/README.md).",
+    ),
 ];
 
 const HEADER: &str = "# Models

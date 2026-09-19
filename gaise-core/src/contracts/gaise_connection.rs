@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct GaiseConnection {
-    /// Base URL (OpenAI/Anthropic/Gemini/Ollama/ElevenLabs) or the Vertex AI
+    /// Base URL (OpenAI/Anthropic/Gemini/Ollama/ElevenLabs/TypeSafe) or the Vertex AI
     /// `{{MODEL}}` URL template.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_url: Option<String>,

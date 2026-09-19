@@ -425,6 +425,18 @@ Text-to-speech and realtime voice. `GET /v1/models` reports model ids, languages
 | `eleven_turbo_v2` | — | `deprecated` | — | text | audio | VL | ✗ | ✗ | native while available — Character limit as for the functionally equivalent eleven_flash_v2. |
 | `music_v1` | — | `deprecated` | — | text | text, audio | — | ✗ | ✗ | not supported: music generation (/v1/music) has no GAISe surface — Listed under Deprecated models by 2026-09-… |
 
+## typesafe
+
+### TypeSafe AI
+
+Typed decisions through `GaiseClient::system_one` and `POST /v1/systemone`.
+Use `typesafe::jev`, mapped to TypeSafe's `jev-latest`. Supports Choice, Score,
+and Noul questions. The API reports resolved model IDs, typed answers, and usage.
+
+- Discovery: `GET /v1/models`; supports `operation=system_one` in GAISe.
+- Documentation: [TypeSafe models](https://docs.typesafe.ai/models).
+- [Configuration and mappings](../gaise-provider-typesafe/README.md).
+
 ## Lifecycle calendar
 
 Published shutdown dates for entries that are not yet retired, soonest first. Treat them as the **earliest** possible date; providers may extend but not advance them.

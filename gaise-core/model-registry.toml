@@ -14,6 +14,24 @@
 schema_version = 2
 audited_on = "2026-09-12"
 
+[[providers]]
+key = "typesafe"
+gaise_surface = "System One typed decisions"
+catalog = "https://docs.typesafe.ai/models"
+discovery = "GET /v1/models (name, description, release_date)"
+notes = "API and official SDK audited 2026-09-19. POST /v1/systemone accepts state and typed choice, score, and noul questions."
+
+[[models]]
+provider = "typesafe"
+model = "jev"
+aliases = ["jev-latest", "jev-1.13.0", "jev-preview"]
+status = "active"
+context_window = 64000
+notes = "GAISe jev maps to TypeSafe jev-latest. Jev 1.13 also limits state plus the longest question to 32k tokens; checked 2026-09-19."
+capabilities = ["system_one"]
+operations = ["system_one"]
+gaise_support = "GaiseClient::system_one and POST /v1/systemone; no instruct, streaming, embeddings, or live transport."
+
 # Capability vocabulary (closed; parsed by gaise_core::registry):
 #   input modalities : text, image_input, audio_input, video_input, files
 #   output modalities: text, image_output, audio_output, embeddings
