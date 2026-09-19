@@ -10,7 +10,8 @@ use gaise_core::{
     contracts::{
         GaiseConnection, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseInstructRequest,
         GaiseInstructResponse, GaiseInstructStreamResponse, GaiseListModelsRequest,
-        GaiseListModelsResponse, GaiseModel, GaiseProviderError, redact_secrets,
+        GaiseListModelsResponse, GaiseModel, GaiseProviderError, GaiseSystemOneRequest,
+        GaiseSystemOneResponse, redact_secrets,
     },
     logging::IGaiseLogger,
     registry::ModelRegistry,
@@ -45,6 +46,9 @@ use gaise_provider_openai::openai_live_client::GaiseClientOpenAILive;
 pub use gaise_provider_vertexai::contracts::ServiceAccount;
 #[cfg(feature = "vertexai")]
 use gaise_provider_vertexai::vertexai_client::GaiseClientVertexAI;
+
+#[cfg(feature = "typesafe")]
+use gaise_provider_typesafe::GaiseClientTypeSafe;
 
 /// Configuration for the GAISe client service.
 /// This struct holds the necessary URLs and credentials for different AI providers.
@@ -86,6 +90,12 @@ pub struct GaiseClientConfig {
     /// API key for ElevenLabs.
     #[cfg(feature = "elevenlabs")]
     pub elevenlabs_api_key: Option<String>,
+    /// TypeSafe API root (default: https://api.typesafe.ai).
+    #[cfg(feature = "typesafe")]
+    pub typesafe_api_url: Option<String>,
+    /// TypeSafe API key.
+    #[cfg(feature = "typesafe")]
+    pub typesafe_api_key: Option<String>,
     /// Optional logger for requests and responses.
     pub logger: Option<Arc<dyn IGaiseLogger>>,
 }
@@ -124,7 +134,7 @@ impl GaiseClientService {
     /// Retrieves an existing client for the specified provider or initializes a new one.
     ///
     /// Supported providers: "ollama", "vertexai", "openai", "bedrock", "anthropic",
-    /// "gemini", "elevenlabs".
+    /// "gemini", "elevenlabs", "typesafe".
     pub async fn get_client(
         &self,
         provider: &str,
@@ -185,6 +195,24 @@ impl GaiseClientService {
 
         #[allow(unused_variables)]
         let client: Arc<dyn GaiseClient> = match provider {
+            #[cfg(feature = "typesafe")]
+            "typesafe" => {
+                let url = Self::resolve_url(
+                    connection,
+                    self.config.typesafe_api_url.as_deref(),
+                    Some(gaise_provider_typesafe::typesafe_client::DEFAULT_API_URL),
+                    "TypeSafe",
+                )?;
+                let key = Self::resolve_key(
+                    connection,
+                    self.config.typesafe_api_key.as_deref(),
+                    "TypeSafe",
+                )?;
+                if key.trim().is_empty() {
+                    return Err("TypeSafe API Key must not be empty".into());
+                }
+                Arc::new(GaiseClientTypeSafe::new(url.to_string(), key.to_string()))
+            }
             #[cfg(feature = "ollama")]
             "ollama" => {
                 let url = Self::resolve_url(
@@ -323,6 +351,15 @@ impl GaiseClientService {
         if self.config.elevenlabs_api_key.is_some() {
             providers.push("elevenlabs".into());
         }
+        #[cfg(feature = "typesafe")]
+        if self
+            .config
+            .typesafe_api_key
+            .as_ref()
+            .is_some_and(|k| !k.trim().is_empty())
+        {
+            providers.push("typesafe".into());
+        }
         let clients = self.clients.read().await;
         for key in clients.keys() {
             if !providers.iter().any(|p| p == key) {
@@ -448,6 +485,39 @@ fn finish_model(registry: &ModelRegistry, provider: &str, model: &mut GaiseModel
 
 #[async_trait]
 impl GaiseClient for GaiseClientService {
+    async fn system_one(
+        &self,
+        request: &GaiseSystemOneRequest,
+    ) -> Result<GaiseSystemOneResponse, Box<dyn std::error::Error + Send + Sync>> {
+        request.validate()?;
+        let (provider, model) = Self::parse_model(&request.model)?;
+        let client = self
+            .get_client_with(provider, request.connection.as_ref())
+            .await?;
+        if let Some(logger) = &self.logger {
+            logger.log_request(
+                request.correlation_id.as_deref(),
+                "system_one",
+                &request.model,
+                log_value(request),
+            );
+        }
+        let mut req = request.clone();
+        req.model = model.into();
+        req.connection = None;
+        let response = client.system_one(&req).await?;
+        if let Some(logger) = &self.logger {
+            logger.log_response(
+                request.correlation_id.as_deref(),
+                "system_one",
+                &request.model,
+                serde_json::to_value(&response).unwrap_or(serde_json::Value::Null),
+                serde_json::to_value(&response.usage).ok(),
+            );
+        }
+        Ok(response)
+    }
+
     async fn list_models(
         &self,
         request: &GaiseListModelsRequest,

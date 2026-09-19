@@ -8,6 +8,10 @@ use tracing::info;
 async fn main() {
     tracing_subscriber::fmt::init();
 
+    let typesafe_api_url = std::env::var("TYPESAFE_API_URL")
+        .ok()
+        .or_else(|| std::env::var("TYPESAFE_BASE_URL").ok());
+    let typesafe_api_key = std::env::var("TYPESAFE_API_KEY").ok();
     let ollama_url = std::env::var("OLLAMA_URL").ok();
     let vertexai_api_url = std::env::var("VERTEXAI_API_URL").ok();
     let vertexai_sa_path = std::env::var("VERTEXAI_SA_PATH").ok();
@@ -29,6 +33,8 @@ async fn main() {
     });
 
     let config = GaiseClientConfig {
+        typesafe_api_url,
+        typesafe_api_key,
         ollama_url,
         vertexai_api_url,
         vertexai_sa,

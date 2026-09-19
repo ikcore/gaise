@@ -382,3 +382,27 @@ Any request body may include `"connection": {"api_url": "...", "api_key": "...",
 | `ELEVENLABS_API_KEY` | ElevenLabs credential | none |
 | `ELEVENLABS_API_URL` | ElevenLabs base URL | `https://api.elevenlabs.io` |
 | `GAISE_PORT` | HTTP listen port | `3000` |
+
+## System One: TypeSafe Jev
+
+`POST /v1/systemone` evaluates typed questions over shared state:
+
+```json
+{
+  "model": "typesafe::jev",
+  "state": "The delivery arrived today.",
+  "questions": {
+    "delivered": {"type": "noul", "instructions": "Has the delivery arrived?"}
+  }
+}
+```
+
+Configure `TYPESAFE_API_KEY` and optionally `TYPESAFE_API_URL` (API root without
+`/v1`; default `https://api.typesafe.ai`). The model maps to `jev-latest` upstream.
+`connection` and `correlation_id` follow the existing request conventions.
+The response contains the resolved `model`, named typed `answers`, and GAISe
+`usage.input.input_tokens` / `usage.output.output_tokens` counters. Choice and
+score preserve probability distributions and confidence; score also preserves
+its legend. See [full mapping](gaise-provider-typesafe/README.md).
+
+Discover the model with `GET /v1/models?provider=typesafe&operation=system_one`.

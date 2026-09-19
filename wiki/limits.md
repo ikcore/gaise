@@ -328,6 +328,15 @@ Figures are the vendor-documented limits recorded in [`model-registry.toml`](../
 | `music_v1` | deprecated | — | — | — | — | — | — |  |
 | `eleven_text_to_sound_v2` | active | — | — | — | — | — | — |  |
 
+### TypeSafe AI
+
+| Model | Operation | Context window | Additional input limit |
+| --- | --- | --- | --- |
+| `typesafe::jev` | `system_one` | 64,000 tokens per request | 32,000 tokens for state plus the longest question |
+
+GAISe maps `jev` to TypeSafe's `jev-latest`. Limits checked 2026-09-19 against
+[TypeSafe's model documentation](https://docs.typesafe.ai/models).
+
 ## Reading the figures
 
 - **OpenAI** publishes a shared context window and a max-output figure per model. The GPT-5.4/5.5/5.6 frontier models are 1,050,000; the 5.4 mini/nano and GPT-5 generation are 400,000; `*-chat-latest` aliases are 128,000 / 16,384 regardless of generation; `gpt-5-pro` is the one 272,000-output model. Realtime 2.x jumped to 128,000 / 32,000 from 32,000 / 4,096. Image models publish no token limits.

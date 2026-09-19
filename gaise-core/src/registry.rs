@@ -68,7 +68,7 @@ pub struct RegistryModel {
     /// Explicit override of the GAISe operations derived from `capabilities`.
     /// Use `operations = []` for models GAISe can describe but not drive
     /// (Responses-only, TTS, Live on a provider without a live adapter).
-    /// Values: `instruct`, `instruct_stream`, `embeddings`, `live`.
+    /// Values: `instruct`, `instruct_stream`, `embeddings`, `speech`, `live`, `system_one`.
     #[serde(default)]
     pub operations: Option<Vec<String>>,
     #[serde(default)]
@@ -119,6 +119,7 @@ pub struct ClassifiedCapabilities {
 
 /// Every term the `capabilities` vocabulary accepts.
 pub const CAPABILITY_VOCABULARY: &[&str] = &[
+    "system_one",
     "text",
     "image_input",
     "image_output",
@@ -148,6 +149,11 @@ pub fn classify_capabilities(terms: &[String]) -> Result<ClassifiedCapabilities,
     let mut speech = false;
     for term in terms {
         match term.as_str() {
+            "system_one" => {
+                push(&mut out.operations, GaiseOperation::SystemOne);
+                push(&mut out.input, GaiseModality::Text);
+                out.structured_output = GaiseSupport::Supported;
+            }
             "text" => {
                 text_like = true;
                 push(&mut out.input, GaiseModality::Text);

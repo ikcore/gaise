@@ -10,6 +10,7 @@ Axum HTTP server for [GAISe](https://crates.io/crates/gaise) — exposes all Gen
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `POST` | `/v1/systemone` | Typed decisions with `typesafe::jev` |
 | `POST` | `/v1/instruct` | Non-streaming instruct request |
 | `POST` | `/v1/instruct/stream` | Server-Sent Events streaming |
 | `POST` | `/v1/embeddings` | Generate embedding vectors |
@@ -86,3 +87,10 @@ let app = create_app(state);
 ## Part of [GAISe](https://github.com/ikcore/gaise)
 
 License: MIT OR Apache-2.0, at your option (see `LICENSE-APACHE` and `LICENSE-MIT`). Versions 0.2.2 and earlier remain AGPL-3.0-only on crates.io.
+
+## TypeSafe Jev
+
+Set `TYPESAFE_API_KEY`; optionally set `TYPESAFE_API_URL` to an API root without
+`/v1` (default `https://api.typesafe.ai`). `TYPESAFE_BASE_URL` is also accepted
+when `TYPESAFE_API_URL` is absent. Send `GaiseSystemOneRequest` to
+`POST /v1/systemone`; see [the request and mapping guide](../gaise-provider-typesafe/README.md).
