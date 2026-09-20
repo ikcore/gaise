@@ -10,8 +10,9 @@ Before packaging a release:
 2. Set every internal entry under `[workspace.dependencies]` to that same version.
 3. Regenerate `Cargo.lock` and confirm every local `gaise*` package has the release version.
 4. Run the offline workspace checks before contacting a registry.
+5. Inspect each packaged README selected by its manifest. The `gaise` crate publishes `gaise-core/README.md`, not the repository root README. Check new providers and endpoints appear on the relevant package pages.
 
-For release 3.0.0, both the workspace package version and all internal dependency requirements must be `3.0.0`. Leaving an internal requirement at `0.1.2` makes a provider tarball compile against the old registry core, which does not contain the current multimodal, reasoning, tool-signature, and usage contracts.
+For release 3.0.1, both the workspace package version and all internal dependency requirements must be `3.0.1`. Leaving an internal requirement at `0.1.2` makes a provider tarball compile against the old registry core, which does not contain the current multimodal, reasoning, tool-signature, and usage contracts.
 
 ## Dependency and publish order
 
