@@ -1,6 +1,6 @@
 # gaise-client
 
-`gaise-client` is a provider aggregator for the GAISe (Generative AI Service) project. It allows you to use multiple AI providers (OpenAI, Anthropic, Gemini, VertexAI, Ollama, Bedrock) through a single interface, routing requests based on a model naming convention.
+`gaise-client` is a provider aggregator for the GAISe (Generative AI Service) project. It allows you to use multiple AI providers (OpenAI, Anthropic, Gemini, VertexAI, Ollama, Bedrock, ElevenLabs, TypeSafe AI) through a single interface, routing requests based on a model naming convention.
 
 ## Features
 
@@ -27,25 +27,28 @@ To use only specific providers, disable default features in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gaise-client = { version = "3.0.0", default-features = false, features = ["openai"] }
+gaise-client = { version = "3.0.1", default-features = false, features = ["openai"] }
 ```
 
 To enable live/realtime sessions:
 
 ```toml
 [dependencies]
-gaise-client = { version = "3.0.0", features = ["live"] }
+gaise-client = { version = "3.0.1", features = ["live"] }
 ```
 
 ## Supported Providers
 
-- `openai`
-- `vertexai`
-- `ollama`
-- `bedrock`
-- `anthropic`
-- `gemini`
-- `typesafe`
+| Provider key | crates.io package |
+| --- | --- |
+| `openai` | [`gaise-provider-openai`](https://crates.io/crates/gaise-provider-openai) |
+| `vertexai` | [`gaise-provider-vertexai`](https://crates.io/crates/gaise-provider-vertexai) |
+| `ollama` | [`gaise-provider-ollama`](https://crates.io/crates/gaise-provider-ollama) |
+| `bedrock` | [`gaise-provider-bedrock`](https://crates.io/crates/gaise-provider-bedrock) |
+| `anthropic` | [`gaise-provider-anthropic`](https://crates.io/crates/gaise-provider-anthropic) |
+| `gemini` | [`gaise-provider-gemini`](https://crates.io/crates/gaise-provider-gemini) |
+| `elevenlabs` | [`gaise-provider-elevenlabs`](https://crates.io/crates/gaise-provider-elevenlabs) |
+| `typesafe` | [`gaise-provider-typesafe`](https://crates.io/crates/gaise-provider-typesafe) |
 
 ## Usage
 
@@ -152,9 +155,55 @@ let request = GaiseInstructRequest {
 let response = service.instruct(&request).await?;
 ```
 
-## TypeSafe configuration
+## TypeSafe System One
 
-Use `typesafe_api_key` and optional `typesafe_api_url` in `GaiseClientConfig`,
-or per-request `connection` overrides. The default API root is
-`https://api.typesafe.ai`. Call `system_one` with model `typesafe::jev`; the adapter
-maps it to TypeSafe's `jev-latest`. See the [provider guide](../gaise-provider-typesafe/README.md).
+Call `system_one` with `typesafe::jev` to evaluate typed Noul, Choice, and Score
+questions about shared state. The adapter maps `jev` to upstream `jev-latest`.
+
+### Rust example
+
+```toml
+[dependencies]
+gaise-core = { package = "gaise", version = "3.0.1" }
+gaise-client = { version = "3.0.1", default-features = false, features = ["typesafe"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+```rust
+use gaise_client::{GaiseClientConfig, GaiseClientService};
+use gaise_core::{
+    GaiseClient,
+    contracts::{GaiseAnswer, GaiseSystemOneRequest},
+};
+use serde_json::json;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let client = GaiseClientService::new(GaiseClientConfig {
+        typesafe_api_key: Some(std::env::var("TYPESAFE_API_KEY")?),
+        ..Default::default()
+    });
+    let request: GaiseSystemOneRequest = serde_json::from_value(json!({
+        "model": "typesafe::jev",
+        "state": {"ticket": "I was charged twice. Please fix this today."},
+        "questions": {
+            "urgent": {"type": "noul", "instructions": "Is this urgent?"}
+        }
+    }))?;
+    let response = client.system_one(&request).await?;
+    if let Some(GaiseAnswer::Noul { noul }) = response.answers.get("urgent") {
+        println!("Urgency probability: {noul}");
+    }
+    Ok(())
+}
+```
+
+The same response map can contain `GaiseAnswer::Choice` and `GaiseAnswer::Score`.
+The [TypeSafe provider crate](https://crates.io/crates/gaise-provider-typesafe)
+also exposes `GaiseClientTypeSafe::new(api_url, api_key)` for direct use with the
+bare model name `jev`.
+
+Set `typesafe_api_key` and optional `typesafe_api_url` in the service config.
+Per-request `connection` fields take precedence. See the [complete request,
+response, configuration, and error reference](https://crates.io/crates/gaise-provider-typesafe).

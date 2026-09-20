@@ -1,4 +1,4 @@
-# GAISe TypeSafe AI provider
+# System One: TypeSafe Jev
 
 ## System One and TypeSafe Jev
 

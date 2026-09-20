@@ -563,3 +563,9 @@ Provider error bodies are passed through verbatim (`OpenAI API error: …`, `Ant
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_API_URL` | ElevenLabs credential, base URL (regional hosts allowed) | URL `https://api.elevenlabs.io` |
 
 Per-vendor configuration details are on each [vendor page](README.md#vendors).
+
+## POST /v1/systemone
+
+Evaluate typed questions against shared state using `typesafe::jev`. See the
+[System One endpoint guide](system-one.md) for complete JSON requests and responses,
+configuration precedence, status codes, retries, and Rust examples.

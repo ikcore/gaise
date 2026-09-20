@@ -15,6 +15,7 @@ GAISe (Generative AI Service) is a Rust workspace that maps one provider-neutral
 | [**models.md**](models.md) | Every model in the bundled registry (215 entries), per vendor, with modalities, operations, reasoning values, lifecycle dates, and GAISe support notes; plus the retirement calendar and maintenance procedure. |
 | [**flows.md**](flows.md) | Mermaid diagrams of routing, instruct, multimodal mapping, streaming, tool loops, usage normalization, embeddings, model discovery, live sessions, and retries. |
 | [**examples.md**](examples.md) | Rust request examples for text, media, files, reasoning, generated images, tools, streaming, embeddings, discovery, and live. |
+| [**system-one.md**](system-one.md) | TypeSafe Jev: typed questions, HTTP and Rust examples, configuration, responses, usage, discovery, and errors. |
 | [**releasing.md**](releasing.md) | Version synchronization, package verification, and crates.io publish order. |
 
 ### Vendors
@@ -28,6 +29,7 @@ GAISe (Generative AI Service) is a Rust workspace that maps one provider-neutral
 | [**Amazon Bedrock**](vendor-bedrock.md) | `bedrock` | [`gaise-provider-bedrock`](../gaise-provider-bedrock/) | Converse/ConverseStream, InvokeModel embeddings, `ListFoundationModels` |
 | [**Ollama**](vendor-ollama.md) | `ollama` | [`gaise-provider-ollama`](../gaise-provider-ollama/) | `/api/chat`, `/api/embed`, `/api/tags` |
 | [**ElevenLabs**](vendor-elevenlabs.md) | `elevenlabs` | [`gaise-provider-elevenlabs`](../gaise-provider-elevenlabs/) | Text-to-speech, streaming speech, realtime voice (`live`), `GET /v1/models` |
+| [**TypeSafe AI**](system-one.md) | `typesafe` | [`gaise-provider-typesafe`](../gaise-provider-typesafe/) | System One typed decisions, `GET /v1/models` |
 
 Each vendor page follows the same outline — configuration, request mapping (roles, modalities, tools, generation config, model-family rules), response mapping, streaming, usage counters, embeddings, live, model discovery, the vendor's model table, limitations, flow diagrams, tests, and sources — so the same question can be answered in the same place for every provider.
 

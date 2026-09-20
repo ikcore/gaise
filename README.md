@@ -24,14 +24,16 @@ Written by Ian Knowles. Project page: [BadAI](https://badai.company/open-source/
 
 Model registry audited **2026-09-12**. Newest additions: GPT-6 Astra (generally available) and GPT-Live 1 at OpenAI; Claude Fable 5.1 and Mythos 5.1 at Anthropic; Gemini 3.8 Flash on the Gemini API and Vertex AI; GPT-6 Astra on Bedrock; GLM 5.3, Granite 4.2, DeepSeek V4.1 Flash, and Kimi K3 on Ollama. New model ids work before the registry is updated; the registry only adds limits, lifecycle dates, and per-family parameter rules.
 
-| Provider | Main API surface | Current model examples |
-|---|---|---|
-| OpenAI | Chat Completions, Embeddings, Realtime | GPT-6 Astra (GA 2026-09; text and images, tool calling is Responses-only), GPT-5.6 Sol/Terra/Luna, GPT-5.5, GPT-5.4, Realtime 2.1, text-embedding-3; older GPT-5.x and 4.x ids still resolve. GPT-Live 1, GPT Image 2.5, and GPT-Rosalind are catalogued but served by APIs outside the chat client |
-| Anthropic | Messages | Claude Fable 5.1 and Mythos 5.1 (2026-09-01), Opus 5, Sonnet 5, Haiku 4.5; Fable 5 and the Opus/Sonnet 4.x line stay available as legacy |
-| Gemini | generateContent, Embeddings, Live | Gemini 3.8 Flash (GA 2026-09-02), 3.7 and 3.6 Flash, 3.5 Flash/Flash-Lite, 3.1 Pro preview, 3.1 Flash Image, 3.1 Flash Live, gemini-embedding-2 |
-| Vertex AI | generateContent, Embeddings | Gemini 3.8 Flash through 3.1 Flash-Lite, 3.1 Pro preview, image-output models, gemini-embedding-001 and text-embedding-005 |
-| Bedrock | Converse, ConverseStream, InvokeModel | Claude Fable 5.1 / Opus 5 / Sonnet 5 / Haiku 4.5, Amazon Nova 2 Lite and Nova Pro/Lite/Micro, OpenAI GPT-6 Astra, GPT-5.6, and gpt-oss, xAI Grok 4.6, DeepSeek V3.2, Mistral Large 3, Llama 4, Qwen3 Coder; Titan, Cohere, and Nova embeddings |
-| Ollama | Chat and Embeddings | Any installed tag (Qwen 3.5–3.8, GPT-OSS, Gemma 4, GLM 5.3, Granite 4.2, DeepSeek R1 and V4.1 Flash, Kimi K3, Llama 4, Muse Glimmer, Laguna S/XS 2.1, and the common embedding families); vision, thinking, and tools are model-dependent |
+| Provider | crates.io | Main API surface | Current model examples |
+|---|---|---|---|
+| OpenAI | [`gaise-provider-openai`](https://crates.io/crates/gaise-provider-openai) | Chat Completions, Embeddings, Realtime | GPT-6 Astra (GA 2026-09; text and images, tool calling is Responses-only), GPT-5.6 Sol/Terra/Luna, GPT-5.5, GPT-5.4, Realtime 2.1, text-embedding-3; older GPT-5.x and 4.x ids still resolve. GPT-Live 1, GPT Image 2.5, and GPT-Rosalind are catalogued but served by APIs outside the chat client |
+| Anthropic | [`gaise-provider-anthropic`](https://crates.io/crates/gaise-provider-anthropic) | Messages | Claude Fable 5.1 and Mythos 5.1 (2026-09-01), Opus 5, Sonnet 5, Haiku 4.5; Fable 5 and the Opus/Sonnet 4.x line stay available as legacy |
+| Gemini | [`gaise-provider-gemini`](https://crates.io/crates/gaise-provider-gemini) | generateContent, Embeddings, Live | Gemini 3.8 Flash (GA 2026-09-02), 3.7 and 3.6 Flash, 3.5 Flash/Flash-Lite, 3.1 Pro preview, 3.1 Flash Image, 3.1 Flash Live, gemini-embedding-2 |
+| Vertex AI | [`gaise-provider-vertexai`](https://crates.io/crates/gaise-provider-vertexai) | generateContent, Embeddings | Gemini 3.8 Flash through 3.1 Flash-Lite, 3.1 Pro preview, image-output models, gemini-embedding-001 and text-embedding-005 |
+| Bedrock | [`gaise-provider-bedrock`](https://crates.io/crates/gaise-provider-bedrock) | Converse, ConverseStream, InvokeModel | Claude Fable 5.1 / Opus 5 / Sonnet 5 / Haiku 4.5, Amazon Nova 2 Lite and Nova Pro/Lite/Micro, OpenAI GPT-6 Astra, GPT-5.6, and gpt-oss, xAI Grok 4.6, DeepSeek V3.2, Mistral Large 3, Llama 4, Qwen3 Coder; Titan, Cohere, and Nova embeddings |
+| ElevenLabs | [`gaise-provider-elevenlabs`](https://crates.io/crates/gaise-provider-elevenlabs) | Text-to-speech and realtime voice | ElevenLabs speech and voice models |
+| TypeSafe AI | [`gaise-provider-typesafe`](https://crates.io/crates/gaise-provider-typesafe) | System One typed decisions | `typesafe::jev`: Choice, Score, and Noul questions with typed answers and probabilities |
+| Ollama | [`gaise-provider-ollama`](https://crates.io/crates/gaise-provider-ollama) | Chat and Embeddings | Any installed tag (Qwen 3.5–3.8, GPT-OSS, Gemma 4, GLM 5.3, Granite 4.2, DeepSeek R1 and V4.1 Flash, Kimi K3, Llama 4, Muse Glimmer, Laguna S/XS 2.1, and the common embedding families); vision, thinking, and tools are model-dependent |
 
 GAISe also wraps ElevenLabs for text-to-speech and realtime voice (`POST /v1/speech*`, `GET /v1/live`). Model availability changes quickly. [`gaise-core/model-registry.toml`](gaise-core/model-registry.toml) records the 2026-09-12 audit, including provider-specific retirement dates, and is bundled into the `gaise` crate so `list_models` can enrich what each provider's model API leaves out. The [wiki](wiki/README.md) is the complete developer guide: [HTTP API](wiki/api.md), [Rust SDK](wiki/sdk.md), [capabilities](wiki/capabilities.md), the full [model catalog](wiki/models.md), [flow diagrams](wiki/flows.md), [examples](wiki/examples.md), and one page per vendor ([OpenAI](wiki/vendor-openai.md), [Anthropic](wiki/vendor-anthropic.md), [Gemini](wiki/vendor-gemini.md), [Vertex AI](wiki/vendor-vertexai.md), [Bedrock](wiki/vendor-bedrock.md), [Ollama](wiki/vendor-ollama.md), [ElevenLabs](wiki/vendor-elevenlabs.md)).
 
@@ -51,6 +53,7 @@ tokio = { version = "1", features = ["full"] }
 # gaise-provider-bedrock = "3"
 # gaise-provider-ollama = "3"
 # gaise-provider-elevenlabs = "3"
+# gaise-provider-typesafe = "3"
 ```
 
 ## Router quick start
@@ -96,7 +99,8 @@ Set `TYPESAFE_API_KEY` for the HTTP server, then send a request to
 Library callers use `GaiseClient::system_one` with `GaiseSystemOneRequest` and
 `GaiseClientConfig.typesafe_api_key` / `typesafe_api_url`. The `typesafe` feature
 is enabled by default. Per-request `connection` overrides follow the same
-precedence as other providers. See [configuration and mapping](gaise-provider-typesafe/README.md).
+precedence as other providers. See the [System One endpoint guide](wiki/system-one.md) for full HTTP/Rust
+examples, question types, response mapping, configuration, validation, and errors.
 
 ## Multimodal input
 
