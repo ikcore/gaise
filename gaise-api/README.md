@@ -10,7 +10,7 @@ Axum HTTP server for [GAISe](https://crates.io/crates/gaise) — exposes all Gen
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/v1/systemone` | Typed decisions with `typesafe::jev` |
+| `POST` | `/v1/decision` | Typed decisions with `typesafe::jev` (`/v1/systemone` is a deprecated alias) |
 | `POST` | `/v1/instruct` | Non-streaming instruct request |
 | `POST` | `/v1/instruct/stream` | Server-Sent Events streaming |
 | `POST` | `/v1/embeddings` | Generate embedding vectors |
@@ -90,9 +90,10 @@ let app = create_app(state);
 
 License: MIT OR Apache-2.0, at your option (see `LICENSE-APACHE` and `LICENSE-MIT`). Versions 0.2.2 and earlier remain AGPL-3.0-only on crates.io.
 
-## System One and TypeSafe Jev
+## Decision and TypeSafe Jev
 
-System One evaluates questions about shared context and returns typed decisions.
+The Decision operation evaluates questions about shared context and returns typed
+decisions.
 Use it for tasks such as ticket routing, urgency detection, eligibility checks,
 and rubric scoring. GAISe currently provides this operation through TypeSafe AI's
 Jev model, selected as **`typesafe::jev`**.
@@ -117,7 +118,7 @@ positions 0, 1, and 2; a returned score of 1.2 falls between the middle and high
 levels. Confidence is a provider-reported measure derived from the distribution;
 GAISe preserves it without recalculating it or treating it as a correctness guarantee.
 
-### HTTP: `POST /v1/systemone`
+### HTTP: `POST /v1/decision`
 
 Configure the GAISe server with `TYPESAFE_API_KEY`, then run `cargo run -p gaise-api`
 from the repository.
@@ -156,7 +157,7 @@ Save this request as `request.json`:
 ```
 
 ```bash
-curl http://localhost:3000/v1/systemone \
+curl http://localhost:3000/v1/decision \
   -H "Content-Type: application/json" \
   --data-binary @request.json
 ```
@@ -235,15 +236,21 @@ upstream JSON body. GAISe redacts connection credentials before request logging.
 ### Discovery and supported operations
 
 ```text
-GET /v1/models?provider=typesafe&operation=system_one
+GET /v1/models?provider=typesafe&operation=decision
 GET /v1/models/typesafe::jev
-GET /v1/models/limits?provider=typesafe&operation=system_one
+GET /v1/models/limits?provider=typesafe&operation=decision
 ```
 
 The first two routes query the provider catalog. The limits route reads GAISe's
-bundled registry and needs no provider credentials. `GaiseOperation::SystemOne`
-is serialized as `system_one`; `system_one` is also the Rust method name, while
-the HTTP path uses `/v1/systemone`.
+bundled registry and needs no provider credentials. `GaiseOperation::Decision`
+is serialized as `decision`; `decision` is also the Rust method name, and the
+HTTP path is `/v1/decision`.
+
+Before 4.0 this operation was called System One. `POST /v1/systemone`,
+`operation=system_one`, `GaiseClient::system_one`, `GaiseSystemOneRequest`,
+`GaiseSystemOneResponse`, and `GaiseOperation::SystemOne` remain as deprecated
+aliases. Model listings now report the operation as `decision`. TypeSafe's own
+API keeps the System One name, so the adapter still calls its `/v1/systemone`.
 
 Jev uses this typed decision operation. Text generation (`instruct`), SSE
 streaming, embeddings, tool calling, and live audio are not implemented for this
@@ -266,7 +273,7 @@ forwarded as the GAISe HTTP status.
 Each upstream attempt has a 30-second timeout. HTTP 429 and 5xx responses,
 including 529, are retried twice using 500/1000ms backoff, or a numeric
 `Retry-After` delay capped at 60 seconds. Transport errors and other HTTP statuses
-are returned without retrying. There is no System One streaming endpoint.
+are returned without retrying. There is no Decision streaming endpoint.
 
 References: [TypeSafe API](https://docs.typesafe.ai/api),
 [question types](https://docs.typesafe.ai/introduction), and the

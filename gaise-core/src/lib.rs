@@ -13,12 +13,21 @@ pub mod registry;
 pub trait GaiseClient: Send + Sync {
     /// Evaluate typed questions against shared state. Unsupported by default
     /// so existing providers and custom clients retain their behavior.
+    async fn decision(
+        &self,
+        request: &contracts::GaiseDecisionRequest,
+    ) -> Result<contracts::GaiseDecisionResponse, Box<dyn std::error::Error + Send + Sync>> {
+        let _ = request;
+        Err("Decision is not supported by this client".into())
+    }
+
+    /// Pre-4.0 name of [`GaiseClient::decision`]; forwards to it.
+    #[deprecated(since = "4.0.0", note = "renamed to `decision`")]
     async fn system_one(
         &self,
-        request: &contracts::GaiseSystemOneRequest,
-    ) -> Result<contracts::GaiseSystemOneResponse, Box<dyn std::error::Error + Send + Sync>> {
-        let _ = request;
-        Err("System One is not supported by this client".into())
+        request: &contracts::GaiseDecisionRequest,
+    ) -> Result<contracts::GaiseDecisionResponse, Box<dyn std::error::Error + Send + Sync>> {
+        self.decision(request).await
     }
 
     async fn instruct_stream(

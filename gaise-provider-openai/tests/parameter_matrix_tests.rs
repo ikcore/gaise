@@ -361,6 +361,40 @@ fn gpt6_astra_never_samples_and_needs_responses_for_tools() {
 }
 
 #[test]
+fn gpt6_1_sol_shares_the_astra_profile() {
+    // Latest-model guide (2026-09-29): "GPT-6 Astra and GPT-6.1 Sol support
+    // Chat Completions, but tool calling requires Responses" and "the `none`
+    // and `minimal` reasoning efforts are not supported".
+    assert_eq!(
+        openai_chat_rules("gpt-6.1-sol"),
+        openai_chat_rules("gpt-6-astra")
+    );
+    let json = build("gpt-6.1-sol", sink(Some("none")), false);
+    assert_eq!(json["reasoning_effort"], "low");
+    assert!(json.get("temperature").is_none());
+    assert!(chat_tools_require_responses("gpt-6.1-sol"));
+}
+
+#[test]
+fn gpt6_sol_and_luna_follow_the_gpt_5_6_rules() {
+    // Model pages (2026-09-22): effort none..max with medium default, and
+    // "Chat Completions supports function calling only with
+    // `reasoning_effort` set to `none`".
+    for model in ["gpt-6-sol", "gpt-6-luna", "ft:gpt-6-luna:acme::abc"] {
+        assert_eq!(
+            openai_chat_rules(model),
+            openai_chat_rules("gpt-5.6"),
+            "{model}"
+        );
+        assert!(!chat_tools_require_responses(model), "{model}");
+    }
+    let json = build("gpt-6-sol", sink(Some("none")), false);
+    assert_eq!(json["reasoning_effort"], "none");
+    let json = build("gpt-6-luna", sink(Some("high")), true);
+    assert_eq!(json["reasoning_effort"], "none", "tools force none");
+}
+
+#[test]
 fn embedding_dimensions_only_for_text_embedding_3() {
     use gaise_core::contracts::{GaiseEmbeddingTask, GaiseEmbeddingsRequest, OneOrMany};
     use gaise_provider_openai::openai_client::openai_embed_request;

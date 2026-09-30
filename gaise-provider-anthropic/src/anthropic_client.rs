@@ -177,6 +177,9 @@ fn collect_text(content: &GaiseContent, output: &mut Vec<String>) {
 /// new releases keep working; known families get exact constraints. Matching
 /// is by substring, so `claude-fable-5-1` / `claude-mythos-5-1` (2026-09-01)
 /// inherit the always-on Fable 5 profile, which is what their docs specify.
+/// Opus 5.5 (2026-09-22) and Sonnet 5.5 (2026-09-28) reject
+/// `thinking.type: "disabled"`, unlike Opus 5 / Sonnet 5 whose ids they
+/// contain, so they are matched first and share that always-on profile.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClaudeFamilyRules {
     /// `thinking.type: "enabled"` / `budget_tokens` are rejected (400).
@@ -203,7 +206,11 @@ const EFFORT_NONE: &[&str] = &[];
 pub fn claude_family_rules(model: &str) -> ClaudeFamilyRules {
     let model = model.to_ascii_lowercase();
     let has = |family: &str| model.contains(family);
-    if has("claude-fable-5") || has("claude-mythos-5") {
+    if has("claude-fable-5")
+        || has("claude-mythos-5")
+        || has("claude-opus-5-5")
+        || has("claude-sonnet-5-5")
+    {
         return ClaudeFamilyRules {
             adaptive_only: true,
             adaptive: true,

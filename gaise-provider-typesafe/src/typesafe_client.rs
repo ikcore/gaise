@@ -69,10 +69,10 @@ impl GaiseClientTypeSafe {
 
 #[async_trait]
 impl GaiseClient for GaiseClientTypeSafe {
-    async fn system_one(
+    async fn decision(
         &self,
-        request: &GaiseSystemOneRequest,
-    ) -> Result<GaiseSystemOneResponse, BoxError> {
+        request: &GaiseDecisionRequest,
+    ) -> Result<GaiseDecisionResponse, BoxError> {
         request.validate()?;
         let response: SystemOneResponse = self
             .send(
@@ -115,7 +115,7 @@ impl GaiseClient for GaiseClientTypeSafe {
     }
 
     async fn instruct(&self, _: &GaiseInstructRequest) -> Result<GaiseInstructResponse, BoxError> {
-        Err("TypeSafe does not support instruct; use system_one with typed questions".into())
+        Err("TypeSafe does not support instruct; use decision with typed questions".into())
     }
     async fn instruct_stream(
         &self,
@@ -124,12 +124,12 @@ impl GaiseClient for GaiseClientTypeSafe {
         Pin<Box<dyn Stream<Item = Result<GaiseInstructStreamResponse, BoxError>> + Send>>,
         BoxError,
     > {
-        Err("TypeSafe does not support streaming; use system_one with typed questions".into())
+        Err("TypeSafe does not support streaming; use decision with typed questions".into())
     }
     async fn embeddings(
         &self,
         _: &GaiseEmbeddingsRequest,
     ) -> Result<GaiseEmbeddingsResponse, BoxError> {
-        Err("TypeSafe does not support embeddings; use system_one with typed questions".into())
+        Err("TypeSafe does not support embeddings; use decision with typed questions".into())
     }
 }

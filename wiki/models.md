@@ -2,7 +2,7 @@
 
 > Part of the [GAISe wiki](README.md) · [Capabilities](capabilities.md) · [HTTP API](api.md#get-v1models) · [Rust SDK](sdk.md#model-discovery) · [Flows](flows.md#model-discovery) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Google Gemini API](vendor-gemini.md) · [Google Vertex AI](vendor-vertexai.md) · [Amazon Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md) · [ElevenLabs](vendor-elevenlabs.md)
 
-This page is the human-readable view of [`gaise-core/model-registry.toml`](../gaise-core/model-registry.toml) (schema 2, audited **2026-09-12**), which is compiled into the `gaise` crate and applied as an overlay by [`list_models`](api.md#get-v1models). It is advisory: GAISe accepts arbitrary model IDs so new releases work before this file is updated, and the provider's own model API (see [Model discovery](capabilities.md#model-discovery)) is always the first source of truth.
+This page is the human-readable view of [`gaise-core/model-registry.toml`](../gaise-core/model-registry.toml) (schema 2, audited **2026-09-30**), which is compiled into the `gaise` crate and applied as an overlay by [`list_models`](api.md#get-v1models). It is advisory: GAISe accepts arbitrary model IDs so new releases work before this file is updated, and the provider's own model API (see [Model discovery](capabilities.md#model-discovery)) is always the first source of truth.
 
 This page is generated from the registry by [`cargo run -p gaise --example models_page`](../gaise-core/examples/models_page.rs); edit the registry (or that example's introductions), not this file. Columns:
 
@@ -15,11 +15,11 @@ This page is generated from the registry by [`cargo run -p gaise --example model
 ## Contents
 
 
-- [OpenAI](#openai) — 58 entries
-- [Anthropic](#anthropic) — 17 entries
+- [OpenAI](#openai) — 61 entries
+- [Anthropic](#anthropic) — 19 entries
 - [Google Gemini API](#gemini) — 29 entries
 - [Google Vertex AI](#vertexai) — 25 entries
-- [Amazon Bedrock](#bedrock) — 59 entries
+- [Amazon Bedrock](#bedrock) — 61 entries
 - [Ollama](#ollama) — 31 entries
 - [ElevenLabs](#elevenlabs) — 14 entries
 - [Maintaining the registry](#maintaining-the-registry)
@@ -29,18 +29,21 @@ This page is generated from the registry by [`cargo run -p gaise --example model
 
 ### OpenAI
 
-Instruct uses **Chat Completions**; Responses-only models (GPT-5.5 Pro, gpt-5.6-cyber, the Daybreak models, image generation) are listed but cannot be driven, and GPT-6 function tools are refused because OpenAI serves them through Responses only. `GET /v1/models` reports identity only, so everything in the Input/Output/Ops columns is registry- or heuristic-sourced at runtime ([`catalog.rs`](../gaise-provider-openai/src/contracts/catalog.rs)).
+Instruct uses **Chat Completions**; Responses-only models (GPT-5.5 Pro, gpt-5.6-cyber, the Daybreak models, image generation) are listed but cannot be driven, and GPT-6 Astra / GPT-6.1 Sol function tools are refused because OpenAI serves them through Responses only. `GET /v1/models` reports identity only, so everything in the Input/Output/Ops columns is registry- or heuristic-sourced at runtime ([`catalog.rs`](../gaise-provider-openai/src/contracts/catalog.rs)).
 
 - Vendor page: [vendor-openai.md](vendor-openai.md) · GAISe surface: Chat Completions, Embeddings, and Realtime
 - Discovery: GET /v1/models (id, created, owned_by, shutdown_date only)
 - Official catalog: <https://developers.openai.com/api/docs/models> · lifecycle: <https://developers.openai.com/api/docs/deprecations>
-- The current instruct client uses Chat Completions. Responses-only features, the Images API, and the Live API (/v1/live/sessions, GPT-Live 1, 2026-09-10) are outside that client. Chat Completions contract as of 2026-09-12: reasoning_effort accepts none, minimal, low, medium, high, xhigh, max (per-model subsets); service_tier accepts auto, default, flex, scale, priority, and fast (Priority processing was renamed Fast mode on 2026-07-30; the response reports priority for fast requests); prompt_cache_options is {mode: implicit|explicit, ttl: 30m} on gpt-5.6 and later and prompt_cache_retention is deprecated; usage.prompt_tokens_details reports image_tokens and text_tokens; the Assistants API shut down 2026-08-26.
+- The current instruct client uses Chat Completions. Responses-only features, the Images API, and the Live API (/v1/live/sessions, GPT-Live 1, 2026-09-10) are outside that client. Chat Completions contract as of 2026-09-12: reasoning_effort accepts none, minimal, low, medium, high, xhigh, max (per-model subsets); service_tier accepts auto, default, flex, scale, priority, and fast (Priority processing was renamed Fast mode on 2026-07-30; the response reports priority for fast requests); prompt_cache_options is {mode: implicit|explicit, ttl: 30m} on gpt-5.6 and later and prompt_cache_retention is deprecated; usage.prompt_tokens_details reports image_tokens and text_tokens; the Assistants API shut down 2026-08-26. Audit 2026-09-30: GPT-6 Sol and GPT-6 Luna (2026-09-22) and GPT-6.1 Sol (2026-09-29) added; service_tier ultrafast exists for GPT-6 Astra on the Responses API only; the Decisions API (limited preview announced 2026-09-29) has no published reference, SDK, or model id and is not mapped.
 
 #### Current and preview
 
 | Model | Aliases | Status | Dates | Input | Output | Ops | Tools | Reasoning | GAISe support / notes |
 |---|---|---|---|---|---|---|---|---|---|
 | `gpt-6-astra` | — | `active` | — | text, image | text | IS | ✗ | ✓ (low, medium, high, xhigh, max) | chat-compatible features without function tools — Released 2026-09-03 as a limited preview and generally avai… |
+| `gpt-6.1-sol` | — | `active` | — | text, image | text | IS | ✗ | ✓ (low, medium, high, xhigh, max) | chat-compatible features without function tools — Released 2026-09-29 for complex coding and professional wor… |
+| `gpt-6-sol` | — | `active` | — | text, image | text | IS | ✓ | ✓ (none, low, medium, high, xhigh, max) | chat-compatible features — Released 2026-09-22; superseded by gpt-6.1-sol on 2026-09-29 but not deprecated. F… |
+| `gpt-6-luna` | — | `active` | — | text, image | text | IS | ✓ | ✓ (none, low, medium, high, xhigh, max) | chat-compatible features — Released 2026-09-22. Same Chat Completions rules as gpt-6-sol: function calling on… |
 | `gpt-5.6` | `gpt-5.6-sol` | `active` | — | text, image | text | IS | ✓ | ✓ (none, low, medium, high, xhigh, max) | chat-compatible features — OpenAI documents gpt-5.6-sol as the snapshot ID and gpt-5.6 as the alias that rout… |
 | `gpt-5.6-terra` | — | `active` | — | text, image | text | IS | ✓ | ✓ (none, low, medium, high, xhigh, max) | chat-compatible features — On Chat Completions, function tools require reasoning_effort='none'; the adapter a… |
 | `gpt-5.6-luna` | — | `active` | — | text, image | text | IS | ✓ | ✓ (none, low, medium, high, xhigh, max) | chat-compatible features — On Chat Completions, function tools require reasoning_effort='none'; the adapter a… |
@@ -118,7 +121,7 @@ The Messages API. Anthropic's `GET /v1/models` reports image/PDF input, thinking
 - Vendor page: [vendor-anthropic.md](vendor-anthropic.md) · GAISe surface: Messages
 - Discovery: GET /v1/models (capabilities: image_input, pdf_input, thinking types, effort levels, structured_outputs, token limits)
 - Official catalog: <https://platform.claude.com/docs/en/about-claude/models/overview> · lifecycle: <https://platform.claude.com/docs/en/about-claude/model-deprecations>
-- Direct Claude API lifecycle. Bedrock-hosted Claude has a separate AWS lifecycle. Anthropic labels every 4.x model except Haiku 4.5, plus Fable 5, as Legacy (still served, no retirement date) since the 2026-09-01 Fable 5.1 release; the registry mirrors that as status legacy. Messages contract as of 2026-09-12: temperature/top_p/top_k are deprecated and rejected at non-default values on Opus 4.7 and later; output_format is deprecated in favour of output_config.format; stop_reason may be refusal (with stop_details) on Fable/Opus 5 models and model_context_window_exceeded; the Files API and Skills API are out of beta (no header); thinking.display accepts updates behind the thinking-display-updates-2026-08-18 beta; stop_details.category is one of cyber, bio, frontier_llm, reasoning_extraction, general_harms, or null; server-side fallback (fallbacks: default or a list of up to three models, beta server-side-fallback-2026-07-01) and per-message effort (beta mid-conversation-output-config-2026-07-01, also on Google Cloud since 2026-09-03) are documented but not sent. No model, limit, or lifecycle change between 2026-09-04 and 2026-09-12.
+- Direct Claude API lifecycle. Bedrock-hosted Claude has a separate AWS lifecycle. Anthropic labels every 4.x model except Haiku 4.5, plus Fable 5, as Legacy (still served, no retirement date) since the 2026-09-01 Fable 5.1 release; the registry mirrors that as status legacy. Messages contract as of 2026-09-12: temperature/top_p/top_k are deprecated and rejected at non-default values on Opus 4.7 and later; output_format is deprecated in favour of output_config.format; stop_reason may be refusal (with stop_details) on Fable/Opus 5 models and model_context_window_exceeded; the Files API and Skills API are out of beta (no header); thinking.display accepts updates behind the thinking-display-updates-2026-08-18 beta; stop_details.category is one of cyber, bio, frontier_llm, reasoning_extraction, general_harms, or null; server-side fallback (fallbacks: default or a list of up to three models, beta server-side-fallback-2026-07-01) and per-message effort (beta mid-conversation-output-config-2026-07-01, also on Google Cloud since 2026-09-03) are documented but not sent. No model, limit, or lifecycle change between 2026-09-04 and 2026-09-12. Audit 2026-09-30: Opus 5.5 (2026-09-22) and Sonnet 5.5 (2026-09-28) added, which moves Opus 5 and Sonnet 5 to Legacy on the models overview; both 5.5 models reject thinking.type disabled and forced tool_choice; thinking.type between_tools (Sonnet 5.5), on-demand compaction (beta compact-2026-09-04), and the GA diagnostics object are documented but not sent.
 
 #### Current and preview
 
@@ -127,8 +130,8 @@ The Messages API. Anthropic's `GET /v1/models` reports image/PDF input, thinking
 | `claude-fable-5-1` | — | `active` | not before 2027-09-01 | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native — Released 2026-09-01; Anthropic's most capable widely released model (same tier, limits, tokenizer, a… |
 | `claude-mythos-5-1` | — | `limited_availability` | not before 2027-09-01 | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native when account access exists — Released 2026-09-01, invite only (Project Glasswing); shares Fable 5.1's… |
 | `claude-mythos-5` | — | `limited_availability` | not before 2027-06-09 | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native when account access exists — Adaptive thinking is always on and cannot be disabled. Superseded by clau… |
-| `claude-opus-5` | — | `active` | not before 2027-07-24 | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native — Released 2026-07-24; Anthropic's recommended default model. Adaptive-only thinking, on by default (d… |
-| `claude-sonnet-5` | — | `active` | not before 2027-06-30 | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native — Adaptive thinking on by default (omitting thinking runs adaptive); thinking.type disabled accepted;… |
+| `claude-opus-5-5` | — | `active` | not before 2027-09-22 | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native — Released 2026-09-22. Adaptive thinking is always on: thinking.type disabled and budget_tokens return… |
+| `claude-sonnet-5-5` | — | `active` | not before 2027-09-28 | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native — Released 2026-09-28. Adaptive thinking on by default, default effort high; thinking.type disabled an… |
 | `claude-haiku-4-5-20251001` | `claude-haiku-4-5` | `active` | not before 2026-10-15 | text, image, file | text | IS | ✓ | ✓ manual | native — Manual thinking budget; no adaptive thinking or effort parameter. |
 
 #### Deprecated and legacy
@@ -136,10 +139,12 @@ The Messages API. Anthropic's `GET /v1/models` reports image/PDF input, thinking
 | Model | Aliases | Status | Dates | Input | Output | Ops | Tools | Reasoning | GAISe support / notes |
 |---|---|---|---|---|---|---|---|---|---|
 | `claude-fable-5` | — | `legacy` | not before 2027-06-09 | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native — Released 2026-06-09; labelled Legacy since 2026-09-01 (still served; migrate to claude-fable-5-1, wh… |
+| `claude-opus-5` | — | `legacy` | not before 2027-07-24 | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native — Released 2026-07-24; listed under Legacy models since the 2026-09-22 Opus 5.5 release (still served)… |
 | `claude-opus-4-8` | — | `legacy` | not before 2027-05-28 | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native — Labelled Legacy since 2026-09-01 (migrate to claude-opus-5). Adaptive-only thinking, off unless requ… |
 | `claude-opus-4-7` | — | `legacy` | not before 2027-04-16 | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native — Labelled Legacy since 2026-09-01. Adaptive-only thinking; budget_tokens and non-default temperature/… |
 | `claude-opus-4-6` | — | `legacy` | not before 2027-02-05 | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, max) | native — Labelled Legacy since 2026-09-01. Adaptive thinking recommended; thinking.type enabled with budget_t… |
 | `claude-opus-4-5-20251101` | `claude-opus-4-5` | `legacy` | not before 2026-11-24 | text, image, file | text | IS | ✓ | ✓ manual (low, medium, high) | native — Labelled Legacy since 2026-09-01. Manual thinking budget plus output_config.effort (low/medium/high)… |
+| `claude-sonnet-5` | — | `legacy` | not before 2027-06-30 | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native — Listed under Legacy models since the 2026-09-28 Sonnet 5.5 release (still served). Adaptive thinking… |
 | `claude-sonnet-4-6` | — | `legacy` | not before 2027-02-17 | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, max) | native — Labelled Legacy since 2026-09-01 (migrate to claude-sonnet-5). Adaptive thinking recommended; enable… |
 | `claude-sonnet-4-5-20250929` | `claude-sonnet-4-5` | `legacy` | not before 2026-09-29 | text, image, file | text | IS | ✓ | ✓ manual | native — Labelled Legacy since 2026-09-01. Manual thinking budget only; no effort parameter. The retirement f… |
 | `claude-mythos-preview` | — | `deprecated` | — | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, max) | Deprecated; migrate to claude-mythos-5-1 (Project Glasswing) or claude-fable-5-1. No retirement date is publi… |
@@ -275,9 +280,11 @@ Model IDs, inference profiles, and lifecycle are **region-specific**; entries ar
 |---|---|---|---|---|---|---|---|---|---|
 | `anthropic.claude-fable-5-1` | — | `active` | — | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native via Converse — Launched 2026-09-01. Profiles us. and global. only (no in-region id on bedrock-runtime)… |
 | `anthropic.claude-mythos-5-1` | — | `limited_availability` | — | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native via Converse when access exists — Launched 2026-09-01 as a gated preview (Anthropic trusted-access pro… |
+| `anthropic.claude-opus-5-5` | — | `active` | — | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native via Converse — Launched 2026-09-22 (EOL no sooner than 2027-09-22, Legacy period 6 months). Profiles:… |
 | `anthropic.claude-opus-5` | — | `active` | — | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native via Converse — Launched 2026-07-24. Profiles: us., eu., au., global. Access is gated ('See Access' on… |
 | `anthropic.claude-fable-5` | — | `active` | — | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native via Converse — Launched 2026-06-09. Profiles us. and global. on bedrock-runtime (the us-east-1 in-regi… |
 | `anthropic.claude-opus-4-8` | — | `active` | — | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native via Converse — Launched 2026-05-28. Profiles: us., eu., jp., au., global. Prompt-cache minimum 1,024 t… |
+| `anthropic.claude-sonnet-5-5` | — | `active` | — | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native via Converse — Launched 2026-09-28 (EOL no sooner than 2027-09-28, Legacy period 6 months). Global pro… |
 | `anthropic.claude-sonnet-5` | — | `active` | — | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native via Converse — Launched 2026-06-30. Profiles: us., eu., au., global. Adaptive thinking is on by defaul… |
 | `anthropic.claude-opus-4-7` | — | `active` | — | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native via Converse — Launched 2026-04-16. Profiles: us., eu., jp., au., global. thinking.type adaptive only;… |
 | `anthropic.claude-sonnet-4-6` | — | `active` | — | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, max) | native via Converse — Launched 2026-02-17. Profiles: us., eu., au., jp., global.; in-region eu-west-2 added.… |
@@ -429,11 +436,11 @@ Text-to-speech and realtime voice. `GET /v1/models` reports model ids, languages
 
 ### TypeSafe AI
 
-Typed decisions through `GaiseClient::system_one` and `POST /v1/systemone`.
+Typed decisions through `GaiseClient::decision` and `POST /v1/decision`.
 Use `typesafe::jev`, mapped to TypeSafe's `jev-latest`. Supports Choice, Score,
 and Noul questions. The API reports resolved model IDs, typed answers, and usage.
 
-- Discovery: `GET /v1/models`; supports `operation=system_one` in GAISe.
+- Discovery: `GET /v1/models`; supports `operation=decision` in GAISe.
 - Documentation: [TypeSafe models](https://docs.typesafe.ai/models).
 - [Configuration and mappings](../gaise-provider-typesafe/README.md).
 

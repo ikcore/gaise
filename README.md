@@ -11,7 +11,7 @@ Written by Ian Knowles. Project page: [BadAI](https://badai.company/open-source/
 
 ## What is included
 
-- A shared `GaiseClient` trait with `instruct`, `instruct_stream`, `embeddings`, and `system_one`.
+- A shared `GaiseClient` trait with `instruct`, `instruct_stream`, `embeddings`, and `decision`.
 - Router-style model names such as `gemini::gemini-3.8-flash`.
 - Ordered multimodal content: text, reasoning summaries, images, audio, files, and nested parts.
 - Tool calling with nested JSON schemas and provider thought-signature round trips.
@@ -32,7 +32,7 @@ Model registry audited **2026-09-12**. Newest additions: GPT-6 Astra (generally 
 | Vertex AI | [`gaise-provider-vertexai`](https://crates.io/crates/gaise-provider-vertexai) | generateContent, Embeddings | Gemini 3.8 Flash through 3.1 Flash-Lite, 3.1 Pro preview, image-output models, gemini-embedding-001 and text-embedding-005 |
 | Bedrock | [`gaise-provider-bedrock`](https://crates.io/crates/gaise-provider-bedrock) | Converse, ConverseStream, InvokeModel | Claude Fable 5.1 / Opus 5 / Sonnet 5 / Haiku 4.5, Amazon Nova 2 Lite and Nova Pro/Lite/Micro, OpenAI GPT-6 Astra, GPT-5.6, and gpt-oss, xAI Grok 4.6, DeepSeek V3.2, Mistral Large 3, Llama 4, Qwen3 Coder; Titan, Cohere, and Nova embeddings |
 | ElevenLabs | [`gaise-provider-elevenlabs`](https://crates.io/crates/gaise-provider-elevenlabs) | Text-to-speech and realtime voice | ElevenLabs speech and voice models |
-| TypeSafe AI | [`gaise-provider-typesafe`](https://crates.io/crates/gaise-provider-typesafe) | System One typed decisions | `typesafe::jev`: Choice, Score, and Noul questions with typed answers and probabilities |
+| TypeSafe AI | [`gaise-provider-typesafe`](https://crates.io/crates/gaise-provider-typesafe) | Typed decisions (System One) | `typesafe::jev`: Choice, Score, and Noul questions with typed answers and probabilities |
 | Ollama | [`gaise-provider-ollama`](https://crates.io/crates/gaise-provider-ollama) | Chat and Embeddings | Any installed tag (Qwen 3.5–3.8, GPT-OSS, Gemma 4, GLM 5.3, Granite 4.2, DeepSeek R1 and V4.1 Flash, Kimi K3, Llama 4, Muse Glimmer, Laguna S/XS 2.1, and the common embedding families); vision, thinking, and tools are model-dependent |
 
 GAISe also wraps ElevenLabs for text-to-speech and realtime voice (`POST /v1/speech*`, `GET /v1/live`). Model availability changes quickly. [`gaise-core/model-registry.toml`](gaise-core/model-registry.toml) records the 2026-09-12 audit, including provider-specific retirement dates, and is bundled into the `gaise` crate so `list_models` can enrich what each provider's model API leaves out. The [wiki](wiki/README.md) is the complete developer guide: [HTTP API](wiki/api.md), [Rust SDK](wiki/sdk.md), [capabilities](wiki/capabilities.md), the full [model catalog](wiki/models.md), [flow diagrams](wiki/flows.md), [examples](wiki/examples.md), and one page per vendor ([OpenAI](wiki/vendor-openai.md), [Anthropic](wiki/vendor-anthropic.md), [Gemini](wiki/vendor-gemini.md), [Vertex AI](wiki/vendor-vertexai.md), [Bedrock](wiki/vendor-bedrock.md), [Ollama](wiki/vendor-ollama.md), [ElevenLabs](wiki/vendor-elevenlabs.md)).
@@ -93,13 +93,13 @@ The router strips the provider prefix before calling the adapter. Direct provide
 ## TypeSafe Jev typed decisions
 
 Set `TYPESAFE_API_KEY` for the HTTP server, then send a request to
-`POST /v1/systemone` with model `typesafe::jev`. GAISe maps `jev` to TypeSafe's
+`POST /v1/decision` with model `typesafe::jev`. GAISe maps `jev` to TypeSafe's
 `jev-latest` and preserves typed `choice`, `score`, and `noul` answers.
 
-Library callers use `GaiseClient::system_one` with `GaiseSystemOneRequest` and
+Library callers use `GaiseClient::decision` with `GaiseDecisionRequest` and
 `GaiseClientConfig.typesafe_api_key` / `typesafe_api_url`. The `typesafe` feature
 is enabled by default. Per-request `connection` overrides follow the same
-precedence as other providers. See the [System One endpoint guide](wiki/system-one.md) for full HTTP/Rust
+precedence as other providers. See the [Decision endpoint guide](wiki/decision.md) for full HTTP/Rust
 examples, question types, response mapping, configuration, validation, and errors.
 
 ## Multimodal input

@@ -1,8 +1,9 @@
 # GAISe TypeSafe AI provider
 
-## System One and TypeSafe Jev
+## Decision and TypeSafe Jev
 
-System One evaluates questions about shared context and returns typed decisions.
+The Decision operation evaluates questions about shared context and returns typed
+decisions.
 Use it for tasks such as ticket routing, urgency detection, eligibility checks,
 and rubric scoring. GAISe currently provides this operation through TypeSafe AI's
 Jev model, selected as **`typesafe::jev`**.
@@ -27,7 +28,7 @@ positions 0, 1, and 2; a returned score of 1.2 falls between the middle and high
 levels. Confidence is a provider-reported measure derived from the distribution;
 GAISe preserves it without recalculating it or treating it as a correctness guarantee.
 
-### HTTP: `POST /v1/systemone`
+### HTTP: `POST /v1/decision`
 
 Configure the GAISe server with `TYPESAFE_API_KEY`, then run `cargo run -p gaise-api`
 from the repository.
@@ -66,7 +67,7 @@ Save this request as `request.json`:
 ```
 
 ```bash
-curl http://localhost:3000/v1/systemone \
+curl http://localhost:3000/v1/decision \
   -H "Content-Type: application/json" \
   --data-binary @request.json
 ```
@@ -145,15 +146,21 @@ upstream JSON body. GAISe redacts connection credentials before request logging.
 ### Discovery and supported operations
 
 ```text
-GET /v1/models?provider=typesafe&operation=system_one
+GET /v1/models?provider=typesafe&operation=decision
 GET /v1/models/typesafe::jev
-GET /v1/models/limits?provider=typesafe&operation=system_one
+GET /v1/models/limits?provider=typesafe&operation=decision
 ```
 
 The first two routes query the provider catalog. The limits route reads GAISe's
-bundled registry and needs no provider credentials. `GaiseOperation::SystemOne`
-is serialized as `system_one`; `system_one` is also the Rust method name, while
-the HTTP path uses `/v1/systemone`.
+bundled registry and needs no provider credentials. `GaiseOperation::Decision`
+is serialized as `decision`; `decision` is also the Rust method name, and the
+HTTP path is `/v1/decision`.
+
+Before 4.0 this operation was called System One. `POST /v1/systemone`,
+`operation=system_one`, `GaiseClient::system_one`, `GaiseSystemOneRequest`,
+`GaiseSystemOneResponse`, and `GaiseOperation::SystemOne` remain as deprecated
+aliases. Model listings now report the operation as `decision`. TypeSafe's own
+API keeps the System One name, so the adapter still calls its `/v1/systemone`.
 
 Jev uses this typed decision operation. Text generation (`instruct`), SSE
 streaming, embeddings, tool calling, and live audio are not implemented for this
@@ -176,14 +183,14 @@ forwarded as the GAISe HTTP status.
 Each upstream attempt has a 30-second timeout. HTTP 429 and 5xx responses,
 including 529, are retried twice using 500/1000ms backoff, or a numeric
 `Retry-After` delay capped at 60 seconds. Transport errors and other HTTP statuses
-are returned without retrying. There is no System One streaming endpoint.
+are returned without retrying. There is no Decision streaming endpoint.
 
 ### Rust example
 
 ```toml
 [dependencies]
-gaise-core = { package = "gaise", version = "3.0.1" }
-gaise-client = { version = "3.0.1", default-features = false, features = ["typesafe"] }
+gaise-core = { package = "gaise", version = "4.0.0" }
+gaise-client = { version = "4.0.0", default-features = false, features = ["typesafe"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
@@ -192,7 +199,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 use gaise_client::{GaiseClientConfig, GaiseClientService};
 use gaise_core::{
     GaiseClient,
-    contracts::{GaiseAnswer, GaiseSystemOneRequest},
+    contracts::{GaiseAnswer, GaiseDecisionRequest},
 };
 use serde_json::json;
 
@@ -202,14 +209,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         typesafe_api_key: Some(std::env::var("TYPESAFE_API_KEY")?),
         ..Default::default()
     });
-    let request: GaiseSystemOneRequest = serde_json::from_value(json!({
+    let request: GaiseDecisionRequest = serde_json::from_value(json!({
         "model": "typesafe::jev",
         "state": {"ticket": "I was charged twice. Please fix this today."},
         "questions": {
             "urgent": {"type": "noul", "instructions": "Is this urgent?"}
         }
     }))?;
-    let response = client.system_one(&request).await?;
+    let response = client.decision(&request).await?;
     if let Some(GaiseAnswer::Noul { noul }) = response.answers.get("urgent") {
         println!("Urgency probability: {noul}");
     }

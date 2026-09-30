@@ -8,10 +8,10 @@ use tokio::sync::RwLock;
 use gaise_core::{
     GaiseClient,
     contracts::{
-        GaiseConnection, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseInstructRequest,
-        GaiseInstructResponse, GaiseInstructStreamResponse, GaiseListModelsRequest,
-        GaiseListModelsResponse, GaiseModel, GaiseProviderError, GaiseSystemOneRequest,
-        GaiseSystemOneResponse, redact_secrets,
+        GaiseConnection, GaiseDecisionRequest, GaiseDecisionResponse, GaiseEmbeddingsRequest,
+        GaiseEmbeddingsResponse, GaiseInstructRequest, GaiseInstructResponse,
+        GaiseInstructStreamResponse, GaiseListModelsRequest, GaiseListModelsResponse, GaiseModel,
+        GaiseProviderError, redact_secrets,
     },
     logging::IGaiseLogger,
     registry::ModelRegistry,
@@ -485,10 +485,10 @@ fn finish_model(registry: &ModelRegistry, provider: &str, model: &mut GaiseModel
 
 #[async_trait]
 impl GaiseClient for GaiseClientService {
-    async fn system_one(
+    async fn decision(
         &self,
-        request: &GaiseSystemOneRequest,
-    ) -> Result<GaiseSystemOneResponse, Box<dyn std::error::Error + Send + Sync>> {
+        request: &GaiseDecisionRequest,
+    ) -> Result<GaiseDecisionResponse, Box<dyn std::error::Error + Send + Sync>> {
         request.validate()?;
         let (provider, model) = Self::parse_model(&request.model)?;
         let client = self
@@ -497,7 +497,7 @@ impl GaiseClient for GaiseClientService {
         if let Some(logger) = &self.logger {
             logger.log_request(
                 request.correlation_id.as_deref(),
-                "system_one",
+                "decision",
                 &request.model,
                 log_value(request),
             );
@@ -505,11 +505,11 @@ impl GaiseClient for GaiseClientService {
         let mut req = request.clone();
         req.model = model.into();
         req.connection = None;
-        let response = client.system_one(&req).await?;
+        let response = client.decision(&req).await?;
         if let Some(logger) = &self.logger {
             logger.log_response(
                 request.correlation_id.as_deref(),
-                "system_one",
+                "decision",
                 &request.model,
                 serde_json::to_value(&response).unwrap_or(serde_json::Value::Null),
                 serde_json::to_value(&response.usage).ok(),

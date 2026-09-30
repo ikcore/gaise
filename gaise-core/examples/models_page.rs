@@ -26,7 +26,7 @@ const PROVIDERS: [(&str, &str, &str); 8] = [
     (
         "typesafe",
         "TypeSafe AI",
-        "Typed decisions through `system_one` using `typesafe::jev`, mapped to upstream `jev-latest`. See the [provider guide](../gaise-provider-typesafe/README.md).",
+        "Typed decisions through `decision` using `typesafe::jev`, mapped to upstream `jev-latest`. See the [provider guide](../gaise-provider-typesafe/README.md).",
     ),
 ];
 
@@ -45,7 +45,7 @@ This page is generated from the registry by [`cargo run -p gaise --example model
 - **Limits** — context windows, output ceilings, per-input token limits, and character budgets are not repeated here; see [limits.md](limits.md) for the generated model × limits matrix and `GET /v1/models/limits`.
 ";
 
-const OPENAI_INTRO: &str = "Instruct uses **Chat Completions**; Responses-only models (GPT-5.5 Pro, gpt-5.6-cyber, the Daybreak models, image generation) are listed but cannot be driven, and GPT-6 function tools are refused because OpenAI serves them through Responses only. `GET /v1/models` reports identity only, so everything in the Input/Output/Ops columns is registry- or heuristic-sourced at runtime ([`catalog.rs`](../gaise-provider-openai/src/contracts/catalog.rs)).";
+const OPENAI_INTRO: &str = "Instruct uses **Chat Completions**; Responses-only models (GPT-5.5 Pro, gpt-5.6-cyber, the Daybreak models, image generation) are listed but cannot be driven, and GPT-6 Astra / GPT-6.1 Sol function tools are refused because OpenAI serves them through Responses only. `GET /v1/models` reports identity only, so everything in the Input/Output/Ops columns is registry- or heuristic-sourced at runtime ([`catalog.rs`](../gaise-provider-openai/src/contracts/catalog.rs)).";
 
 const ANTHROPIC_INTRO: &str = "The Messages API. Anthropic's `GET /v1/models` reports image/PDF input, thinking types, effort levels, structured outputs, and token limits, so at runtime the registry contributes only lifecycle dates and notes ([`catalog.rs`](../gaise-provider-anthropic/src/contracts/catalog.rs)). Thinking and sampling rules by family are enforced in [`anthropic_client.rs`](../gaise-provider-anthropic/src/anthropic_client.rs). `legacy` mirrors Anthropic's own \"Legacy\" label (still served, no retirement date announced); the Models API keeps reporting those ids as active.";
 

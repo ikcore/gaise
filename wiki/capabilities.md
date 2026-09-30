@@ -70,7 +70,7 @@ Each adapter filters the request to what the model family accepts before seriali
 
 | Provider | Rules | Tests |
 |---|---|---|
-| OpenAI | [`max_completion_tokens` always; sampling only with effort `none` on GPT-5.x and never on GPT-6; effort sets per family (GPT-6 has no `none`/`minimal`); no effort on non-reasoning models; `original` detail only on 5.4+; Responses-only models rejected; GPT-6 function tools rejected with a Responses-API error](vendor-openai.md#parameter-compatibility-audited-2026-09-12) | [`gaise-provider-openai/tests/parameter_matrix_tests.rs`](../gaise-provider-openai/tests/parameter_matrix_tests.rs) |
+| OpenAI | [`max_completion_tokens` always; sampling only with effort `none` on GPT-5.x, GPT-6 Sol, and GPT-6 Luna, and never on GPT-6 Astra or GPT-6.1 Sol; effort sets per family (GPT-6 Astra and GPT-6.1 Sol have no `none`/`minimal`); no effort on non-reasoning models; `original` detail only on 5.4+; Responses-only models rejected; GPT-6 function tools rejected with a Responses-API error](vendor-openai.md#parameter-compatibility-audited-2026-09-12) | [`gaise-provider-openai/tests/parameter_matrix_tests.rs`](../gaise-provider-openai/tests/parameter_matrix_tests.rs) |
 | Anthropic | [adaptive vs manual thinking, always-on families, effort clamping, budget ≥ 1024 and < `max_tokens`, 64k/128k ceilings, fixed and exclusive sampling](vendor-anthropic.md#parameter-compatibility-audited-2026-09-12) | [`gaise-provider-anthropic/tests/parameter_matrix_tests.rs`](../gaise-provider-anthropic/tests/parameter_matrix_tests.rs) |
 | Gemini / Vertex AI | [no sampling on any 3.x; `thinkingLevel` sets per family; 2.5 `thinkingBudget` ranges](vendor-gemini.md#parameter-compatibility-audited-2026-09-12) | [`gemini`](../gaise-provider-gemini/tests/parameter_matrix_tests.rs), [`vertexai`](../gaise-provider-vertexai/tests/parameter_matrix_tests.rs) |
 | Bedrock | [Claude rules as above plus `anthropic_beta` for Opus 4.5 effort; Nova either/or sampling, `topK` via AMRF, `maxTokens` caps](vendor-bedrock.md#parameter-compatibility-audited-2026-09-12) | `bedrock_client.rs` unit tests |
@@ -85,7 +85,7 @@ The provider-neutral vocabulary (`none`, `auto`, `minimal`, `low`, `medium`, `hi
 
 | Provider | Control | `thinking_effort` | `thinking_tokens` | `include_thoughts` | Returned thoughts |
 |---|---|---|---|---|---|
-| OpenAI | `reasoning_effort` (sent whenever configured; clamped per family, GPT-6 floor is `low`) | `none`…`max` per model | — | — | reasoning token usage |
+| OpenAI | `reasoning_effort` (sent whenever configured; clamped per family; the GPT-6 Astra / GPT-6.1 Sol floor is `low`) | `none`…`max` per model | — | — | reasoning token usage |
 | Anthropic | `thinking.type` adaptive or enabled + `output_config.effort` | `low`…`max` per model | `budget_tokens` (manual families) | `thinking.display` summarized/omitted | `thinking` + signature, `redacted_thinking` |
 | Gemini 2.5 | `thinkingConfig.thinkingBudget` | approximated | budget | `includeThoughts` (default on when reasoning requested) | thought parts + signature |
 | Gemini 3.x / Vertex 3.x | `thinkingConfig.thinkingLevel` | `minimal`/`low`/`medium`/`high` per family | — | `includeThoughts` | thought parts + signature |

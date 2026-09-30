@@ -13,8 +13,8 @@ use gaise_client::GaiseClientService;
 use gaise_core::{
     GaiseClient,
     contracts::{
-        GaiseEmbeddingsRequest, GaiseInstructRequest, GaiseListModelsRequest, GaiseOperation,
-        GaiseSystemOneRequest,
+        GaiseDecisionRequest, GaiseEmbeddingsRequest, GaiseInstructRequest, GaiseListModelsRequest,
+        GaiseOperation,
     },
     registry,
 };
@@ -40,7 +40,9 @@ pub struct AppState {
 
 pub fn create_app(state: Arc<AppState>) -> Router {
     let router = Router::new()
-        .route("/v1/systemone", post(handle_system_one))
+        .route("/v1/decision", post(handle_decision))
+        // Pre-4.0 path, kept as an alias.
+        .route("/v1/systemone", post(handle_decision))
         .route("/v1/instruct", post(handle_instruct))
         .route("/v1/instruct/stream", post(handle_instruct_stream))
         .route("/v1/embeddings", post(handle_embeddings))
@@ -60,17 +62,17 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     router.with_state(state)
 }
 
-async fn handle_system_one(
+async fn handle_decision(
     State(state): State<Arc<AppState>>,
-    Json(request): Json<GaiseSystemOneRequest>,
+    Json(request): Json<GaiseDecisionRequest>,
 ) -> impl IntoResponse {
     if let Err(error) = request.validate() {
         return (StatusCode::BAD_REQUEST, error).into_response();
     }
-    match state.client_service.system_one(&request).await {
+    match state.client_service.decision(&request).await {
         Ok(response) => Json(response).into_response(),
         Err(e) => {
-            error!("System One error: {}", e);
+            error!("Decision error: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
         }
     }
@@ -127,7 +129,7 @@ pub struct ListModelsQuery {
     /// Restrict to one provider key.
     pub provider: Option<String>,
     /// Keep only models supporting this operation
-    /// (`instruct`, `instruct_stream`, `embeddings`, `speech`, `live`, `system_one`).
+    /// (`instruct`, `instruct_stream`, `embeddings`, `speech`, `live`, `decision`).
     pub operation: Option<String>,
     /// Fetch per-model detail where it costs extra requests (Ollama).
     #[serde(default)]

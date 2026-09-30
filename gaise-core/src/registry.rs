@@ -68,7 +68,7 @@ pub struct RegistryModel {
     /// Explicit override of the GAISe operations derived from `capabilities`.
     /// Use `operations = []` for models GAISe can describe but not drive
     /// (Responses-only, TTS, Live on a provider without a live adapter).
-    /// Values: `instruct`, `instruct_stream`, `embeddings`, `speech`, `live`, `system_one`.
+    /// Values: `instruct`, `instruct_stream`, `embeddings`, `speech`, `live`, `decision`.
     #[serde(default)]
     pub operations: Option<Vec<String>>,
     #[serde(default)]
@@ -119,6 +119,8 @@ pub struct ClassifiedCapabilities {
 
 /// Every term the `capabilities` vocabulary accepts.
 pub const CAPABILITY_VOCABULARY: &[&str] = &[
+    "decision",
+    // Pre-4.0 spelling of `decision`, kept so older registry files still parse.
     "system_one",
     "text",
     "image_input",
@@ -149,8 +151,8 @@ pub fn classify_capabilities(terms: &[String]) -> Result<ClassifiedCapabilities,
     let mut speech = false;
     for term in terms {
         match term.as_str() {
-            "system_one" => {
-                push(&mut out.operations, GaiseOperation::SystemOne);
+            "decision" | "system_one" => {
+                push(&mut out.operations, GaiseOperation::Decision);
                 push(&mut out.input, GaiseModality::Text);
                 out.structured_output = GaiseSupport::Supported;
             }
@@ -930,7 +932,16 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
             find("anthropic", "claude-sonnet-4-5"),
             "claude-sonnet-4-5-20250929"
         );
+        assert_eq!(find("anthropic", "claude-opus-5-5"), "claude-opus-5-5");
+        assert_eq!(find("anthropic", "claude-sonnet-5-5"), "claude-sonnet-5-5");
+        assert_eq!(
+            find("bedrock", "global.anthropic.claude-sonnet-5-5"),
+            "anthropic.claude-sonnet-5-5"
+        );
         assert_eq!(find("openai", "gpt-6-astra"), "gpt-6-astra");
+        assert_eq!(find("openai", "gpt-6.1-sol"), "gpt-6.1-sol");
+        assert_eq!(find("openai", "gpt-6-sol"), "gpt-6-sol");
+        assert_eq!(find("openai", "gpt-6-luna"), "gpt-6-luna");
         assert_eq!(find("openai", "gpt-5.6-sol"), "gpt-5.6");
         assert_eq!(find("openai", "gpt-5.4-2026-03-05"), "gpt-5.4");
         assert_eq!(

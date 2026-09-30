@@ -278,8 +278,15 @@ pub fn openai_chat_rules(model: &str) -> OpenAIChatRules {
     if has("chat-latest") || starts("chat-latest") {
         return NON_REASONING;
     }
+    if gpt6_follows_gpt56_rules(base) {
+        // GPT-6 Sol and GPT-6 Luna (released 2026-09-22) keep the GPT-5.6
+        // Chat Completions contract: `none` is accepted, sampling is allowed
+        // only at `none`, and function tools work only at `none`.
+        return gpt5_rules(EFFORT_56, "medium", true);
+    }
     if starts("gpt-6") {
-        // GPT-6 Astra (released 2026-09-03). Chat Completions is served, but
+        // GPT-6 Astra (released 2026-09-03) and GPT-6.1 Sol (2026-09-29).
+        // Chat Completions is served, but
         // `reasoning.effort` `none`/`minimal` return 400, `temperature` /
         // `top_p` are rejected, and function tools require the Responses API
         // (see `chat_tools_require_responses`). `detail: original` is kept as
@@ -394,15 +401,30 @@ fn ensure_chat_supported(model: &str) -> Result<(), Box<dyn std::error::Error + 
 /// GPT-5.6 models currently reject function tools on Chat Completions unless
 /// reasoning is disabled. Keep this workaround surface-specific: these models
 /// support other reasoning efforts when tools are absent, and the Responses API
-/// supports reasoning with tools.
+/// supports reasoning with tools. GPT-6 Sol and GPT-6 Luna document the same
+/// rule ("function calling only with `reasoning_effort` set to `none`").
 fn chat_tools_require_none_reasoning(model: &str) -> bool {
     model == "gpt-5.6"
         || model
             .strip_prefix("gpt-5.6")
             .is_some_and(|suffix| suffix.starts_with('-'))
+        || gpt6_follows_gpt56_rules(model)
 }
 
-/// GPT-6 models are served by Chat Completions without function calling:
+/// `gpt-6-sol` and `gpt-6-luna` (and their snapshots or fine-tunes) follow the
+/// GPT-5.6 Chat Completions rules rather than the GPT-6 Astra ones. GPT-6.1
+/// Sol does not: it shares the Astra profile.
+pub fn gpt6_follows_gpt56_rules(model: &str) -> bool {
+    let m = model.to_ascii_lowercase();
+    let m = m.strip_prefix("ft:").unwrap_or(&m);
+    let base = m.split(':').next().unwrap_or(m);
+    ["gpt-6-sol", "gpt-6-luna"].iter().any(|id| {
+        base.strip_prefix(id)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('-'))
+    })
+}
+
+/// GPT-6 Astra and GPT-6.1 Sol are served by Chat Completions without function calling:
 /// "tool calling requires Responses" (latest-model guide, 2026-09-03), and
 /// unlike GPT-5.6 there is no `reasoning_effort: "none"` escape hatch because
 /// `none` itself returns 400. The instruct client fails fast with a clear
@@ -410,7 +432,7 @@ fn chat_tools_require_none_reasoning(model: &str) -> bool {
 pub fn chat_tools_require_responses(model: &str) -> bool {
     let m = model.to_ascii_lowercase();
     let m = m.strip_prefix("ft:").unwrap_or(&m);
-    m.starts_with("gpt-6")
+    m.starts_with("gpt-6") && !gpt6_follows_gpt56_rules(m)
 }
 
 /// Fail fast when the request carries function tools that the model's Chat

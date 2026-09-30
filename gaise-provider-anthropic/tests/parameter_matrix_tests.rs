@@ -223,7 +223,13 @@ fn effort_none_disables_thinking_where_allowed_and_is_dropped_on_always_on_famil
             "{model}: no effort alongside disabled"
         );
     }
-    for model in ["claude-fable-5", "claude-mythos-5", "claude-mythos-preview"] {
+    for model in [
+        "claude-fable-5",
+        "claude-mythos-5",
+        "claude-mythos-preview",
+        "claude-opus-5-5",
+        "claude-sonnet-5-5",
+    ] {
         let json = request(
             model,
             GaiseGenerationConfig {
