@@ -1,5 +1,5 @@
-//! Typed decisions over shared state. The initial wire shape follows TypeSafe's
-//! System One API.
+//! Typed decisions over shared state. The wire shape follows TypeSafe's
+//! System One API; the operation was named `system_one` before 4.0.
 
 use super::{GaiseConnection, GaiseUsage};
 use serde::{Deserialize, Serialize};
@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub struct GaiseSystemOneRequest {
+pub struct GaiseDecisionRequest {
     /// Routable `provider::model` in the router; bare model in an adapter.
     pub model: String,
     pub state: Value,
@@ -71,14 +71,14 @@ pub enum GaiseAnswer {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct GaiseSystemOneResponse {
+pub struct GaiseDecisionResponse {
     pub model: String,
     pub answers: BTreeMap<String, GaiseAnswer>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<GaiseUsage>,
 }
 
-impl GaiseSystemOneRequest {
+impl GaiseDecisionRequest {
     pub fn validate(&self) -> Result<(), String> {
         fn entry(value: &Value) -> bool {
             matches!(
@@ -87,13 +87,13 @@ impl GaiseSystemOneRequest {
             )
         }
         if self.model.trim().is_empty() {
-            return Err("System One model must not be empty".into());
+            return Err("Decision model must not be empty".into());
         }
         if !entry(&self.state) {
-            return Err("System One state must be text, an object, an array, or null".into());
+            return Err("Decision state must be text, an object, an array, or null".into());
         }
         if self.questions.is_empty() {
-            return Err("System One requires at least one question".into());
+            return Err("Decision requires at least one question".into());
         }
         for (id, question) in &self.questions {
             let (instructions, descriptions): (_, Vec<&Value>) = match question {

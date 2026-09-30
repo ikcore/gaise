@@ -2,7 +2,7 @@
 
 > Part of the [GAISe wiki](README.md) · [Models](models.md#openai) · [Capabilities](capabilities.md) · [HTTP API](api.md) · [Rust SDK](sdk.md) · [Flows](flows.md) · [Examples](examples.md)
 
-The `gaise-provider-openai` crate drives three OpenAI surfaces: **Chat Completions** (`POST /chat/completions`) for `instruct` and `instruct_stream`, **Embeddings** (`POST /embeddings`) for `embeddings`, and **`GET /models`** for `list_models`. Behind the optional `live` Cargo feature it also drives the GA **Realtime** WebSocket (`wss://…/v1/realtime?model=…`) through `GaiseLiveClient`. It deliberately does **not** target the Responses API, the Images API, or Batch: Responses-style `input_file`, hosted image generation, persisted reasoning, pro mode, hosted tools, and native Chat audio output are out of scope for this adapter. In `gaise-client` the router enables it with the `openai` feature (on by default) and adds the Realtime client with `live`.
+The `gaise-provider-openai` crate drives three OpenAI surfaces: **Chat Completions** (`POST /chat/completions`) for `instruct` and `instruct_stream`, **Embeddings** (`POST /embeddings`) for `embeddings`, and **`GET /models`** for `list_models`. Behind the optional `live` Cargo feature it also drives the GA **Realtime** WebSocket (`wss://…/v1/realtime?model=…`) through `GaiseLiveClient`. The **Responses API** (`POST /responses`) is used for one case only: tool conversations on models whose Chat Completions surface cannot call functions (GPT-6 Astra, GPT-6.1 Sol); see [Responses path for GPT-6 tools](#responses-path-for-gpt-6-tools). It does **not** target the Images API or Batch, and hosted image generation, server-side conversation state, pro mode, hosted tools, and native Chat audio output are out of scope for this adapter. In `gaise-client` the router enables it with the `openai` feature (on by default) and adds the Realtime client with `live`.
 
 ## At a glance
 
@@ -99,17 +99,17 @@ Mapped by [`map_content_parts`](../gaise-provider-openai/src/openai_client.rs#L1
 |---|---|---|
 | GPT-5.6 function tools require `reasoning_effort: "none"` | [`chat_tools_require_none_reasoning`](../gaise-provider-openai/src/openai_client.rs#L170) matches `gpt-5.6` exactly or any `gpt-5.6-*` suffix (Sol/Terra/Luna and dated snapshots); [`has_function_tools`](../gaise-provider-openai/src/openai_client.rs#L177) requires a non-empty `tools` array | `reasoning_effort` is forced to `"none"` regardless of `thinking_effort`; tool-free GPT-5.6 requests and all other families keep the configured effort. Tested in [`mapping_tests.rs#L464`](../gaise-provider-openai/tests/mapping_tests.rs#L464) and [`#L486`](../gaise-provider-openai/tests/mapping_tests.rs#L486) |
 | Forward-compatible structured-error retry | [`should_retry_chat_tools_with_none`](../gaise-provider-openai/src/openai_client.rs#L396) | On HTTP 400 with `error.type == "invalid_request_error"`, `error.param == "reasoning_effort"`, and a message containing `function tools`, `reasoning_effort`, and `none`, and only when tools are present and the effort was not already `none`, [`send_chat_with_reasoning_fallback`](../gaise-provider-openai/src/openai_client.rs#L487) resends once with `reasoning_effort: "none"`. Unrelated 400s (bad schema, etc.) are never retried |
-| GPT-6 function tools require the Responses API | [`chat_tools_require_responses`](../gaise-provider-openai/src/openai_client.rs) matches any `gpt-6*` id (fine-tune prefixes stripped) | `instruct` / `instruct_stream` return an error naming the model and the Responses requirement when `tools` is non-empty; tool-free GPT-6 requests are sent normally. Pinned in [`parameter_matrix_tests.rs`](../gaise-provider-openai/tests/parameter_matrix_tests.rs) (`gpt6_astra_never_samples_and_needs_responses_for_tools`) |
+| GPT-6 Astra and GPT-6.1 Sol function tools require the Responses API | [`chat_tools_require_responses`](../gaise-provider-openai/src/openai_client.rs) matches any `gpt-6*` id (fine-tune prefixes stripped) except `gpt-6-sol` and `gpt-6-luna`, which follow the GPT-5.6 rules ([`gpt6_follows_gpt56_rules`](../gaise-provider-openai/src/openai_client.rs)) | `instruct` / `instruct_stream` send the request to `POST /responses` when `tools` is non-empty or the conversation already contains tool calls ([`responses.rs`](../gaise-provider-openai/src/responses.rs), `uses_responses_api`); tool-free requests stay on Chat Completions. Pinned in [`responses_tests.rs`](../gaise-provider-openai/tests/responses_tests.rs) and [`parameter_matrix_tests.rs`](../gaise-provider-openai/tests/parameter_matrix_tests.rs) (`gpt6_astra_never_samples_and_needs_responses_for_tools`, `gpt6_1_sol_shares_the_astra_profile`, `gpt6_sol_and_luna_follow_the_gpt_5_6_rules`) |
 | Reasoning families | none | No allowlist: `reasoning_effort` is sent whenever configured. The catalog heuristics in [`classify_openai_model_id`](../gaise-provider-openai/src/contracts/catalog.rs#L53) recognize `gpt-`, `chatgpt-`, `o1`/`o3`/`o4`, `codex` as Chat but do not gate request fields |
 | Fixed-sampling models | none | `temperature`/`top_p` are never suppressed per model |
 
-### Parameter compatibility (audited 2026-09-12)
+### Parameter compatibility (audited 2026-09-30)
 
 [`openai_chat_rules`](../gaise-provider-openai/src/openai_client.rs) drives per-family filtering before a Chat Completions request is serialized; [`tests/parameter_matrix_tests.rs`](../gaise-provider-openai/tests/parameter_matrix_tests.rs) pins every row.
 
 | Family | `max_tokens` | `temperature` / `top_p` | `reasoning_effort` values (default) | `detail: original` | Chat Completions |
 |---|---|---|---|---|---|
-| GPT-6 (`gpt-6-astra`, 2026-09-03) | always `max_completion_tokens` | **never** (rejected, with `logprobs`) | low, medium, high, xhigh, max (undocumented); `none`/`minimal` → `low` | yes (assumed, as on GPT-5.4+) | yes for text and images; **function tools fail fast** — "tool calling requires Responses" and there is no `none` escape hatch ([`chat_tools_require_responses`](../gaise-provider-openai/src/openai_client.rs)) |
+| GPT-6 Astra (`gpt-6-astra`, 2026-09-03) and GPT-6.1 Sol (`gpt-6.1-sol`, 2026-09-29); `gpt-6-sol` and `gpt-6-luna` (2026-09-22) use the GPT-5.6 row instead | always `max_completion_tokens` | **never** (rejected, with `logprobs`) | low, medium, high, xhigh, max; `none`/`minimal` → `low` | yes (assumed, as on GPT-5.4+) | yes for text and images; **function tools go through the Responses API** — "tool calling requires Responses" and there is no `none` escape hatch ([`chat_tools_require_responses`](../gaise-provider-openai/src/openai_client.rs), [`responses.rs`](../gaise-provider-openai/src/responses.rs)) |
 | GPT-5.6 (sol/terra/luna) | ″ | only while effective effort is `none` | none, low, medium, high, xhigh, max (medium) | yes | yes; function tools force `none` |
 | GPT-5.5 | ″ | only with `none` | none … xhigh (medium); `max` → `xhigh` | yes | yes |
 | GPT-5.4 | ″ | only with `none` (the default, so accepted unless effort is set) | none … xhigh (none) | yes | yes |
@@ -124,6 +124,22 @@ Mapped by [`map_content_parts`](../gaise-provider-openai/src/openai_client.rs#L1
 | Unknown model | ″ | forwarded | forwarded | forwarded | assumed yes |
 
 Realtime: `gpt-live-*` ids are refused before any connection ([`realtime_model_uses_live_api`](../gaise-provider-openai/src/openai_live_client.rs); GPT-Live 1 is served by `/v1/live/sessions`, not `/v1/realtime`); `reasoning.effort` is sent only to `gpt-realtime-2` and later ([`realtime_model_supports_reasoning`](../gaise-provider-openai/src/openai_live_client.rs)); the session reference now enumerates `minimal`, `low`, `medium`, `high`, `xhigh` (no `none` or `max`), and `max_output_tokens` is clamped to 1–4096 as the session schema requires even though the 2.x model pages document 32K output. Other Chat Completions contract notes from the 2026-09-04 audit: `service_tier: "fast"` joined `priority` (Fast mode, 2026-07-30), `prompt_cache_retention` is deprecated in favour of `prompt_cache_options.ttl` (GAISe sends neither, only `prompt_cache_key`), a `moderation` object can be attached to any request, and 429 `slow_down` / 503 `server_is_overloaded` responses carry `Retry-After` (the adapter already retries both with backoff). Re-checked 2026-09-12 with no wire change: `service_tier` also accepts `scale`, `prompt_cache_options` is `{mode: implicit|explicit, ttl: "30m"}` on GPT-5.6 and later, and `usage.prompt_tokens_details` gained `image_tokens`/`text_tokens` (ignored by the parser); GPT-6 Astra is generally available since 2026-09-04 with the same rules. Sources: Chat Completions reference, latest-model guide ("parameter compatibility"), reasoning guide, model pages, images guide, changelog.
+
+### Responses path for GPT-6 tools
+
+OpenAI serves function calling for GPT-6 Astra and GPT-6.1 Sol through the Responses API only, so [`responses.rs`](../gaise-provider-openai/src/responses.rs) maps those tool conversations onto `POST /responses` (audited 2026-09-30 against the function-calling, reasoning, and latest-model guides and the openai-python `types/responses` definitions).
+
+| Aspect | Mapping |
+|---|---|
+| Routing | `uses_responses_api`: the model matches `chat_tools_require_responses` **and** the request has `tools`, a `tool` message, assistant `tool_calls`, or reasoning produced by this path. Everything else stays on Chat Completions. |
+| State | Stateless: `store: false`, `include: ["reasoning.encrypted_content"]`, the whole conversation resent each call. `previous_response_id` is not used. |
+| Messages | `system` / `developer` / `user` → `{role, content: [input_text \| input_image \| input_file]}`; assistant text → `{role: "assistant", content: <text>}`; assistant `tool_calls` → `function_call` items (`call_id`, `name`, `arguments`; no item `id`); `tool` messages → `function_call_output` (`call_id`, `output`). |
+| Tools | Flat `{type: "function", name, description, parameters, strict: false}`; `strict` is sent as `false` because GAISe schemas are not closed. |
+| Reasoning | `thinking_effort` → `reasoning.effort` through the same family clamp as Chat (`none`/`minimal` → `low`); `include_thoughts: true` → `reasoning.summary: "auto"`. Each `reasoning` output item becomes `GaiseContent::Reasoning { text: <summary>, signature: "openai-responses:" + <item JSON> }`; when the caller sends that content back on the assistant message, the item is replayed verbatim ahead of its tool calls, as the reasoning guide recommends. Reasoning from other providers is dropped. |
+| Other fields | `max_tokens` → `max_output_tokens`; `cache_key` → `prompt_cache_key`; `OPENAI_API_TIER` → `service_tier`. Sampling parameters are never sent. Binary files become `input_file` with a base64 `file_data` URL. |
+| Response | One assistant `GaiseMessage`: reasoning, then `output_text` / `refusal` text, plus `tool_calls` whose `id` is the `call_id`. `status: failed` becomes an error. |
+| Streaming | `response.output_text.delta` → `Text`; `response.output_item.added` (function call) → `ToolCall { id, name }` with a per-call index; `response.function_call_arguments.delta` → `ToolCall { arguments }`; `response.output_item.done` (reasoning) → `Content(Reasoning)`; `response.completed` / `response.incomplete` → `Usage`; `response.failed` and `error` → stream errors. |
+| Usage | Reported under the Chat key names (`prompt_tokens`, `cached_tokens`, `cache_write_tokens`, `completion_tokens`, `reasoning_tokens`, `total_tokens`) so callers see one vocabulary. |
 
 ## Response mapping
 
@@ -142,7 +158,7 @@ Realtime: `gpt-live-*` ids are refused before any connection ([`realtime_model_u
 - Chunk mapping ([`map_stream_chunk`](../gaise-provider-openai/src/openai_client.rs#L60)): only `choices[0]` is inspected. `delta.tool_calls[*]` → `GaiseStreamChunk::ToolCall { index, id, name, arguments, thought_signature: None }`, one event per delta, emitted **before** any text delta in the same frame; `delta.content` → `GaiseStreamChunk::Text`. `external_id` on every event is the chunk `id`.
 - Tool-call assembly: the adapter emits raw deltas; `GaiseStreamAccumulator` concatenates `id`/`name`/`arguments` per `index` ([`gaise_instruct_stream_response.rs#L63-L86`](../gaise-core/src/contracts/gaise_instruct_stream_response.rs#L63-L86)).
 - Usage: because `stream_options.include_usage` is set, OpenAI sends a final chunk with empty `choices` and a `usage` object; it becomes a single `GaiseStreamChunk::Usage` snapshot ([`#L63-L68`](../gaise-provider-openai/src/openai_client.rs#L63-L68)). `finish_reason` and `delta.role` are not surfaced.
-- `GaiseStreamChunk::Content` is never emitted by this adapter.
+- `GaiseStreamChunk::Content` is emitted only by the Responses path (reasoning items).
 
 ## Usage counters
 
@@ -211,11 +227,14 @@ Tests: [`catalog.rs#L167-L283`](../gaise-provider-openai/src/contracts/catalog.r
 
 ## Models
 
-From `model-registry.toml` (audited 2026-09-12). Status is the registry string; dates are `shutdown_date` / `retirement_not_before`.
+From `model-registry.toml` (audited 2026-09-30). Status is the registry string; dates are `shutdown_date` / `retirement_not_before`.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| `gpt-6-astra` | — | `active` | — | text, image | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features without function tools | Released 2026-09-03 as a limited preview and generally available in the API since 2026-09-04 (the model page carries the standard rate-limit… |
+| `gpt-6-astra` | — | `active` | — | text, image | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features; function tools through the Responses API | Released 2026-09-03 as a limited preview and generally available in the API since 2026-09-04 (the model page carries the standard rate-limit… |
+| `gpt-6.1-sol` | — | `active` | — | text, image | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features; function tools through the Responses API | Released 2026-09-29 for complex coding and professional work at a lower cost than GPT-6 Astra; the latest-model guide says it supersedes gpt… |
+| `gpt-6-sol` | — | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features | Released 2026-09-22; superseded by gpt-6.1-sol on 2026-09-29 but not deprecated. Follows the GPT-5.6 Chat Completions rules, not the GPT-6 A… |
+| `gpt-6-luna` | — | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features | Released 2026-09-22. Same Chat Completions rules as gpt-6-sol: function calling only with reasoning_effort='none' (applied automatically), s… |
 | `gpt-5.6` | `gpt-5.6-sol` | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features | OpenAI documents gpt-5.6-sol as the snapshot ID and gpt-5.6 as the alias that routes to it. On Chat Completions, function tools require reas… |
 | `gpt-5.6-terra` | — | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features | On Chat Completions, function tools require reasoning_effort='none'; the adapter applies this automatically. Use Responses for reasoning wit… |
 | `gpt-5.6-luna` | — | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features | On Chat Completions, function tools require reasoning_effort='none'; the adapter applies this automatically. Use Responses for reasoning wit… |
@@ -278,7 +297,8 @@ The registry is advisory: any `openai::<id>` string is routed as-is, so new snap
 
 ## Limitations and explicit fallbacks
 
-- Chat Completions only. `gpt-5.5-pro`, `gpt-5.6-cyber`, Daybreak, `gpt-image-*`, `gpt-live-1` (Live API), and every Responses-only feature (`input_file`, hosted tools, persisted reasoning, pro mode, image generation) are unreachable through `instruct`.
+- Chat Completions, plus Responses for GPT-6 Astra / GPT-6.1 Sol tool conversations only. `gpt-5.5-pro`, `gpt-5.6-cyber`, Daybreak, `gpt-image-*`, `gpt-live-1` (Live API), and the other Responses-only features (hosted tools, server-side state, pro mode, image generation) are unreachable through `instruct`.
+- The Responses path has not been exercised against the live API in CI; `live_tool_round_trip` in `responses_tests.rs` is an opt-in (`--ignored`) check that needs `OPENAI_API_KEY`. Assistant message `phase` is not preserved across turns, and audio input is replaced by a marker text there.
 - Binary `File` input becomes the marker text `[Unsupported binary document for OpenAI Chat Completions; use the Responses API input_file feature: <name>]`; UTF-8 files become `<attached_document>` tagged text.
 - `Reasoning` input is replayed as `<reasoning_summary>` text without its signature; `RedactedReasoning` becomes a placeholder string.
 - Audio input formats other than WAV are labeled `mp3`. Chat audio **output**, returned `image_url`/`input_audio` parts, and `finish_reason` are dropped.
@@ -351,7 +371,9 @@ Hermetic (no network, no credentials):
 - [`tests/live_mapping_tests.rs`](../gaise-provider-openai/tests/live_mapping_tests.rs) (`#![cfg(feature = "live")]`): `session.update` serialization for basic, tools, VAD, and transcription configs (via a test-local replica of `build_session_update`), `input_audio_buffer.append`, text/image/tool-response `conversation.item.create`, and server-event parsing for function-call done, `response.done` usage, errors, and audio deltas.
 - [`src/openai_live_client.rs` tests](../gaise-provider-openai/src/openai_live_client.rs#L728): realtime turn usage and separately billed transcription usage.
 
-There are no `#[ignore]` live tests in this crate; nothing in the default suite contacts `api.openai.com`.
+- [`tests/responses_tests.rs`](../gaise-provider-openai/tests/responses_tests.rs): Responses routing, request shape, tool round trip with reasoning replay, response and SSE event mapping, and `instruct` / `instruct_stream` against a local HTTP server.
+
+Nothing in the default suite contacts `api.openai.com`. `live_tool_round_trip` (`#[ignore]`, needs `OPENAI_API_KEY`) runs a real two-turn tool call.
 
 ## Sources
 

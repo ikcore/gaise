@@ -1,6 +1,6 @@
 [package]
 name = "gaise-provider-openai"
-description = "OpenAI provider for GAISe — Chat Completions and Embeddings API"
+description = "OpenAI provider for GAISe — Chat Completions, Responses tool calling, and Embeddings API"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -28,3 +28,6 @@ tokio-tungstenite = { version = "0.26", features = ["native-tls"], optional = tr
 tokio-stream = { version = "0.1", optional = true }
 http = { version = "1", optional = true }
 tungstenite = { version = "0.26", optional = true }
+
+[dev-dependencies]
+axum = "0.7"

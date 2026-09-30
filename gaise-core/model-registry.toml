@@ -1,6 +1,8 @@
 # GAISe model compatibility and lifecycle registry
 # Audited against official provider documentation on 2026-09-12 (previous
-# audits 2026-07-22, 2026-08-20, 2026-09-04). Context windows, output ceilings,
+# audits 2026-07-22, 2026-08-20, 2026-09-04); OpenAI, Anthropic, and Claude on
+# Bedrock were re-audited on 2026-09-30 for the GPT-6 / GPT-6.1 and Claude 5.5
+# releases. Context windows, output ceilings,
 # and character budgets (`context_window`, `max_output_tokens`,
 # `max_input_characters`) were re-verified against the vendor model pages on
 # 2026-09-12; embedding per-text limits live in
@@ -12,11 +14,11 @@
 # final authority.
 
 schema_version = 2
-audited_on = "2026-09-12"
+audited_on = "2026-09-30"
 
 [[providers]]
 key = "typesafe"
-gaise_surface = "System One typed decisions"
+gaise_surface = "Typed decisions (TypeSafe System One)"
 catalog = "https://docs.typesafe.ai/models"
 discovery = "GET /v1/models (name, description, release_date)"
 notes = "API and official SDK audited 2026-09-19. POST /v1/systemone accepts state and typed choice, score, and noul questions."
@@ -28,9 +30,9 @@ aliases = ["jev-latest", "jev-1.13.0", "jev-preview"]
 status = "active"
 context_window = 64000
 notes = "GAISe jev maps to TypeSafe jev-latest. Jev 1.13 also limits state plus the longest question to 32k tokens; checked 2026-09-19."
-capabilities = ["system_one"]
-operations = ["system_one"]
-gaise_support = "GaiseClient::system_one and POST /v1/systemone; no instruct, streaming, embeddings, or live transport."
+capabilities = ["decision"]
+operations = ["decision"]
+gaise_support = "GaiseClient::decision and POST /v1/decision (system_one and /v1/systemone remain as deprecated aliases); no instruct, streaming, embeddings, or live transport."
 
 # Capability vocabulary (closed; parsed by gaise_core::registry):
 #   input modalities : text, image_input, audio_input, video_input, files
@@ -47,11 +49,11 @@ gaise_support = "GaiseClient::system_one and POST /v1/systemone; no instruct, st
 
 [[providers]]
 key = "openai"
-gaise_surface = "Chat Completions, Embeddings, and Realtime"
+gaise_surface = "Chat Completions, Responses (GPT-6 Astra / GPT-6.1 Sol tool calls), Embeddings, and Realtime"
 catalog = "https://developers.openai.com/api/docs/models"
 lifecycle = "https://developers.openai.com/api/docs/deprecations"
 discovery = "GET /v1/models (id, created, owned_by, shutdown_date only)"
-notes = "The current instruct client uses Chat Completions. Responses-only features, the Images API, and the Live API (/v1/live/sessions, GPT-Live 1, 2026-09-10) are outside that client. Chat Completions contract as of 2026-09-12: reasoning_effort accepts none, minimal, low, medium, high, xhigh, max (per-model subsets); service_tier accepts auto, default, flex, scale, priority, and fast (Priority processing was renamed Fast mode on 2026-07-30; the response reports priority for fast requests); prompt_cache_options is {mode: implicit|explicit, ttl: 30m} on gpt-5.6 and later and prompt_cache_retention is deprecated; usage.prompt_tokens_details reports image_tokens and text_tokens; the Assistants API shut down 2026-08-26."
+notes = "The current instruct client uses Chat Completions, and the Responses API (stateless, store false) only for GPT-6 Astra / GPT-6.1 Sol tool conversations. Other Responses-only features, the Images API, and the Live API (/v1/live/sessions, GPT-Live 1, 2026-09-10) are outside that client. Chat Completions contract as of 2026-09-12: reasoning_effort accepts none, minimal, low, medium, high, xhigh, max (per-model subsets); service_tier accepts auto, default, flex, scale, priority, and fast (Priority processing was renamed Fast mode on 2026-07-30; the response reports priority for fast requests); prompt_cache_options is {mode: implicit|explicit, ttl: 30m} on gpt-5.6 and later and prompt_cache_retention is deprecated; usage.prompt_tokens_details reports image_tokens and text_tokens; the Assistants API shut down 2026-08-26. Audit 2026-09-30: GPT-6 Sol and GPT-6 Luna (2026-09-22) and GPT-6.1 Sol (2026-09-29) added; service_tier ultrafast exists for GPT-6 Astra on the Responses API only; the Decisions API (limited preview announced 2026-09-29) has no published reference, SDK, or model id and is not mapped."
 
 [[providers]]
 key = "anthropic"
@@ -59,7 +61,7 @@ gaise_surface = "Messages"
 catalog = "https://platform.claude.com/docs/en/about-claude/models/overview"
 lifecycle = "https://platform.claude.com/docs/en/about-claude/model-deprecations"
 discovery = "GET /v1/models (capabilities: image_input, pdf_input, thinking types, effort levels, structured_outputs, token limits)"
-notes = "Direct Claude API lifecycle. Bedrock-hosted Claude has a separate AWS lifecycle. Anthropic labels every 4.x model except Haiku 4.5, plus Fable 5, as Legacy (still served, no retirement date) since the 2026-09-01 Fable 5.1 release; the registry mirrors that as status legacy. Messages contract as of 2026-09-12: temperature/top_p/top_k are deprecated and rejected at non-default values on Opus 4.7 and later; output_format is deprecated in favour of output_config.format; stop_reason may be refusal (with stop_details) on Fable/Opus 5 models and model_context_window_exceeded; the Files API and Skills API are out of beta (no header); thinking.display accepts updates behind the thinking-display-updates-2026-08-18 beta; stop_details.category is one of cyber, bio, frontier_llm, reasoning_extraction, general_harms, or null; server-side fallback (fallbacks: default or a list of up to three models, beta server-side-fallback-2026-07-01) and per-message effort (beta mid-conversation-output-config-2026-07-01, also on Google Cloud since 2026-09-03) are documented but not sent. No model, limit, or lifecycle change between 2026-09-04 and 2026-09-12."
+notes = "Direct Claude API lifecycle. Bedrock-hosted Claude has a separate AWS lifecycle. Anthropic labels every 4.x model except Haiku 4.5, plus Fable 5, as Legacy (still served, no retirement date) since the 2026-09-01 Fable 5.1 release; the registry mirrors that as status legacy. Messages contract as of 2026-09-12: temperature/top_p/top_k are deprecated and rejected at non-default values on Opus 4.7 and later; output_format is deprecated in favour of output_config.format; stop_reason may be refusal (with stop_details) on Fable/Opus 5 models and model_context_window_exceeded; the Files API and Skills API are out of beta (no header); thinking.display accepts updates behind the thinking-display-updates-2026-08-18 beta; stop_details.category is one of cyber, bio, frontier_llm, reasoning_extraction, general_harms, or null; server-side fallback (fallbacks: default or a list of up to three models, beta server-side-fallback-2026-07-01) and per-message effort (beta mid-conversation-output-config-2026-07-01, also on Google Cloud since 2026-09-03) are documented but not sent. No model, limit, or lifecycle change between 2026-09-04 and 2026-09-12. Audit 2026-09-30: Opus 5.5 (2026-09-22) and Sonnet 5.5 (2026-09-28) added, which moves Opus 5 and Sonnet 5 to Legacy on the models overview; both 5.5 models reject thinking.type disabled and forced tool_choice; thinking.type between_tools (Sonnet 5.5), on-demand compaction (beta compact-2026-09-04), and the GA diagnostics object are documented but not sent."
 
 [[providers]]
 key = "gemini"
@@ -107,12 +109,45 @@ notes = "Tags are installed locally and can move; Ollama has no centralized reti
 provider = "openai"
 model = "gpt-6-astra"
 status = "active"
-capabilities = ["text", "image_input", "reasoning", "streaming"]
+capabilities = ["text", "image_input", "reasoning", "streaming", "tools"]
 reasoning_values = ["low", "medium", "high", "xhigh", "max"]
 context_window = 1050000
 max_output_tokens = 128000
-gaise_support = "chat-compatible features without function tools"
-notes = "Released 2026-09-03 as a limited preview and generally available in the API since 2026-09-04 (the model page carries the standard rate-limit table and no access restriction as of 2026-09-12). Knowledge cutoff 2026-04-30. Fast mode is unavailable with EU data residency. Chat Completions is supported, but tool calling requires the Responses API (the instruct client fails fast when tools are present), reasoning_effort none and minimal return 400 (the adapter clamps them to low), and temperature, top_p, logprobs, and top_logprobs are rejected (the adapter never sends sampling). No dated snapshot or gpt-6 alias is documented. Input above 272K tokens is billed at long-context rates."
+gaise_support = "chat-compatible features; function tools through the Responses API"
+notes = "Released 2026-09-03 as a limited preview and generally available in the API since 2026-09-04 (the model page carries the standard rate-limit table and no access restriction as of 2026-09-12). Knowledge cutoff 2026-04-30. Fast mode is unavailable with EU data residency. Chat Completions is supported, but tool calling requires the Responses API (the instruct client routes tool conversations there), reasoning_effort none and minimal return 400 (the adapter clamps them to low), and temperature, top_p, logprobs, and top_logprobs are rejected (the adapter never sends sampling). No dated snapshot or gpt-6 alias is documented. Input above 272K tokens is billed at long-context rates. Ultrafast mode (service_tier ultrafast, 2026-09-29) is Responses-only and unavailable with EU data residency."
+
+[[models]]
+provider = "openai"
+model = "gpt-6.1-sol"
+status = "active"
+capabilities = ["text", "image_input", "reasoning", "streaming", "tools"]
+reasoning_values = ["low", "medium", "high", "xhigh", "max"]
+context_window = 1050000
+max_output_tokens = 128000
+gaise_support = "chat-compatible features; function tools through the Responses API"
+notes = "Released 2026-09-29 for complex coding and professional work at a lower cost than GPT-6 Astra; the latest-model guide says it supersedes gpt-6-sol. Same contract as gpt-6-astra: tool calling requires the Responses API (the instruct client routes tool conversations there), reasoning_effort none and minimal are not supported (the adapter clamps them to low; default medium), and sampling parameters are never sent. Max input 922,000 tokens. Knowledge cutoff 2026-04-30. No dated snapshot or gpt-6.1 alias is documented."
+
+[[models]]
+provider = "openai"
+model = "gpt-6-sol"
+status = "active"
+capabilities = ["text", "image_input", "reasoning", "streaming", "tools"]
+reasoning_values = ["none", "low", "medium", "high", "xhigh", "max"]
+context_window = 1050000
+max_output_tokens = 128000
+gaise_support = "chat-compatible features"
+notes = "Released 2026-09-22; superseded by gpt-6.1-sol on 2026-09-29 but not deprecated. Follows the GPT-5.6 Chat Completions rules, not the GPT-6 Astra ones: function calling works only with reasoning_effort='none' (the adapter applies this automatically) and sampling is accepted only at effort none. Default effort medium. Max input 922,000 tokens. Knowledge cutoff 2026-04-20. No dated snapshot is documented."
+
+[[models]]
+provider = "openai"
+model = "gpt-6-luna"
+status = "active"
+capabilities = ["text", "image_input", "reasoning", "streaming", "tools"]
+reasoning_values = ["none", "low", "medium", "high", "xhigh", "max"]
+context_window = 1050000
+max_output_tokens = 128000
+gaise_support = "chat-compatible features"
+notes = "Released 2026-09-22. Same Chat Completions rules as gpt-6-sol: function calling only with reasoning_effort='none' (applied automatically), sampling only at effort none, default effort medium. Max input 922,000 tokens. Knowledge cutoff 2026-05-18. OpenAI's Decisions API (limited preview announced 2026-09-29) is reported to run on a GPT-6 Luna variant; it has no published reference and GAISe does not map it."
 
 [[models]]
 provider = "openai"
@@ -769,15 +804,27 @@ notes = "Adaptive thinking is always on and cannot be disabled. Superseded by cl
 
 [[models]]
 provider = "anthropic"
-model = "claude-opus-5"
+model = "claude-opus-5-5"
 status = "active"
+retirement_not_before = "2027-09-22"
+capabilities = ["text", "image_input", "files", "adaptive_reasoning", "streaming", "tools"]
+reasoning_values = ["low", "medium", "high", "xhigh", "max"]
+context_window = 1000000
+max_output_tokens = 128000
+gaise_support = "native"
+notes = "Released 2026-09-22. Adaptive thinking is always on: thinking.type disabled and budget_tokens return 400 (the adapter never sends either); default effort medium. Non-default temperature/top_p/top_k are rejected. Forced tool use (tool_choice any or tool) returns 400; the adapter does not send tool_choice. Text between tool calls arrives as thinking blocks. 1M context, 128k max output, knowledge cutoff June 2026. Fast mode (beta) on the Claude API only."
+
+[[models]]
+provider = "anthropic"
+model = "claude-opus-5"
+status = "legacy"
 retirement_not_before = "2027-07-24"
 capabilities = ["text", "image_input", "files", "adaptive_reasoning", "streaming", "tools"]
 reasoning_values = ["low", "medium", "high", "xhigh", "max"]
 context_window = 1000000
 max_output_tokens = 128000
 gaise_support = "native"
-notes = "Released 2026-07-24; Anthropic's recommended default model. Adaptive-only thinking, on by default (disabling is accepted only at effort high or below); budget_tokens is rejected. Non-default temperature/top_p/top_k are rejected, as on Opus 4.7. 1M context, 128k max output. Includes safety classifiers (stop_reason refusal); fast mode and per-message effort (beta) available."
+notes = "Released 2026-07-24; listed under Legacy models since the 2026-09-22 Opus 5.5 release (still served). Adaptive-only thinking, on by default (disabling is accepted only at effort high or below); budget_tokens is rejected. Non-default temperature/top_p/top_k are rejected, as on Opus 4.7. 1M context, 128k max output. Includes safety classifiers (stop_reason refusal); fast mode and per-message effort (beta) available."
 
 [[models]]
 provider = "anthropic"
@@ -830,15 +877,27 @@ notes = "Labelled Legacy since 2026-09-01. Manual thinking budget plus output_co
 
 [[models]]
 provider = "anthropic"
-model = "claude-sonnet-5"
+model = "claude-sonnet-5-5"
 status = "active"
+retirement_not_before = "2027-09-28"
+capabilities = ["text", "image_input", "files", "adaptive_reasoning", "streaming", "tools"]
+reasoning_values = ["low", "medium", "high", "xhigh", "max"]
+context_window = 1000000
+max_output_tokens = 128000
+gaise_support = "native"
+notes = "Released 2026-09-28. Adaptive thinking on by default, default effort high; thinking.type disabled and budget_tokens return 400 (the adapter never sends either). The lightest mode is thinking.type between_tools (effort high or below), which the adapter does not send yet. Non-default temperature/top_p/top_k and forced tool use (tool_choice any or tool) return 400. Thinking blocks are account-bound and unreadable by other models. 1M context, 128k max output, knowledge cutoff June 2026."
+
+[[models]]
+provider = "anthropic"
+model = "claude-sonnet-5"
+status = "legacy"
 retirement_not_before = "2027-06-30"
 capabilities = ["text", "image_input", "files", "adaptive_reasoning", "streaming", "tools"]
 reasoning_values = ["low", "medium", "high", "xhigh", "max"]
 context_window = 1000000
 max_output_tokens = 128000
 gaise_support = "native"
-notes = "Adaptive thinking on by default (omitting thinking runs adaptive); thinking.type disabled accepted; budget_tokens and non-default temperature/top_p/top_k return 400. Introductory $2/$10 pricing made permanent on 2026-08-10."
+notes = "Listed under Legacy models since the 2026-09-28 Sonnet 5.5 release (still served). Adaptive thinking on by default (omitting thinking runs adaptive); thinking.type disabled accepted; budget_tokens and non-default temperature/top_p/top_k return 400. Introductory $2/$10 pricing made permanent on 2026-08-10."
 
 [[models]]
 provider = "anthropic"
@@ -1568,6 +1627,17 @@ notes = "Launched 2026-09-01 as a gated preview (Anthropic trusted-access progra
 
 [[models]]
 provider = "bedrock"
+model = "anthropic.claude-opus-5-5"
+status = "active"
+capabilities = ["text", "image_input", "files", "adaptive_reasoning", "streaming", "tools"]
+reasoning_values = ["low", "medium", "high", "xhigh", "max"]
+context_window = 1000000
+max_output_tokens = 128000
+gaise_support = "native via Converse"
+notes = "Launched 2026-09-22 (EOL no sooner than 2027-09-22, Legacy period 6 months). Profiles: us., eu., au., jp., global.; no in-region id on bedrock-runtime. Access is gated ('See Access'). Adaptive thinking is always on (disabled and budget_tokens are rejected per the direct API). Fixed sampling. Structured outputs not supported on Bedrock; prompt-cache minimum 512."
+
+[[models]]
+provider = "bedrock"
 model = "anthropic.claude-opus-5"
 status = "active"
 capabilities = ["text", "image_input", "files", "adaptive_reasoning", "streaming", "tools"]
@@ -1598,6 +1668,17 @@ context_window = 1000000
 max_output_tokens = 128000
 gaise_support = "native via Converse"
 notes = "Launched 2026-05-28. Profiles: us., eu., jp., au., global. Prompt-cache minimum 1,024 tokens (the earlier 4,096 figure applied to Opus 4.7). Mid-conversation system messages supported without a beta header. Anthropic labels it Legacy on the Claude API; AWS keeps it Active."
+
+[[models]]
+provider = "bedrock"
+model = "anthropic.claude-sonnet-5-5"
+status = "active"
+capabilities = ["text", "image_input", "files", "adaptive_reasoning", "streaming", "tools"]
+reasoning_values = ["low", "medium", "high", "xhigh", "max"]
+context_window = 1000000
+max_output_tokens = 128000
+gaise_support = "native via Converse"
+notes = "Launched 2026-09-28 (EOL no sooner than 2027-09-28, Legacy period 6 months). Global profile only (global.anthropic.claude-sonnet-5-5) outside GovCloud. Access is gated ('See Access'). Adaptive thinking cannot be disabled and budget_tokens is rejected per the direct API. Fixed sampling. Structured outputs not supported on Bedrock; prompt-cache minimum 512."
 
 [[models]]
 provider = "bedrock"

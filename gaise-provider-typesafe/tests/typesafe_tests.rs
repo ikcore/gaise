@@ -11,7 +11,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-fn request() -> GaiseSystemOneRequest {
+fn request() -> GaiseDecisionRequest {
     serde_json::from_value(json!({
         "model": "jev", "state": {"ticket": "Charged twice"},
         "correlation_id": "local-only",
@@ -56,7 +56,7 @@ async fn maps_mixed_questions_answers_usage_and_catalog_over_http() {
         Json(json!({"models": [{"name": "jev-latest", "description": "Decisions", "release_date": "2026-09-15", "extra": 42}]}))
     }));
     let (client, task) = server(app).await;
-    let response = client.system_one(&request()).await.unwrap();
+    let response = client.decision(&request()).await.unwrap();
     assert_eq!(response.model, "jev-1.13.0");
     assert_eq!(
         serde_json::to_value(response.answers).unwrap(),
@@ -69,7 +69,7 @@ async fn maps_mixed_questions_answers_usage_and_catalog_over_http() {
     let models = client
         .list_models(&GaiseListModelsRequest {
             include_raw: true,
-            operation: Some(GaiseOperation::SystemOne),
+            operation: Some(GaiseOperation::Decision),
             ..Default::default()
         })
         .await
@@ -114,7 +114,7 @@ async fn retries_overload_and_preserves_non_retryable_status_without_key_leak() 
         }),
     );
     let (client, task) = server(app).await;
-    client.system_one(&request()).await.unwrap();
+    client.decision(&request()).await.unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     task.abort();
     let (client, task) = server(Router::new().route(
@@ -122,7 +122,7 @@ async fn retries_overload_and_preserves_non_retryable_status_without_key_leak() 
         post(|| async { (StatusCode::UNAUTHORIZED, "invalid test-key") }),
     ))
     .await;
-    let error = client.system_one(&request()).await.unwrap_err().to_string();
+    let error = client.decision(&request()).await.unwrap_err().to_string();
     assert!(error.contains("401"));
     assert!(error.contains("invalid ***"));
     assert!(!error.contains("test-key"));
@@ -143,7 +143,7 @@ async fn rejects_invalid_and_mismatched_responses_and_unsupported_operations() {
             }),
         ))
         .await;
-        assert!(client.system_one(&request()).await.is_err());
+        assert!(client.decision(&request()).await.is_err());
         task.abort();
     }
     let client = GaiseClientTypeSafe::new("http://127.0.0.1:1".into(), "key".into());
@@ -153,7 +153,7 @@ async fn rejects_invalid_and_mismatched_responses_and_unsupported_operations() {
             .await
             .unwrap_err()
             .to_string()
-            .contains("use system_one")
+            .contains("use decision")
     );
     assert!(
         client

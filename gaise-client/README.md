@@ -20,21 +20,21 @@
 - `bedrock`: Enables the AWS Bedrock provider.
 - `anthropic`: Enables the Anthropic Claude provider.
 - `gemini`: Enables the Google Gemini provider.
-- `typesafe`: Enables Jev typed decisions via `system_one` (`typesafe::jev`).
+- `typesafe`: Enables Jev typed decisions via `decision` (`typesafe::jev`).
 - `live`: Enables real-time WebSocket sessions via `GaiseLiveClient` (currently supports `openai` and `gemini`).
 
 To use only specific providers, disable default features in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gaise-client = { version = "3.0.1", default-features = false, features = ["openai"] }
+gaise-client = { version = "4.0.1", default-features = false, features = ["openai"] }
 ```
 
 To enable live/realtime sessions:
 
 ```toml
 [dependencies]
-gaise-client = { version = "3.0.1", features = ["live"] }
+gaise-client = { version = "4.0.1", features = ["live"] }
 ```
 
 ## Supported Providers
@@ -155,17 +155,17 @@ let request = GaiseInstructRequest {
 let response = service.instruct(&request).await?;
 ```
 
-## TypeSafe System One
+## TypeSafe decisions
 
-Call `system_one` with `typesafe::jev` to evaluate typed Noul, Choice, and Score
+Call `decision` with `typesafe::jev` to evaluate typed Noul, Choice, and Score
 questions about shared state. The adapter maps `jev` to upstream `jev-latest`.
 
 ### Rust example
 
 ```toml
 [dependencies]
-gaise-core = { package = "gaise", version = "3.0.1" }
-gaise-client = { version = "3.0.1", default-features = false, features = ["typesafe"] }
+gaise-core = { package = "gaise", version = "4.0.1" }
+gaise-client = { version = "4.0.1", default-features = false, features = ["typesafe"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
@@ -174,7 +174,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 use gaise_client::{GaiseClientConfig, GaiseClientService};
 use gaise_core::{
     GaiseClient,
-    contracts::{GaiseAnswer, GaiseSystemOneRequest},
+    contracts::{GaiseAnswer, GaiseDecisionRequest},
 };
 use serde_json::json;
 
@@ -184,14 +184,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         typesafe_api_key: Some(std::env::var("TYPESAFE_API_KEY")?),
         ..Default::default()
     });
-    let request: GaiseSystemOneRequest = serde_json::from_value(json!({
+    let request: GaiseDecisionRequest = serde_json::from_value(json!({
         "model": "typesafe::jev",
         "state": {"ticket": "I was charged twice. Please fix this today."},
         "questions": {
             "urgent": {"type": "noul", "instructions": "Is this urgent?"}
         }
     }))?;
-    let response = client.system_one(&request).await?;
+    let response = client.decision(&request).await?;
     if let Some(GaiseAnswer::Noul { noul }) = response.answers.get("urgent") {
         println!("Urgency probability: {noul}");
     }

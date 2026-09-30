@@ -71,7 +71,7 @@ async fn api_routes_typesafe_with_overrides_catalog_and_redacted_logging() {
     let response = app
         .clone()
         .oneshot(
-            Request::post("/v1/systemone")
+            Request::post("/v1/decision")
                 .header("content-type", "application/json")
                 .body(Body::from(body.to_string()))
                 .unwrap(),
@@ -96,7 +96,7 @@ async fn api_routes_typesafe_with_overrides_catalog_and_redacted_logging() {
     let response = app
         .clone()
         .oneshot(
-            Request::get("/v1/models?provider=typesafe&operation=system_one")
+            Request::get("/v1/models?provider=typesafe&operation=decision")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -112,11 +112,42 @@ async fn api_routes_typesafe_with_overrides_catalog_and_redacted_logging() {
     assert_eq!(body["models"][0]["id"], "typesafe::jev");
     assert_eq!(
         body["models"][0]["capabilities"]["operations"],
-        json!(["system_one"])
+        json!(["decision"])
     );
+    // The pre-4.0 operation filter and route keep working.
     let response = app
+        .clone()
+        .oneshot(
+            Request::get("/v1/models?provider=typesafe&operation=system_one")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let legacy: Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), 10000)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(legacy["models"], body["models"]);
+    let response = app
+        .clone()
         .oneshot(
             Request::post("/v1/systemone")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({"model": "typesafe::jev", "state": "Delivered today", "questions": {"delivered": {"type": "noul", "instructions": "Delivered?"}}, "connection": connection}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = app
+        .oneshot(
+            Request::post("/v1/decision")
                 .header("content-type", "application/json")
                 .body(Body::from(
                     json!({"model": "typesafe::jev", "state": "x", "questions": {}}).to_string(),
@@ -151,13 +182,13 @@ async fn missing_credentials_fail_and_connection_can_supply_them() {
             .await
             .is_ok()
     );
-    let request: GaiseSystemOneRequest = serde_json::from_value(
+    let request: GaiseDecisionRequest = serde_json::from_value(
         json!({"model": "jev-latest", "state": "x", "questions": {"q": {"type": "noul"}}}),
     )
     .unwrap();
     assert!(
         service
-            .system_one(&request)
+            .decision(&request)
             .await
             .unwrap_err()
             .to_string()

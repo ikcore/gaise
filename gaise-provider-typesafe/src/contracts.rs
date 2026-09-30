@@ -11,8 +11,8 @@ pub struct SystemOneRequest<'a> {
     pub questions: &'a BTreeMap<String, GaiseQuestion>,
 }
 
-impl<'a> From<&'a GaiseSystemOneRequest> for SystemOneRequest<'a> {
-    fn from(request: &'a GaiseSystemOneRequest) -> Self {
+impl<'a> From<&'a GaiseDecisionRequest> for SystemOneRequest<'a> {
+    fn from(request: &'a GaiseDecisionRequest) -> Self {
         Self {
             model: if request.model == "jev" {
                 "jev-latest"
@@ -38,7 +38,7 @@ pub struct Usage {
     pub output_tokens: usize,
 }
 
-impl From<SystemOneResponse> for GaiseSystemOneResponse {
+impl From<SystemOneResponse> for GaiseDecisionResponse {
     fn from(response: SystemOneResponse) -> Self {
         Self {
             model: response.model,
@@ -87,8 +87,8 @@ pub fn map_model(
     } else {
         card.release_date
     });
-    // This adapter maps every model on the dedicated System One surface.
-    model.capabilities.operations = vec![GaiseOperation::SystemOne];
+    // Every TypeSafe model is served by System One, GAISe's decision operation.
+    model.capabilities.operations = vec![GaiseOperation::Decision];
     if include_raw {
         model.raw = Some(raw);
     }

@@ -422,25 +422,32 @@ impl GaiseClientBedrock {
             return None;
         }
         let has = |f: &str| model.contains(f);
-        Some(if has("claude-fable-5") || has("claude-mythos-5") {
-            (true, true, true, FIVE, true)
-        } else if has("claude-mythos-preview") {
-            (false, true, true, FOUR_SIX, true)
-        } else if has("claude-opus-5")
-            || has("claude-opus-4-8")
-            || has("claude-opus-4-7")
-            || has("claude-sonnet-5")
-        {
-            (true, true, false, FIVE, true)
-        } else if has("claude-opus-4-6") || has("claude-sonnet-4-6") {
-            (false, true, false, FOUR_SIX, false)
-        } else if has("claude-opus-4-5") {
-            (false, false, false, OPUS_FOUR_FIVE, false)
-        } else if has("claude-sonnet-4-5") || has("claude-haiku-4-5") {
-            (false, false, false, NONE, false)
-        } else {
-            (false, false, false, FIVE, false)
-        })
+        Some(
+            if has("claude-fable-5")
+            || has("claude-mythos-5")
+            // Opus 5.5 / Sonnet 5.5 reject disabled thinking, unlike Opus 5 / Sonnet 5.
+            || has("claude-opus-5-5")
+            || has("claude-sonnet-5-5")
+            {
+                (true, true, true, FIVE, true)
+            } else if has("claude-mythos-preview") {
+                (false, true, true, FOUR_SIX, true)
+            } else if has("claude-opus-5")
+                || has("claude-opus-4-8")
+                || has("claude-opus-4-7")
+                || has("claude-sonnet-5")
+            {
+                (true, true, false, FIVE, true)
+            } else if has("claude-opus-4-6") || has("claude-sonnet-4-6") {
+                (false, true, false, FOUR_SIX, false)
+            } else if has("claude-opus-4-5") {
+                (false, false, false, OPUS_FOUR_FIVE, false)
+            } else if has("claude-sonnet-4-5") || has("claude-haiku-4-5") {
+                (false, false, false, NONE, false)
+            } else {
+                (false, false, false, FIVE, false)
+            },
+        )
     }
 
     /// Map a provider-neutral effort onto a Claude family's levels through
@@ -1747,6 +1754,20 @@ mod tests {
 
         // Non-Claude models are untouched by the Claude rules.
         assert!(GaiseClientBedrock::claude_rules("amazon.nova-2-lite-v1:0").is_none());
+
+        // Opus 5.5 and Sonnet 5.5 are always-on, unlike Opus 5 and Sonnet 5.
+        for (model, always_on) in [
+            ("global.anthropic.claude-opus-5-5", true),
+            ("global.anthropic.claude-sonnet-5-5", true),
+            ("us.anthropic.claude-opus-5", false),
+            ("us.anthropic.claude-sonnet-5", false),
+        ] {
+            assert_eq!(
+                GaiseClientBedrock::claude_rules(model).unwrap().2,
+                always_on,
+                "{model}"
+            );
+        }
     }
 
     #[test]

@@ -35,7 +35,10 @@ pub enum GaiseModality {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GaiseOperation {
-    SystemOne,
+    /// Typed decisions (`decision`). Serialized as `system_one` before 4.0;
+    /// that spelling is still accepted on input.
+    #[serde(alias = "system_one")]
+    Decision,
     Instruct,
     InstructStream,
     Embeddings,
@@ -45,9 +48,13 @@ pub enum GaiseOperation {
 }
 
 impl GaiseOperation {
+    #[deprecated(since = "4.0.0", note = "renamed to `GaiseOperation::Decision`")]
+    #[allow(non_upper_case_globals)]
+    pub const SystemOne: Self = Self::Decision;
+
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
-            "system_one" | "systemone" => Some(Self::SystemOne),
+            "decision" | "system_one" | "systemone" => Some(Self::Decision),
             "instruct" => Some(Self::Instruct),
             "instruct_stream" | "stream" | "streaming" => Some(Self::InstructStream),
             "embeddings" | "embedding" | "embed" => Some(Self::Embeddings),
@@ -442,6 +449,21 @@ mod tests {
         assert!(json.get("raw").is_none());
         assert!(json.get("retires_on").is_none());
         assert_eq!(model.routing_id(), "openai::gpt-5.6");
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn decision_keeps_the_system_one_spellings() {
+        for name in ["decision", "system_one", "systemone"] {
+            assert_eq!(GaiseOperation::parse(name), Some(GaiseOperation::Decision));
+        }
+        assert_eq!(GaiseOperation::SystemOne, GaiseOperation::Decision);
+        assert_eq!(
+            serde_json::to_value(GaiseOperation::Decision).unwrap(),
+            "decision"
+        );
+        let legacy: GaiseOperation = serde_json::from_str("\"system_one\"").unwrap();
+        assert_eq!(legacy, GaiseOperation::Decision);
     }
 
     #[test]

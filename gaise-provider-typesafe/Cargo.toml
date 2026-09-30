@@ -1,6 +1,6 @@
 [package]
 name = "gaise-provider-typesafe"
-description = "TypeSafe AI provider for GAISe typed System One decisions"
+description = "TypeSafe AI (System One, Jev) provider for GAISe typed decisions"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -52,7 +52,7 @@ fn ops(entry: &GaiseModelLimitsEntry) -> String {
         .iter()
         .map(|op| match op {
             GaiseOperation::Instruct => "I",
-            GaiseOperation::SystemOne => "D",
+            GaiseOperation::Decision => "D",
             GaiseOperation::InstructStream => "S",
             GaiseOperation::Embeddings => "E",
             GaiseOperation::Speech => "V",
@@ -89,7 +89,7 @@ fn main() {
     );
     println!();
     println!(
-        "Figures are the vendor-documented limits recorded in [`model-registry.toml`](../gaise-core/model-registry.toml) (`context_window`, `max_output_tokens`, `max_input_characters`, and the embedding profile's `max_input_tokens` / `default_dimensions`). **Ops**: `I` instruct, `S` instruct_stream, `E` embeddings, `V` speech, `L` live, `D` system_one. `—` means the vendor publishes no figure; it never means unlimited. Retired entries keep the last documented values."
+        "Figures are the vendor-documented limits recorded in [`model-registry.toml`](../gaise-core/model-registry.toml) (`context_window`, `max_output_tokens`, `max_input_characters`, and the embedding profile's `max_input_tokens` / `default_dimensions`). **Ops**: `I` instruct, `S` instruct_stream, `E` embeddings, `V` speech, `L` live, `D` decision. `—` means the vendor publishes no figure; it never means unlimited. Retired entries keep the last documented values."
     );
     println!();
     for (key, title) in PROVIDERS {

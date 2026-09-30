@@ -13,7 +13,17 @@ muse!(gaise_content, {
 });
 muse!(gaise_message, { GaiseMessage });
 muse!(gaise_usage, { GaiseUsage });
-muse!(gaise_system_one, { GaiseSystemOneRequest, GaiseSystemOneResponse, GaiseQuestion, GaiseAnswer, GaiseNoulCriteria });
+muse!(gaise_decision, { GaiseDecisionRequest, GaiseDecisionResponse, GaiseQuestion, GaiseAnswer, GaiseNoulCriteria });
+
+/// Pre-4.0 path of [`gaise_decision`].
+#[deprecated(since = "4.0.0", note = "renamed to `gaise_decision`")]
+pub mod gaise_system_one {
+    pub use super::gaise_decision::*;
+}
+#[deprecated(since = "4.0.0", note = "renamed to `GaiseDecisionRequest`")]
+pub type GaiseSystemOneRequest = GaiseDecisionRequest;
+#[deprecated(since = "4.0.0", note = "renamed to `GaiseDecisionResponse`")]
+pub type GaiseSystemOneResponse = GaiseDecisionResponse;
 
 muse!(gaise_reasoning, { GaiseReasoningEffort });
 muse!(gaise_connection, { GaiseConnection, redact_secrets });
