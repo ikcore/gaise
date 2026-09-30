@@ -1080,8 +1080,8 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
         let astra = registry.find("openai", "gpt-6-astra").unwrap();
         assert_eq!(
             astra.classified().unwrap().tools,
-            GaiseSupport::Unsupported,
-            "Chat Completions cannot call tools on GPT-6"
+            GaiseSupport::Supported,
+            "GPT-6 Astra tool calls are routed to the Responses API"
         );
         assert_eq!(
             astra.reasoning_values.as_deref(),

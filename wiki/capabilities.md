@@ -317,7 +317,7 @@ GAISe never silently drops content. Depending on the destination schema an adapt
 | Unsupported modality in a tool result | Marker or error per provider |
 | Live operation a provider lacks (Gemini clear/cancel; any audio/image/tool input on ElevenLabs) | `error` event |
 | Speech request without a voice (ElevenLabs) | Error naming `voice` and `list_voices` |
-| OpenAI Responses-only model on `instruct` | Error naming the Responses API |
+| OpenAI Responses-only model on `instruct` | Error naming the Responses API (GPT-6 Astra / GPT-6.1 Sol tool calls are the exception: they are sent to Responses) |
 | Model listing on a client without a catalog (custom `add_client`, Bedrock `with_client`) | "not supported" error, reported per provider in aggregate listings |
 
 Per-vendor lists: "Limitations and explicit fallbacks" on each [vendor page](README.md#vendors).

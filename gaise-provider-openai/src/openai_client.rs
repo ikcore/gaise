@@ -1,4 +1,8 @@
 use crate::contracts::*;
+use crate::responses::{
+    ResponsesStreamState, map_responses_event, map_responses_response, responses_request,
+    uses_responses_api,
+};
 use async_trait::async_trait;
 use base64::Engine;
 use futures_util::{Stream, StreamExt};
@@ -427,27 +431,12 @@ pub fn gpt6_follows_gpt56_rules(model: &str) -> bool {
 /// GPT-6 Astra and GPT-6.1 Sol are served by Chat Completions without function calling:
 /// "tool calling requires Responses" (latest-model guide, 2026-09-03), and
 /// unlike GPT-5.6 there is no `reasoning_effort: "none"` escape hatch because
-/// `none` itself returns 400. The instruct client fails fast with a clear
-/// message instead of forwarding a request OpenAI will reject.
+/// `none` itself returns 400. The instruct client sends tool-bearing requests
+/// for these models to the Responses API instead (see [`crate::responses`]).
 pub fn chat_tools_require_responses(model: &str) -> bool {
     let m = model.to_ascii_lowercase();
     let m = m.strip_prefix("ft:").unwrap_or(&m);
     m.starts_with("gpt-6") && !gpt6_follows_gpt56_rules(m)
-}
-
-/// Fail fast when the request carries function tools that the model's Chat
-/// Completions surface cannot execute.
-fn ensure_chat_tools_supported(
-    request: &GaiseInstructRequest,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    if has_function_tools(request) && chat_tools_require_responses(&request.model) {
-        return Err(format!(
-            "OpenAI model '{}' does not support function tools on Chat Completions; tool calling requires the Responses API, which the GAISe OpenAI instruct client does not implement yet. Remove `tools` or choose a GPT-5.x model",
-            request.model
-        )
-        .into());
-    }
-    Ok(())
 }
 
 fn has_function_tools(request: &GaiseInstructRequest) -> bool {
@@ -853,6 +842,100 @@ impl GaiseClientOpenAI {
     }
 }
 
+impl GaiseClientOpenAI {
+    /// POST a Responses request; non-success statuses become errors.
+    async fn send_responses(
+        &self,
+        request: &GaiseInstructRequest,
+        stream: bool,
+    ) -> Result<reqwest::Response, Box<dyn std::error::Error + Send + Sync>> {
+        let mut body = responses_request(request);
+        body.stream = stream;
+        body.service_tier = self.service_tier.clone();
+        let builder = self
+            .client
+            .post(format!("{}/responses", self.api_url))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(&body);
+        let response = self.send_with_retry(builder).await?;
+        if !response.status().is_success() {
+            let err_text = response.text().await?;
+            return Err(format!("OpenAI API error: {err_text}").into());
+        }
+        Ok(response)
+    }
+
+    async fn instruct_responses(
+        &self,
+        request: &GaiseInstructRequest,
+    ) -> Result<GaiseInstructResponse, Box<dyn std::error::Error + Send + Sync>> {
+        let body: serde_json::Value = self.send_responses(request, false).await?.json().await?;
+        Ok(map_responses_response(&body)?)
+    }
+
+    async fn instruct_stream_responses(
+        &self,
+        request: &GaiseInstructRequest,
+    ) -> Result<
+        Pin<
+            Box<
+                dyn Stream<
+                        Item = Result<
+                            GaiseInstructStreamResponse,
+                            Box<dyn std::error::Error + Send + Sync>,
+                        >,
+                    > + Send,
+            >,
+        >,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        let response = self.send_responses(request, true).await?;
+        // Same line-buffered SSE framing as the Chat Completions stream; each
+        // `data:` payload names its own event type.
+        let mapped_stream = response
+            .bytes_stream()
+            .scan(
+                (Vec::<u8>::new(), ResponsesStreamState::default()),
+                |(buf, state), res| {
+                    let events: Vec<
+                        Result<
+                            GaiseInstructStreamResponse,
+                            Box<dyn std::error::Error + Send + Sync>,
+                        >,
+                    > = match res {
+                        Err(e) => vec![Err(e.into())],
+                        Ok(bytes) => {
+                            buf.extend_from_slice(&bytes);
+                            let mut out = Vec::new();
+                            while let Some(pos) = buf.iter().position(|&b| b == b'\n') {
+                                let line_bytes: Vec<u8> = buf.drain(..=pos).collect();
+                                let line = String::from_utf8_lossy(&line_bytes);
+                                let Some(json_str) =
+                                    line.trim().strip_prefix("data:").map(str::trim_start)
+                                else {
+                                    continue;
+                                };
+                                let Ok(event) = serde_json::from_str::<serde_json::Value>(json_str)
+                                else {
+                                    continue;
+                                };
+                                out.extend(
+                                    map_responses_event(state, &event)
+                                        .into_iter()
+                                        .map(|event| event.map_err(Into::into)),
+                                );
+                            }
+                            out
+                        }
+                    };
+                    futures_util::future::ready(Some(futures_util::stream::iter(events)))
+                },
+            )
+            .flatten();
+        Ok(Box::pin(mapped_stream))
+    }
+}
+
 #[async_trait]
 impl GaiseClient for GaiseClientOpenAI {
     async fn instruct_stream(
@@ -872,7 +955,9 @@ impl GaiseClient for GaiseClientOpenAI {
         Box<dyn std::error::Error + Send + Sync>,
     > {
         ensure_chat_supported(&request.model)?;
-        ensure_chat_tools_supported(request)?;
+        if uses_responses_api(request) {
+            return self.instruct_stream_responses(request).await;
+        }
         let url = format!("{}/chat/completions", self.api_url);
 
         let mut openai_request = OpenAIChatRequest::from(request);
@@ -941,7 +1026,9 @@ impl GaiseClient for GaiseClientOpenAI {
         request: &GaiseInstructRequest,
     ) -> Result<GaiseInstructResponse, Box<dyn std::error::Error + Send + Sync>> {
         ensure_chat_supported(&request.model)?;
-        ensure_chat_tools_supported(request)?;
+        if uses_responses_api(request) {
+            return self.instruct_responses(request).await;
+        }
         let url = format!("{}/chat/completions", self.api_url);
 
         let mut openai_request = OpenAIChatRequest::from(request);

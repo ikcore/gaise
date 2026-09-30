@@ -49,11 +49,11 @@ gaise_support = "GaiseClient::decision and POST /v1/decision (system_one and /v1
 
 [[providers]]
 key = "openai"
-gaise_surface = "Chat Completions, Embeddings, and Realtime"
+gaise_surface = "Chat Completions, Responses (GPT-6 Astra / GPT-6.1 Sol tool calls), Embeddings, and Realtime"
 catalog = "https://developers.openai.com/api/docs/models"
 lifecycle = "https://developers.openai.com/api/docs/deprecations"
 discovery = "GET /v1/models (id, created, owned_by, shutdown_date only)"
-notes = "The current instruct client uses Chat Completions. Responses-only features, the Images API, and the Live API (/v1/live/sessions, GPT-Live 1, 2026-09-10) are outside that client. Chat Completions contract as of 2026-09-12: reasoning_effort accepts none, minimal, low, medium, high, xhigh, max (per-model subsets); service_tier accepts auto, default, flex, scale, priority, and fast (Priority processing was renamed Fast mode on 2026-07-30; the response reports priority for fast requests); prompt_cache_options is {mode: implicit|explicit, ttl: 30m} on gpt-5.6 and later and prompt_cache_retention is deprecated; usage.prompt_tokens_details reports image_tokens and text_tokens; the Assistants API shut down 2026-08-26. Audit 2026-09-30: GPT-6 Sol and GPT-6 Luna (2026-09-22) and GPT-6.1 Sol (2026-09-29) added; service_tier ultrafast exists for GPT-6 Astra on the Responses API only; the Decisions API (limited preview announced 2026-09-29) has no published reference, SDK, or model id and is not mapped."
+notes = "The current instruct client uses Chat Completions, and the Responses API (stateless, store false) only for GPT-6 Astra / GPT-6.1 Sol tool conversations. Other Responses-only features, the Images API, and the Live API (/v1/live/sessions, GPT-Live 1, 2026-09-10) are outside that client. Chat Completions contract as of 2026-09-12: reasoning_effort accepts none, minimal, low, medium, high, xhigh, max (per-model subsets); service_tier accepts auto, default, flex, scale, priority, and fast (Priority processing was renamed Fast mode on 2026-07-30; the response reports priority for fast requests); prompt_cache_options is {mode: implicit|explicit, ttl: 30m} on gpt-5.6 and later and prompt_cache_retention is deprecated; usage.prompt_tokens_details reports image_tokens and text_tokens; the Assistants API shut down 2026-08-26. Audit 2026-09-30: GPT-6 Sol and GPT-6 Luna (2026-09-22) and GPT-6.1 Sol (2026-09-29) added; service_tier ultrafast exists for GPT-6 Astra on the Responses API only; the Decisions API (limited preview announced 2026-09-29) has no published reference, SDK, or model id and is not mapped."
 
 [[providers]]
 key = "anthropic"
@@ -109,23 +109,23 @@ notes = "Tags are installed locally and can move; Ollama has no centralized reti
 provider = "openai"
 model = "gpt-6-astra"
 status = "active"
-capabilities = ["text", "image_input", "reasoning", "streaming"]
+capabilities = ["text", "image_input", "reasoning", "streaming", "tools"]
 reasoning_values = ["low", "medium", "high", "xhigh", "max"]
 context_window = 1050000
 max_output_tokens = 128000
-gaise_support = "chat-compatible features without function tools"
-notes = "Released 2026-09-03 as a limited preview and generally available in the API since 2026-09-04 (the model page carries the standard rate-limit table and no access restriction as of 2026-09-12). Knowledge cutoff 2026-04-30. Fast mode is unavailable with EU data residency. Chat Completions is supported, but tool calling requires the Responses API (the instruct client fails fast when tools are present), reasoning_effort none and minimal return 400 (the adapter clamps them to low), and temperature, top_p, logprobs, and top_logprobs are rejected (the adapter never sends sampling). No dated snapshot or gpt-6 alias is documented. Input above 272K tokens is billed at long-context rates. Ultrafast mode (service_tier ultrafast, 2026-09-29) is Responses-only and unavailable with EU data residency."
+gaise_support = "chat-compatible features; function tools through the Responses API"
+notes = "Released 2026-09-03 as a limited preview and generally available in the API since 2026-09-04 (the model page carries the standard rate-limit table and no access restriction as of 2026-09-12). Knowledge cutoff 2026-04-30. Fast mode is unavailable with EU data residency. Chat Completions is supported, but tool calling requires the Responses API (the instruct client routes tool conversations there), reasoning_effort none and minimal return 400 (the adapter clamps them to low), and temperature, top_p, logprobs, and top_logprobs are rejected (the adapter never sends sampling). No dated snapshot or gpt-6 alias is documented. Input above 272K tokens is billed at long-context rates. Ultrafast mode (service_tier ultrafast, 2026-09-29) is Responses-only and unavailable with EU data residency."
 
 [[models]]
 provider = "openai"
 model = "gpt-6.1-sol"
 status = "active"
-capabilities = ["text", "image_input", "reasoning", "streaming"]
+capabilities = ["text", "image_input", "reasoning", "streaming", "tools"]
 reasoning_values = ["low", "medium", "high", "xhigh", "max"]
 context_window = 1050000
 max_output_tokens = 128000
-gaise_support = "chat-compatible features without function tools"
-notes = "Released 2026-09-29 for complex coding and professional work at a lower cost than GPT-6 Astra; the latest-model guide says it supersedes gpt-6-sol. Same Chat Completions contract as gpt-6-astra: tool calling requires the Responses API (the instruct client fails fast when tools are present), reasoning_effort none and minimal are not supported (the adapter clamps them to low; default medium), and sampling parameters are never sent. Max input 922,000 tokens. Knowledge cutoff 2026-04-30. No dated snapshot or gpt-6.1 alias is documented."
+gaise_support = "chat-compatible features; function tools through the Responses API"
+notes = "Released 2026-09-29 for complex coding and professional work at a lower cost than GPT-6 Astra; the latest-model guide says it supersedes gpt-6-sol. Same contract as gpt-6-astra: tool calling requires the Responses API (the instruct client routes tool conversations there), reasoning_effort none and minimal are not supported (the adapter clamps them to low; default medium), and sampling parameters are never sent. Max input 922,000 tokens. Knowledge cutoff 2026-04-30. No dated snapshot or gpt-6.1 alias is documented."
 
 [[models]]
 provider = "openai"

@@ -67,8 +67,15 @@ On Chat Completions, the GPT-5.6 family currently requires
 `reasoning_effort: "none"` when function tools are present. The adapter applies
 that value automatically and retries once when a newer model or alias returns
 the same structured compatibility error. Tool-free requests retain the
-configured reasoning effort; use the Responses API when reasoning and tools
-must be combined.
+configured reasoning effort.
+
+GPT-6 Astra and GPT-6.1 Sol cannot call functions on Chat Completions at all,
+so requests that carry `tools` (or continue a tool conversation) for those
+models are sent to the Responses API (`POST /responses`) instead. The mapping
+is stateless, keeps the configured reasoning effort, and returns reasoning as
+`GaiseContent::Reasoning`; send that content back with the assistant message so
+the model keeps its reasoning across the tool call. Tool-free requests for
+those models still use Chat Completions.
 
 ### Live / Realtime (feature = "live")
 
