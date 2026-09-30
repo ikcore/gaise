@@ -266,11 +266,14 @@ bundled registry and needs no provider credentials. `GaiseOperation::Decision`
 is serialized as `decision`; `decision` is also the Rust method name, and the
 HTTP path is `/v1/decision`.
 
-Before 4.0 this operation was called System One. `POST /v1/systemone`,
-`operation=system_one`, `GaiseClient::system_one`, `GaiseSystemOneRequest`,
-`GaiseSystemOneResponse`, and `GaiseOperation::SystemOne` remain as deprecated
-aliases. Model listings now report the operation as `decision`. TypeSafe's own
-API keeps the System One name, so the adapter still calls its `/v1/systemone`.
+`POST /v1/systemone` is a supported alias of `POST /v1/decision`: it is the path
+TypeSafe and Ollama use for this protocol, and both GAISe routes share one
+handler. The request still names a routable `provider::model`.
+
+Before 4.0 the operation itself was called System One. `operation=system_one`,
+`GaiseClient::system_one`, `GaiseSystemOneRequest`, `GaiseSystemOneResponse`, and
+`GaiseOperation::SystemOne` remain as deprecated aliases. Model listings report
+the operation as `decision`.
 
 Jev uses this typed decision operation. Text generation (`instruct`), SSE
 streaming, embeddings, tool calling, and live audio are not implemented for this
@@ -299,8 +302,8 @@ are returned without retrying. There is no Decision streaming endpoint.
 
 ```toml
 [dependencies]
-gaise-core = { package = "gaise", version = "4.0.1" }
-gaise-client = { version = "4.0.1", default-features = false, features = ["typesafe"] }
+gaise-core = { package = "gaise", version = "4.1.0" }
+gaise-client = { version = "4.1.0", default-features = false, features = ["typesafe"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```

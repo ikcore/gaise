@@ -4,8 +4,9 @@ use base64::Engine;
 use futures_util::{Stream, StreamExt};
 use gaise_core::GaiseClient;
 use gaise_core::contracts::{
-    EmbeddingTaskControl, GaiseContent, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse,
-    GaiseFunctionCall, GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
+    DecisionWireResponse, EmbeddingTaskControl, GaiseContent, GaiseDecisionRequest,
+    GaiseDecisionResponse, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseFunctionCall,
+    GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
     GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseModel,
     GaiseReasoningEffort, GaiseStreamChunk, GaiseTool, GaiseToolCall, GaiseUsage, OneOrMany,
     ResolvedEmbedding, normalize_l2, resolve_embedding,
@@ -479,6 +480,37 @@ impl GaiseClientOllama {
 
 #[async_trait]
 impl GaiseClient for GaiseClientOllama {
+    /// Typed decisions through Ollama's System One endpoint
+    /// (`POST /v1/systemone`, Ollama 0.35+), which speaks the same wire
+    /// protocol as TypeSafe. Local decision models only (`nimble`, `tev1`).
+    async fn decision(
+        &self,
+        request: &GaiseDecisionRequest,
+    ) -> Result<GaiseDecisionResponse, Box<dyn std::error::Error + Send + Sync>> {
+        request.validate()?;
+        let url = format!("{}/v1/systemone", self.api_url.trim_end_matches('/'));
+        let response = self
+            .client
+            .post(url)
+            .json(&request.wire(&request.model))
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let err_text = response.text().await?;
+            return Err(format!("Ollama API error ({status}): {err_text}").into());
+        }
+        let body = response.text().await?;
+        let wire: DecisionWireResponse = serde_json::from_str(&body).map_err(|e| {
+            let snippet: String = body.chars().take(400).collect();
+            format!("failed to parse Ollama decision response: {e}; body starts: {snippet}")
+        })?;
+        request
+            .check_answers(&wire.answers)
+            .map_err(|e| format!("Ollama response {e}"))?;
+        Ok(wire.into())
+    }
+
     async fn list_models(
         &self,
         request: &GaiseListModelsRequest,

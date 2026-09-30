@@ -90,10 +90,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 The router strips the provider prefix before calling the adapter. Direct provider clients therefore receive `gemini-3.8-flash`, while `GaiseClientService` receives `gemini::gemini-3.8-flash`.
 
-## TypeSafe Jev typed decisions
+## Typed decisions (TypeSafe Jev, Ollama)
 
 Set `TYPESAFE_API_KEY` for the HTTP server, then send a request to
-`POST /v1/decision` with model `typesafe::jev`. GAISe maps `jev` to TypeSafe's
+`POST /v1/decision` (or its alias `POST /v1/systemone`) with model `typesafe::jev`.
+Local Ollama decision models use the same request with `ollama::nimble` or
+`ollama::tev1` and need Ollama 0.35 or later. GAISe maps `jev` to TypeSafe's
 `jev-latest` and preserves typed `choice`, `score`, and `noul` answers.
 
 Library callers use `GaiseClient::decision` with `GaiseDecisionRequest` and

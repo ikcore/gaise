@@ -90,6 +90,17 @@ pub fn map_ollama_tag(tag: &OllamaTag, include_raw: bool) -> GaiseModel {
         }
     }
     out.capabilities.add_source(GaiseMetadataSource::Provider);
+    // Neither `/api/tags` nor the documented `/api/show` capabilities mark
+    // System One models, so decision support comes from the registry families
+    // (`nimble`, `tev1`) and survives whatever `/api/show` adds later.
+    if gaise_core::registry::ModelRegistry::bundled()
+        .find("ollama", &tag.name)
+        .and_then(|entry| entry.classified().ok())
+        .is_some_and(|c| c.operations.contains(&GaiseOperation::Decision))
+    {
+        out.capabilities.add_operation(GaiseOperation::Decision);
+        out.capabilities.add_source(GaiseMetadataSource::Registry);
+    }
     if include_raw {
         out.raw = serde_json::to_value(tag).ok();
     }
@@ -159,6 +170,12 @@ mod tests {
                {"name":"nomic-embed-text:latest","details":{"family":"nomic-bert","parameter_size":"137M","quantization_level":"F16"}}]}"#,
         )
         .unwrap();
+        let nimble: OllamaTag = serde_json::from_str(r#"{"name":"nimble:latest"}"#).unwrap();
+        assert_eq!(
+            map_ollama_tag(&nimble, false).capabilities.operations,
+            vec![GaiseOperation::Decision],
+            "decision families are marked from the registry"
+        );
         let mut qwen = map_ollama_tag(&tags.models[0], true);
         assert_eq!(qwen.description.as_deref(), Some("qwen3 8.2B Q4_K_M"));
         assert!(

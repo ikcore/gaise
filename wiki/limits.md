@@ -284,6 +284,8 @@ Figures are the vendor-documented limits recorded in [`model-registry.toml`](../
 
 | Model | Status | Ops | Context window | Max output | Max input / text | Dimensions | Chars / request | Notes |
 |---|---|---|---:|---:|---:|---:|---:|---|
+| `nimble:*` | active | D | 262,144 | — | — | — | — | Answers choice, noul, and score questions; up to 64 questions and a 64 KiB body per request, 2-26 options or levels, and each rendered prompt must fit the loaded context. |
+| `tev1:*` | active | D | 262,144 | — | — | — | — |  |
 | `qwen3:*` | active | IS | 40,960 | — | — | — | — | Context 40,960 on the original dense tags (0.6b-32b); the 2507 builds, 4b, 30b, and 235b are 262,144. Ollama serves a smaller default num_ctx; raise it per request. |
 | `gpt-oss:*` | active | IS | 131,072 | — | — | — | — | Context 131,072 on 20b and 120b. |
 | `deepseek-r1:*` (`deepseek-v3.1:*`) | active | IS | 131,072 | — | — | — | — | Context 131,072 on the distilled tags; deepseek-r1:671b and deepseek-v3.1 are 163,840. |

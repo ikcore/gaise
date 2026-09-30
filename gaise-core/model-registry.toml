@@ -2,7 +2,7 @@
 # Audited against official provider documentation on 2026-09-12 (previous
 # audits 2026-07-22, 2026-08-20, 2026-09-04); OpenAI, Anthropic, and Claude on
 # Bedrock were re-audited on 2026-09-30 for the GPT-6 / GPT-6.1 and Claude 5.5
-# releases. Context windows, output ceilings,
+# releases; the Ollama decision models were added the same day. Context windows, output ceilings,
 # and character budgets (`context_window`, `max_output_tokens`,
 # `max_input_characters`) were re-verified against the vendor model pages on
 # 2026-09-12; embedding per-text limits live in
@@ -97,11 +97,11 @@ notes = "Voices are account-specific and default voices expire 2026-12-31; never
 
 [[providers]]
 key = "ollama"
-gaise_surface = "Chat, streaming chat, and Embeddings"
+gaise_surface = "Chat, streaming chat, Embeddings, and typed decisions (System One)"
 catalog = "https://ollama.com/search"
 lifecycle = "dynamic local catalog"
 discovery = "GET /api/tags"
-notes = "Tags are installed locally and can move; Ollama has no centralized retirement calendar. Cloud-hosted tags (`family:size-cloud`, run through ollama.com with an API key) match the same family globs. API as of Ollama v0.34.0 (2026-09-05; the release adds OpenAI-compatible tool search and response compaction on /v1 only): `think` accepts true/false or the strings low, medium, high, max (any other string is rejected; GPT-OSS takes levels only); chat and generate responses report prompt_eval_cached_count; requests accept logprobs/top_logprobs; /api/show capabilities may include image and audio; the default repeat_penalty became 1.0 in v0.32.10."
+notes = "Ollama 0.35 (2026-09-29) added POST /v1/systemone, the TypeSafe System One wire protocol for local decision models (nimble, tev1); the adapter maps it to decision. Tags are installed locally and can move; Ollama has no centralized retirement calendar. Cloud-hosted tags (`family:size-cloud`, run through ollama.com with an API key) match the same family globs. API as of Ollama v0.34.0 (2026-09-05; the release adds OpenAI-compatible tool search and response compaction on /v1 only): `think` accepts true/false or the strings low, medium, high, max (any other string is rejected; GPT-OSS takes levels only); chat and generate responses report prompt_eval_cached_count; requests accept logprobs/top_logprobs; /api/show capabilities may include image and audio; the default repeat_penalty became 1.0 in v0.32.10."
 
 # OpenAI: current families
 
@@ -2389,6 +2389,26 @@ gaise_support = "not supported: sound effects (/v1/sound-generation) have no GAI
 notes = "0.5-30 s effects with optional looping."
 
 # Ollama: capability families are discovered from the local installation
+
+[[models]]
+provider = "ollama"
+model = "nimble:*"
+status = "dynamic_local"
+context_window = 262144
+capabilities = ["decision"]
+operations = ["decision"]
+gaise_support = "GaiseClient::decision and POST /v1/decision through Ollama's POST /v1/systemone (Ollama 0.35+)"
+notes = "Bespoke Labs 9B decision model (Apache 2.0, fine-tuned from Qwen3.5-9B), added with Ollama 0.35 on 2026-09-29. Answers choice, noul, and score questions; up to 64 questions and a 64 KiB body per request, 2-26 options or levels, and each rendered prompt must fit the loaded context. Local only: cloud models are rejected. No streaming, images, or tools on this endpoint."
+
+[[models]]
+provider = "ollama"
+model = "tev1:*"
+status = "dynamic_local"
+context_window = 262144
+capabilities = ["decision"]
+operations = ["decision"]
+gaise_support = "GaiseClient::decision and POST /v1/decision through Ollama's POST /v1/systemone (Ollama 0.35+)"
+notes = "Experimental Together AI decision models (4B default, tev1:0.8b), fine-tuned from Qwen3.5, added with Ollama 0.35 on 2026-09-29. Same System One request limits as nimble. Local only."
 
 [[models]]
 provider = "ollama"

@@ -39,7 +39,7 @@ This page is the human-readable view of [`gaise-core/model-registry.toml`](../ga
 This page is generated from the registry by [`cargo run -p gaise --example models_page`](../gaise-core/examples/models_page.rs); edit the registry (or that example's introductions), not this file. Columns:
 
 - **Input / Output** — modalities classified from the entry's `capabilities` list by [`classify_capabilities`](../gaise-core/src/registry.rs).
-- **Ops** — GAISe operations the entry maps to: `I` instruct, `S` instruct_stream, `E` embeddings, `V` speech (voice), `L` live. Empty means no GAISe surface drives the model (image generation, TTS, bidirectional audio).
+- **Ops** — GAISe operations the entry maps to: `I` instruct, `S` instruct_stream, `E` embeddings, `V` speech (voice), `L` live, `D` decision. Empty means no GAISe surface drives the model (image generation, TTS, bidirectional audio).
 - **Tools / Reasoning** — ✓ supported, ✗ not listed, and the `reasoning_values` the provider documents.
 - **Dates** — `shutdown` is a published retirement date; `not before` is an availability guarantee. Gemini API and Vertex AI dates are **never** interchangeable.
 - **Limits** — context windows, output ceilings, per-input token limits, and character budgets are not repeated here; see [limits.md](limits.md) for the generated model × limits matrix and `GET /v1/models/limits`.
@@ -55,7 +55,7 @@ const VERTEXAI_INTRO: &str = "Google Cloud lifecycle only. Model Garden listing 
 
 const BEDROCK_INTRO: &str = "Model IDs, inference profiles, and lifecycle are **region-specific**; entries are representative and `ListFoundationModels` / `ListInferenceProfiles` are authoritative ([`catalog.rs`](../gaise-provider-bedrock/src/catalog.rs)). The registry matcher strips `us.`/`eu.`/`apac.`/`ap.`/`jp.`/`au.`/`ca.`/`il.`/`in.`/`global.`/`us-gov.` profile prefixes and `-vN:M` suffixes, and `*` entries are family globs.";
 
-const OLLAMA_INTRO: &str = "The installed catalog is dynamic (`GET /api/tags`); entries are family globs describing typical capabilities, and `-cloud` tags match the same globs. `POST /api/show` (opt-in `include_details`) reports the real capabilities of each installed tag ([`catalog.rs`](../gaise-provider-ollama/src/contracts/catalog.rs)).";
+const OLLAMA_INTRO: &str = "Decision models (`nimble`, `tev1`) are driven through `decision` on Ollama's `POST /v1/systemone`. The installed catalog is dynamic (`GET /api/tags`); entries are family globs describing typical capabilities, and `-cloud` tags match the same globs. `POST /api/show` (opt-in `include_details`) reports the real capabilities of each installed tag ([`catalog.rs`](../gaise-provider-ollama/src/contracts/catalog.rs)).";
 
 const ELEVENLABS_INTRO: &str = "Text-to-speech and realtime voice. `GET /v1/models` reports model ids, languages, `can_do_text_to_speech`, style/speaker-boost support, and per-request character limits ([`models.rs`](../gaise-provider-elevenlabs/src/contracts/models.rs)). Voices are account-specific (`GET /v2/voices`) and ElevenLabs default voices expire 2026-12-31, so no voice is hard-coded. `eleven_v3*` realtime goes through the text-to-dialogue WebSocket; other models use `stream-input`.";
 
@@ -120,6 +120,7 @@ fn ops_letters(ops: &[gaise_core::contracts::GaiseOperation]) -> String {
             "embeddings" => "E",
             "speech" => "V",
             "live" => "L",
+            "decision" => "D",
             _ => "?",
         })
         .collect();

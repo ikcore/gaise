@@ -78,7 +78,79 @@ pub struct GaiseDecisionResponse {
     pub usage: Option<GaiseUsage>,
 }
 
+/// Body of the System One wire protocol (`POST /v1/systemone`), shared by
+/// TypeSafe and Ollama: routing metadata is left out and only `model`,
+/// `state`, and `questions` are sent.
+#[derive(Debug, Clone, Serialize)]
+pub struct DecisionWireRequest<'a> {
+    pub model: &'a str,
+    pub state: &'a Value,
+    pub questions: &'a BTreeMap<String, GaiseQuestion>,
+}
+
+/// Response of the System One wire protocol.
+#[derive(Debug, Clone, Deserialize)]
+pub struct DecisionWireResponse {
+    pub model: String,
+    pub answers: BTreeMap<String, GaiseAnswer>,
+    #[serde(default)]
+    pub usage: Option<DecisionWireUsage>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct DecisionWireUsage {
+    #[serde(default)]
+    pub input_tokens: usize,
+    #[serde(default)]
+    pub output_tokens: usize,
+}
+
+impl From<DecisionWireResponse> for GaiseDecisionResponse {
+    fn from(response: DecisionWireResponse) -> Self {
+        Self {
+            model: response.model,
+            answers: response.answers,
+            usage: response.usage.map(|usage| GaiseUsage {
+                input: Some([("input_tokens".to_string(), usage.input_tokens)].into()),
+                output: Some([("output_tokens".to_string(), usage.output_tokens)].into()),
+                total: None,
+            }),
+        }
+    }
+}
+
 impl GaiseDecisionRequest {
+    /// The wire body for this request, addressed to `model`.
+    pub fn wire<'a>(&'a self, model: &'a str) -> DecisionWireRequest<'a> {
+        DecisionWireRequest {
+            model,
+            state: &self.state,
+            questions: &self.questions,
+        }
+    }
+
+    /// Check that `answers` has exactly one answer of the matching type for
+    /// every question.
+    pub fn check_answers(&self, answers: &BTreeMap<String, GaiseAnswer>) -> Result<(), String> {
+        let matches = answers.len() == self.questions.len()
+            && self.questions.iter().all(|(id, question)| {
+                matches!(
+                    (question, answers.get(id)),
+                    (GaiseQuestion::Noul { .. }, Some(GaiseAnswer::Noul { .. }))
+                        | (
+                            GaiseQuestion::Choice { .. },
+                            Some(GaiseAnswer::Choice { .. })
+                        )
+                        | (GaiseQuestion::Score { .. }, Some(GaiseAnswer::Score { .. }))
+                )
+            });
+        if matches {
+            Ok(())
+        } else {
+            Err("answer IDs or types do not match the questions".into())
+        }
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         fn entry(value: &Value) -> bool {
             matches!(

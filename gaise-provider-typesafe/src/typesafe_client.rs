@@ -81,21 +81,9 @@ impl GaiseClient for GaiseClientTypeSafe {
                 Some(serde_json::to_value(SystemOneRequest::from(request))?),
             )
             .await?;
-        if response.answers.len() != request.questions.len()
-            || request.questions.iter().any(|(id, q)| {
-                !matches!(
-                    (q, response.answers.get(id)),
-                    (GaiseQuestion::Noul { .. }, Some(GaiseAnswer::Noul { .. }))
-                        | (
-                            GaiseQuestion::Choice { .. },
-                            Some(GaiseAnswer::Choice { .. })
-                        )
-                        | (GaiseQuestion::Score { .. }, Some(GaiseAnswer::Score { .. }))
-                )
-            })
-        {
-            return Err("TypeSafe response answer IDs or types do not match the questions".into());
-        }
+        request
+            .check_answers(&response.answers)
+            .map_err(|e| format!("TypeSafe response {e}"))?;
         Ok(response.into())
     }
 

@@ -940,6 +940,19 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
         );
         assert_eq!(find("openai", "gpt-6-astra"), "gpt-6-astra");
         assert_eq!(find("openai", "gpt-6.1-sol"), "gpt-6.1-sol");
+        for tag in ["nimble", "nimble:latest", "nimble:9b"] {
+            assert_eq!(find("ollama", tag), "nimble:*");
+        }
+        assert_eq!(find("ollama", "tev1:0.8b"), "tev1:*");
+        assert_eq!(
+            registry
+                .find("ollama", "nimble")
+                .unwrap()
+                .classified()
+                .unwrap()
+                .operations,
+            vec![GaiseOperation::Decision]
+        );
         assert_eq!(find("openai", "gpt-6-sol"), "gpt-6-sol");
         assert_eq!(find("openai", "gpt-6-luna"), "gpt-6-luna");
         assert_eq!(find("openai", "gpt-5.6-sol"), "gpt-5.6");

@@ -15,7 +15,7 @@ GAISe (Generative AI Service) is a Rust workspace that maps one provider-neutral
 | [**models.md**](models.md) | Every model in the bundled registry (215 entries), per vendor, with modalities, operations, reasoning values, lifecycle dates, and GAISe support notes; plus the retirement calendar and maintenance procedure. |
 | [**flows.md**](flows.md) | Mermaid diagrams of routing, instruct, multimodal mapping, streaming, tool loops, usage normalization, embeddings, model discovery, live sessions, and retries. |
 | [**examples.md**](examples.md) | Rust request examples for text, media, files, reasoning, generated images, tools, streaming, embeddings, discovery, and live. |
-| [**decision.md**](decision.md) | TypeSafe Jev: typed questions, HTTP and Rust examples, configuration, responses, usage, discovery, and errors. |
+| [**decision.md**](decision.md) | TypeSafe Jev and Ollama decision models: typed questions, HTTP and Rust examples, configuration, responses, usage, discovery, and errors. |
 | [**releasing.md**](releasing.md) | Version synchronization, package verification, and crates.io publish order. |
 
 ### Vendors

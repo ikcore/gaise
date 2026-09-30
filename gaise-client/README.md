@@ -27,14 +27,14 @@ To use only specific providers, disable default features in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-gaise-client = { version = "4.0.1", default-features = false, features = ["openai"] }
+gaise-client = { version = "4.1.0", default-features = false, features = ["openai"] }
 ```
 
 To enable live/realtime sessions:
 
 ```toml
 [dependencies]
-gaise-client = { version = "4.0.1", features = ["live"] }
+gaise-client = { version = "4.1.0", features = ["live"] }
 ```
 
 ## Supported Providers
@@ -164,8 +164,8 @@ questions about shared state. The adapter maps `jev` to upstream `jev-latest`.
 
 ```toml
 [dependencies]
-gaise-core = { package = "gaise", version = "4.0.1" }
-gaise-client = { version = "4.0.1", default-features = false, features = ["typesafe"] }
+gaise-core = { package = "gaise", version = "4.1.0" }
+gaise-client = { version = "4.1.0", default-features = false, features = ["typesafe"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```

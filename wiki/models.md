@@ -7,7 +7,7 @@ This page is the human-readable view of [`gaise-core/model-registry.toml`](../ga
 This page is generated from the registry by [`cargo run -p gaise --example models_page`](../gaise-core/examples/models_page.rs); edit the registry (or that example's introductions), not this file. Columns:
 
 - **Input / Output** — modalities classified from the entry's `capabilities` list by [`classify_capabilities`](../gaise-core/src/registry.rs).
-- **Ops** — GAISe operations the entry maps to: `I` instruct, `S` instruct_stream, `E` embeddings, `V` speech (voice), `L` live. Empty means no GAISe surface drives the model (image generation, TTS, bidirectional audio).
+- **Ops** — GAISe operations the entry maps to: `I` instruct, `S` instruct_stream, `E` embeddings, `V` speech (voice), `L` live, `D` decision. Empty means no GAISe surface drives the model (image generation, TTS, bidirectional audio).
 - **Tools / Reasoning** — ✓ supported, ✗ not listed, and the `reasoning_values` the provider documents.
 - **Dates** — `shutdown` is a published retirement date; `not before` is an availability guarantee. Gemini API and Vertex AI dates are **never** interchangeable.
 - **Limits** — context windows, output ceilings, per-input token limits, and character budgets are not repeated here; see [limits.md](limits.md) for the generated model × limits matrix and `GET /v1/models/limits`.
@@ -20,7 +20,7 @@ This page is generated from the registry by [`cargo run -p gaise --example model
 - [Google Gemini API](#gemini) — 29 entries
 - [Google Vertex AI](#vertexai) — 25 entries
 - [Amazon Bedrock](#bedrock) — 61 entries
-- [Ollama](#ollama) — 31 entries
+- [Ollama](#ollama) — 33 entries
 - [ElevenLabs](#elevenlabs) — 14 entries
 - [Maintaining the registry](#maintaining-the-registry)
 - [Lifecycle calendar](#lifecycle-calendar)
@@ -354,17 +354,19 @@ Model IDs, inference profiles, and lifecycle are **region-specific**; entries ar
 
 ### Ollama
 
-The installed catalog is dynamic (`GET /api/tags`); entries are family globs describing typical capabilities, and `-cloud` tags match the same globs. `POST /api/show` (opt-in `include_details`) reports the real capabilities of each installed tag ([`catalog.rs`](../gaise-provider-ollama/src/contracts/catalog.rs)).
+Decision models (`nimble`, `tev1`) are driven through `decision` on Ollama's `POST /v1/systemone`. The installed catalog is dynamic (`GET /api/tags`); entries are family globs describing typical capabilities, and `-cloud` tags match the same globs. `POST /api/show` (opt-in `include_details`) reports the real capabilities of each installed tag ([`catalog.rs`](../gaise-provider-ollama/src/contracts/catalog.rs)).
 
-- Vendor page: [vendor-ollama.md](vendor-ollama.md) · GAISe surface: Chat, streaming chat, and Embeddings
+- Vendor page: [vendor-ollama.md](vendor-ollama.md) · GAISe surface: Chat, streaming chat, Embeddings, and typed decisions (System One)
 - Discovery: GET /api/tags
 - Official catalog: <https://ollama.com/search> · lifecycle: <dynamic local catalog>
-- Tags are installed locally and can move; Ollama has no centralized retirement calendar. Cloud-hosted tags (`family:size-cloud`, run through ollama.com with an API key) match the same family globs. API as of Ollama v0.34.0 (2026-09-05; the release adds OpenAI-compatible tool search and response compaction on /v1 only): `think` accepts true/false or the strings low, medium, high, max (any other string is rejected; GPT-OSS takes levels only); chat and generate responses report prompt_eval_cached_count; requests accept logprobs/top_logprobs; /api/show capabilities may include image and audio; the default repeat_penalty became 1.0 in v0.32.10.
+- Ollama 0.35 (2026-09-29) added POST /v1/systemone, the TypeSafe System One wire protocol for local decision models (nimble, tev1); the adapter maps it to decision. Tags are installed locally and can move; Ollama has no centralized retirement calendar. Cloud-hosted tags (`family:size-cloud`, run through ollama.com with an API key) match the same family globs. API as of Ollama v0.34.0 (2026-09-05; the release adds OpenAI-compatible tool search and response compaction on /v1 only): `think` accepts true/false or the strings low, medium, high, max (any other string is rejected; GPT-OSS takes levels only); chat and generate responses report prompt_eval_cached_count; requests accept logprobs/top_logprobs; /api/show capabilities may include image and audio; the default repeat_penalty became 1.0 in v0.32.10.
 
 #### Current and preview
 
 | Model | Aliases | Status | Dates | Input | Output | Ops | Tools | Reasoning | GAISe support / notes |
 |---|---|---|---|---|---|---|---|---|---|
+| `nimble:*` | — | `dynamic_local` | — | text | — | D | ✗ | ✗ | GaiseClient::decision and POST /v1/decision through Ollama's POST /v1/systemone (Ollama 0.35+) — Bespoke Labs… |
+| `tev1:*` | — | `dynamic_local` | — | text | — | D | ✗ | ✗ | GaiseClient::decision and POST /v1/decision through Ollama's POST /v1/systemone (Ollama 0.35+) — Experimental… |
 | `qwen3:*` | — | `dynamic_local` | — | text | text | IS | ✓ | ✓ (true, false) | native — Context 40,960 on the original dense tags (0.6b-32b); the 2507 builds, 4b, 30b, and 235b are 262,144… |
 | `gpt-oss:*` | — | `dynamic_local` | — | text | text | IS | ✓ | ✓ (low, medium, high) | native — Context 131,072 on 20b and 120b. |
 | `deepseek-r1:*` | `deepseek-v3.1:*` | `dynamic_local` | — | text | text | IS | ✓ | ✓ (true, false) | native — Context 131,072 on the distilled tags; deepseek-r1:671b and deepseek-v3.1 are 163,840. The library l… |

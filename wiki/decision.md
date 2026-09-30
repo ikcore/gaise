@@ -1,4 +1,4 @@
-# Decision: TypeSafe Jev
+# Decision: TypeSafe Jev and Ollama
 
 ## Decision and TypeSafe Jev
 
@@ -156,19 +156,49 @@ bundled registry and needs no provider credentials. `GaiseOperation::Decision`
 is serialized as `decision`; `decision` is also the Rust method name, and the
 HTTP path is `/v1/decision`.
 
-Before 4.0 this operation was called System One. `POST /v1/systemone`,
-`operation=system_one`, `GaiseClient::system_one`, `GaiseSystemOneRequest`,
-`GaiseSystemOneResponse`, and `GaiseOperation::SystemOne` remain as deprecated
-aliases. Model listings now report the operation as `decision`. TypeSafe's own
-API keeps the System One name, so the adapter still calls its `/v1/systemone`.
+`POST /v1/systemone` is a supported alias of `POST /v1/decision`: it is the path
+TypeSafe and Ollama use for this protocol, and both GAISe routes share one
+handler. The request still names a routable `provider::model`.
+
+Before 4.0 the operation itself was called System One. `operation=system_one`,
+`GaiseClient::system_one`, `GaiseSystemOneRequest`, `GaiseSystemOneResponse`, and
+`GaiseOperation::SystemOne` remain as deprecated aliases. Model listings report
+the operation as `decision`.
 
 Jev uses this typed decision operation. Text generation (`instruct`), SSE
 streaming, embeddings, tool calling, and live audio are not implemented for this
 provider. Give it text or structured context instead of image/audio attachments.
 
+### Ollama decision models
+
+Ollama 0.35 (2026-09-29) serves the same protocol locally at `POST /v1/systemone`.
+GAISe routes `ollama::<tag>` through it with the request and response shapes shown
+above; no API key is involved.
+
+```bash
+ollama pull nimble
+curl http://localhost:3000/v1/decision \
+  -H "Content-Type: application/json" \
+  -d '{"model": "ollama::nimble", "state": "I was charged twice.", "questions": {"refund": {"type": "noul", "instructions": "Is a refund requested?"}}}'
+```
+
+| Tag | Model |
+| --- | --- |
+| `nimble` | Bespoke Labs, 9B |
+| `tev1`, `tev1:0.8b` | Together AI, 4B and 0.8B (experimental) |
+
+Ollama's limits differ from TypeSafe's: at most 64 questions and a 64 KiB body per
+request, 2 to 26 choice options or score levels, `instructions` required on every
+question, and each rendered prompt must fit the loaded context. It accepts local
+models only and has no streaming, image, or tool support on this endpoint. GAISe
+applies its own validation and leaves these limits to Ollama, whose error text is
+returned with the status code. The model tag is sent unchanged (no `jev` mapping)
+and `usage.output_tokens` can be non-zero. `GET /v1/models?provider=ollama&operation=decision`
+lists installed decision tags.
+
 ### Other decision providers
 
-TypeSafe is the only provider GAISe drives through this operation. OpenAI announced
+TypeSafe and Ollama are the providers GAISe drives through this operation. OpenAI announced
 a Decisions API on 2026-09-29 (limited preview, reported to run on a GPT-6 Luna
 variant). As of 2026-09-30 it has no published API reference, SDK, model id, or
 pricing, so GAISe does not map it; its request shape should not be assumed to
@@ -197,8 +227,8 @@ are returned without retrying. There is no Decision streaming endpoint.
 
 ```toml
 [dependencies]
-gaise-core = { package = "gaise", version = "4.0.1" }
-gaise-client = { version = "4.0.1", default-features = false, features = ["typesafe"] }
+gaise-core = { package = "gaise", version = "4.1.0" }
+gaise-client = { version = "4.1.0", default-features = false, features = ["typesafe"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```

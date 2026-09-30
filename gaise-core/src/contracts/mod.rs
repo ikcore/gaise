@@ -13,7 +13,7 @@ muse!(gaise_content, {
 });
 muse!(gaise_message, { GaiseMessage });
 muse!(gaise_usage, { GaiseUsage });
-muse!(gaise_decision, { GaiseDecisionRequest, GaiseDecisionResponse, GaiseQuestion, GaiseAnswer, GaiseNoulCriteria });
+muse!(gaise_decision, { GaiseDecisionRequest, GaiseDecisionResponse, GaiseQuestion, GaiseAnswer, GaiseNoulCriteria, DecisionWireRequest, DecisionWireResponse, DecisionWireUsage });
 
 /// Pre-4.0 path of [`gaise_decision`].
 #[deprecated(since = "4.0.0", note = "renamed to `gaise_decision`")]

@@ -41,7 +41,7 @@ pub struct AppState {
 pub fn create_app(state: Arc<AppState>) -> Router {
     let router = Router::new()
         .route("/v1/decision", post(handle_decision))
-        // Pre-4.0 path, kept as an alias.
+        // Same handler: the path TypeSafe and Ollama use for this protocol.
         .route("/v1/systemone", post(handle_decision))
         .route("/v1/instruct", post(handle_instruct))
         .route("/v1/instruct/stream", post(handle_instruct_stream))

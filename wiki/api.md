@@ -566,6 +566,6 @@ Per-vendor configuration details are on each [vendor page](README.md#vendors).
 
 ## POST /v1/decision
 
-Evaluate typed questions against shared state using `typesafe::jev`. See the
+Also served at `POST /v1/systemone`. Evaluate typed questions against shared state using `typesafe::jev` or an Ollama decision model such as `ollama::nimble`. See the
 [Decision endpoint guide](decision.md) for complete JSON requests and responses,
 configuration precedence, status codes, retries, and Rust examples.

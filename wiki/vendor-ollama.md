@@ -172,6 +172,10 @@ Keys are provider-named, never renamed to a common vocabulary.
 - An untagged name (`nomic-embed-text`) resolves to the `name:*` profile, matching Ollama's own `:latest` default.
 - `/api/embed` returns L2-normalized vectors, so `normalize` is only applied locally for unknown tags. The response `embeddings: Vec<Vec<f32>>` is returned as `GaiseEmbeddingsResponse.output` in input order, `external_id: None`, usage as above. Any installed tag whose `/api/show` capabilities include `embedding` works; a chat tag will be rejected by the daemon.
 
+## Typed decisions
+
+`decision` targets `POST /v1/systemone` (Ollama 0.35+, [API reference](https://docs.ollama.com/api/systemone)), the System One protocol TypeSafe defined, so the request and response are the shared `GaiseDecisionRequest` / `GaiseDecisionResponse` shapes described in the [Decision guide](decision.md#ollama-decision-models). The body is `model` (the tag, unchanged), `state`, and `questions`; `keep_alive` is not sent. Answers are checked against the questions, `usage.input_tokens` / `usage.output_tokens` map to `input.input_tokens` / `output.output_tokens`, and a non-success status becomes `Ollama API error (<status>): <body>`. Only local decision models work (`nimble`, `tev1`); `list_models` marks those families with the `decision` operation from the registry because `/api/tags` does not. Hermetic coverage: [`tests/decision_tests.rs`](../gaise-provider-ollama/tests/decision_tests.rs); it has not been run against a real Ollama daemon.
+
 ## Live / realtime
 
 Not supported. Ollama exposes no realtime/WebSocket session API, the crate has no `live` feature, and the router's `GaiseLiveClient` surface has no `ollama` arm.
@@ -212,10 +216,12 @@ Catalog tests: [`maps_tags_and_show_details`](../gaise-provider-ollama/src/contr
 
 ## Models
 
-Registry entries for `ollama` (audited 2026-09-12). Every entry is a family glob with `status = dynamic_local` (mapped to `Active`); no lifecycle dates exist because Ollama has no central retirement calendar. Which tags actually exist, and their vision/tool/thinking support, comes from the local daemon.
+Registry entries for `ollama` (audited 2026-09-12; decision models added 2026-09-30). Every entry is a family glob with `status = dynamic_local` (mapped to `Active`); no lifecycle dates exist because Ollama has no central retirement calendar. Which tags actually exist, and their vision/tool/thinking support, comes from the local daemon.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
+| `nimble:*` | — | `dynamic_local` | — | text | unknown | decision | — | GaiseClient::decision and POST /v1/decision through Ollama's POST /v1/systemone (Ollama 0.35+) | Bespoke Labs 9B decision model (Apache 2.0, fine-tuned from Qwen3.5-9B), added with Ollama 0.35 on 2026-09-29. Answers choice, noul, and sco… |
+| `tev1:*` | — | `dynamic_local` | — | text | unknown | decision | — | GaiseClient::decision and POST /v1/decision through Ollama's POST /v1/systemone (Ollama 0.35+) | Experimental Together AI decision models (4B default, tev1:0.8b), fine-tuned from Qwen3.5, added with Ollama 0.35 on 2026-09-29. Same System… |
 | `qwen3:*` | — | `dynamic_local` | — | text | text | instruct, instruct_stream | `true`, `false` | native | Context 40,960 on the original dense tags (0.6b-32b); the 2507 builds, 4b, 30b, and 235b are 262,144. Ollama serves a smaller default num_ct… |
 | `gpt-oss:*` | — | `dynamic_local` | — | text | text | instruct, instruct_stream | `low`, `medium`, `high` | native | Context 131,072 on 20b and 120b. |
 | `deepseek-r1:*` | `deepseek-v3.1:*` | `dynamic_local` | — | text | text | instruct, instruct_stream | `true`, `false` | native | Context 131,072 on the distilled tags; deepseek-r1:671b and deepseek-v3.1 are 163,840. The library lists the tools badge for both families (… |

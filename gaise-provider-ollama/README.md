@@ -40,6 +40,14 @@ let request = GaiseInstructRequest {
 let response = client.instruct(&request).await?;
 ```
 
+## Typed decisions
+
+Ollama 0.35 and later serve local decision models (`nimble`, `tev1`) at
+`POST /v1/systemone`, the System One protocol TypeSafe defined. The adapter
+maps it to `GaiseClient::decision`: send a `GaiseDecisionRequest` with the bare
+tag as `model` and read typed `choice`, `noul`, and `score` answers back. Through
+`gaise-client` the model is `ollama::nimble`.
+
 ## Environment Variables
 
 | Variable | Description |

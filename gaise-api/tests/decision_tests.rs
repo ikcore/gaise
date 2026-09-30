@@ -195,3 +195,49 @@ async fn missing_credentials_fail_and_connection_can_supply_them() {
             .contains("provider::model")
     );
 }
+
+#[tokio::test]
+async fn ollama_decisions_are_served_on_both_paths() {
+    let upstream = Router::new().route("/v1/systemone", post(|Json(body): Json<Value>| async move {
+        assert_eq!(body, json!({"model": "nimble", "state": "Delivered today", "questions": {"delivered": {"type": "noul", "instructions": "Delivered?"}}}));
+        Json(json!({"model": "nimble", "answers": {"delivered": {"type": "noul", "noul": 0.97}}, "usage": {"input_tokens": 12, "output_tokens": 1}}))
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move {
+        axum::serve(listener, upstream).await.unwrap();
+    });
+    let app = create_app(Arc::new(AppState {
+        client_service: GaiseClientService::new(GaiseClientConfig {
+            ollama_url: Some(url),
+            ..Default::default()
+        }),
+    }));
+    // `/v1/systemone` is the path TypeSafe and Ollama use; `/v1/decision` is
+    // GAISe's name for the same operation.
+    for path in ["/v1/decision", "/v1/systemone"] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        json!({"model": "ollama::nimble", "state": "Delivered today", "questions": {"delivered": {"type": "noul", "instructions": "Delivered?"}}}).to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        let body: Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), 10000)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(body["model"], "nimble");
+        assert_eq!(body["answers"]["delivered"]["noul"], 0.97);
+        assert_eq!(body["usage"]["input"]["input_tokens"], 12);
+    }
+    task.abort();
+}
