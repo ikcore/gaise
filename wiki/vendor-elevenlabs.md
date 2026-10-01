@@ -74,7 +74,7 @@ Request stitching (`previous_text`, `previous_request_ids`), pronunciation dicti
 
 | Rule | Source |
 |---|---|
-| `eleven_v3*` realtime uses the **text-to-dialogue** WebSocket; all other models use `stream-input` ([`model_uses_dialogue_websocket`](../gaise-provider-elevenlabs/src/contracts/models.rs)) | ElevenLabs API reference: "this endpoint does not support the eleven_v3 model" |
+| `eleven_v3*` and `eleven_v4*` realtime use the **text-to-dialogue** WebSocket ("`model_id` must start with `eleven_v3` or `eleven_v4`"; `eleven_v4_turbo` takes exactly one voice); all other models use `stream-input` ([`model_uses_dialogue_websocket`](../gaise-provider-elevenlabs/src/contracts/models.rs)) | ElevenLabs API reference: "this endpoint does not support the eleven_v3 model" |
 | `eleven_multilingual_v2` rejects `language_code` | TTS reference |
 | `eleven_turbo_v2_5` / `eleven_turbo_v2` are deprecated in favour of the Flash equivalents | Models overview |
 | `eleven_v3` has no request stitching | Request-stitching guide |
@@ -138,6 +138,8 @@ Mapping functions: [`stream_input_events`](../gaise-provider-elevenlabs/src/elev
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
+| `eleven_v4` | — | `active` | — | text | text, audio | live | — | realtime via the text-to-dialogue WebSocket (up to 10 voices); /v1/text-to-speech is not documented for v4 | Released 2026-09-28 for content creation and long-form audio, 90+ languages. The Text to Dialogue API takes up to 10,000 characters (~10 min… |
+| `eleven_v4_turbo` | — | `active` | — | text | text, audio | live | — | realtime only via the text-to-dialogue WebSocket (exactly one voice) | Released 2026-09-28; ElevenLabs' most expressive realtime model (~100 ms) for agents and interactive use. Register exactly one voice per ses… |
 | `eleven_v3` | — | `active` | — | text | audio | speech, live | — | speech via /v1/text-to-speech; realtime via the text-to-dialogue WebSocket | Flagship, 70+ languages, 5,000 characters per request on /v1/text-to-speech; the text-to-dialogue endpoints (GAISe's realtime path for v3) d… |
 | `eleven_v3_conversational` | — | `active` | — | text | text, audio | live | — | realtime only via the text-to-dialogue WebSocket (one voice) | ~280 ms latency variant of v3 for realtime use. |
 | `eleven_multilingual_v2` | — | `active` | — | text | audio | speech, live | — | native | Default model; 29 languages; 10,000 characters per request. language_code is documented as not supported (ignored) for multilingual_v2, so t… |

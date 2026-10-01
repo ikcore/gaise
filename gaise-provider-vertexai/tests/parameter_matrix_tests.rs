@@ -7,7 +7,9 @@
 use gaise_core::contracts::{
     GaiseContent, GaiseGenerationConfig, GaiseInstructRequest, GaiseMessage, OneOrMany,
 };
-use gaise_provider_vertexai::contracts::models::{GoogleInstructRequest, GoogleParameters};
+use gaise_provider_vertexai::contracts::models::{
+    GoogleInstructRequest, GoogleParameters, gemini_major_version,
+};
 
 fn build(model: &str, config: GaiseGenerationConfig) -> GoogleParameters {
     let request = GaiseInstructRequest {
@@ -273,4 +275,34 @@ fn embedding_requests_carry_task_type_and_output_dimensionality() {
     assert_eq!(json["parameters"]["outputDimensionality"], 768);
     assert_eq!(json["instances"][0]["task_type"], "RETRIEVAL_QUERY");
     assert!(!resolved.single_input);
+}
+
+#[test]
+fn gemini_4_ids_get_the_gemini_3_controls_without_minimal() {
+    // Gemini 4 Argon was announced 2026-09-30 with no API model id or request
+    // contract. Forward guard: any `gemini-<major>` id with major >= 3 uses
+    // thinkingLevel and never sampling, and MINIMAL clamps to LOW because the
+    // newest 3.x models reject it. Gemma and other ids are unaffected.
+    for model in ["gemini-4-argon", "gemini-4.1-flash", "gemini-4"] {
+        let cfg = build(model, sink(Some("minimal"), None));
+        assert!(
+            cfg.temperature.is_none() && cfg.top_p.is_none() && cfg.top_k.is_none(),
+            "{model}"
+        );
+        let thinking = cfg.thinking_config.expect("thinking config");
+        assert_eq!(thinking.thinking_level.as_deref(), Some("LOW"), "{model}");
+        assert!(thinking.thinking_budget.is_none(), "{model}");
+    }
+    let cfg = build("gemini-2.5-flash", sink(None, Some(4096)));
+    assert!(cfg.temperature.is_some(), "2.5 keeps sampling");
+    for (model, major) in [
+        ("gemini-4-argon", Some(4)),
+        ("gemini-3.8-flash", Some(3)),
+        ("gemini-2.5-pro", Some(2)),
+        ("gemini-embedding-2", None),
+        ("gemini-omni-flash-preview", None),
+        ("gemma-4", None),
+    ] {
+        assert_eq!(gemini_major_version(model), major, "{model}");
+    }
 }

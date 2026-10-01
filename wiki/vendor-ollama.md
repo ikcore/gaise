@@ -174,7 +174,7 @@ Keys are provider-named, never renamed to a common vocabulary.
 
 ## Typed decisions
 
-`decision` targets `POST /v1/systemone` (Ollama 0.35+, [API reference](https://docs.ollama.com/api/systemone)), the System One protocol TypeSafe defined, so the request and response are the shared `GaiseDecisionRequest` / `GaiseDecisionResponse` shapes described in the [Decision guide](decision.md#ollama-decision-models). The body is `model` (the tag, unchanged), `state`, and `questions`; `keep_alive` is not sent. Answers are checked against the questions, `usage.input_tokens` / `usage.output_tokens` map to `input.input_tokens` / `output.output_tokens`, and a non-success status becomes `Ollama API error (<status>): <body>`. Only local decision models work (`nimble`, `tev1`); `list_models` marks those families with the `decision` operation from the registry because `/api/tags` does not. Hermetic coverage: [`tests/decision_tests.rs`](../gaise-provider-ollama/tests/decision_tests.rs); it has not been run against a real Ollama daemon.
+`decision` targets `POST /v1/systemone` (Ollama 0.35+, [API reference](https://docs.ollama.com/api/systemone)), the System One protocol TypeSafe defined, so the request and response are the shared `GaiseDecisionRequest` / `GaiseDecisionResponse` shapes described in the [Decision guide](decision.md#ollama-decision-models). The body is `model` (the tag, unchanged), `state`, and `questions`; `keep_alive` is not sent. Answers are checked against the questions, `usage.input_tokens` / `usage.output_tokens` map to `input.input_tokens` / `output.output_tokens`, and a non-success status becomes `Ollama API error (<status>): <body>`. Only local decision models work (`nimble`, `tev1`); `list_models` marks those families with the `decision` operation from the registry because `/api/tags` does not, and from Ollama 0.35.1 a `decision` entry in `/api/show` capabilities ([`apply_ollama_show`](../gaise-provider-ollama/src/contracts/catalog.rs)) does the same for any tag. Hermetic coverage: [`tests/decision_tests.rs`](../gaise-provider-ollama/tests/decision_tests.rs); it has not been run against a real Ollama daemon.
 
 ## Live / realtime
 
@@ -216,7 +216,7 @@ Catalog tests: [`maps_tags_and_show_details`](../gaise-provider-ollama/src/contr
 
 ## Models
 
-Registry entries for `ollama` (audited 2026-09-12; decision models added 2026-09-30). Every entry is a family glob with `status = dynamic_local` (mapped to `Active`); no lifecycle dates exist because Ollama has no central retirement calendar. Which tags actually exist, and their vision/tool/thinking support, comes from the local daemon.
+Registry entries for `ollama` (audited 2026-10-01). Every entry is a family glob with `status = dynamic_local` (mapped to `Active`); no lifecycle dates exist because Ollama has no central retirement calendar. Which tags actually exist, and their vision/tool/thinking support, comes from the local daemon.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|

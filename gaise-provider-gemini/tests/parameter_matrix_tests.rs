@@ -8,6 +8,7 @@ use gaise_core::contracts::{
     GaiseContent, GaiseGenerationConfig, GaiseInstructRequest, GaiseMessage, OneOrMany,
 };
 use gaise_provider_gemini::contracts::models::{GeminiGenerationConfig, GeminiRequest};
+use gaise_provider_gemini::gemini_client::gemini_major_version;
 
 fn build(model: &str, config: GaiseGenerationConfig) -> GeminiGenerationConfig {
     let request = GaiseInstructRequest {
@@ -284,4 +285,34 @@ fn embedding_requests_map_task_type_and_dimensions_per_model() {
     let json = serde_json::to_value(&wire).unwrap();
     assert_eq!(json["requests"][0]["taskType"], "RETRIEVAL_DOCUMENT");
     assert_eq!(json["requests"][0]["outputDimensionality"], 5000);
+}
+
+#[test]
+fn gemini_4_ids_get_the_gemini_3_controls_without_minimal() {
+    // Gemini 4 Argon was announced 2026-09-30 with no API model id or request
+    // contract. Forward guard: any `gemini-<major>` id with major >= 3 uses
+    // thinkingLevel and never sampling, and MINIMAL clamps to LOW because the
+    // newest 3.x models reject it. Gemma and other ids are unaffected.
+    for model in ["gemini-4-argon", "gemini-4.1-flash", "gemini-4"] {
+        let cfg = build(model, sink(Some("minimal"), None));
+        assert!(
+            cfg.temperature.is_none() && cfg.top_p.is_none() && cfg.top_k.is_none(),
+            "{model}"
+        );
+        let thinking = cfg.thinking_config.expect("thinking config");
+        assert_eq!(thinking.thinking_level.as_deref(), Some("LOW"), "{model}");
+        assert!(thinking.thinking_budget.is_none(), "{model}");
+    }
+    let cfg = build("gemini-2.5-flash", sink(None, Some(4096)));
+    assert!(cfg.temperature.is_some(), "2.5 keeps sampling");
+    for (model, major) in [
+        ("gemini-4-argon", Some(4)),
+        ("gemini-3.8-flash", Some(3)),
+        ("gemini-2.5-pro", Some(2)),
+        ("gemini-embedding-2", None),
+        ("gemini-omni-flash-preview", None),
+        ("gemma-4", None),
+    ] {
+        assert_eq!(gemini_major_version(model), major, "{model}");
+    }
 }

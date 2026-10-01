@@ -8,6 +8,47 @@ change, or an additive adapter feature is a minor release; a change to a public
 contract (removed or renamed items, new required fields, changed serialization)
 is a major release.
 
+## [4.2.0] - 2026-10-01
+
+Model audit of every provider. Gemini 4 Argon was announced on 2026-09-30 but
+has no API model id yet, so it has no registry row; Gemini 4 ids get the Gemini 3
+request rules in advance.
+
+### Added
+- Gemini API: `gemini-3.8-live`, `gemini-3.8-live-extended-thinking`,
+  `gemini-3.8-flash-tts`, and `gemini-3.8-flash-lite-tts`.
+- Vertex AI: `gemini-3.8-flash-cyber` (allowlist) and `gemini-3.8-live` (listed
+  only; the Vertex crate has no Live transport).
+- Bedrock: `openai.gpt-6.1-sol`, `openai.gpt-6-sol`, `openai.gpt-6-luna`,
+  `moonshotai.kimi-k3`, and `xai.grok-4.7`.
+- ElevenLabs: `eleven_v4` and `eleven_v4_turbo`, served through the
+  text-to-dialogue WebSocket.
+- `gemini_major_version` (Gemini and Vertex crates) and
+  `live_model_rejects_thinking_config` (Gemini crate).
+- Ollama listings map the `/api/show` `decision` capability (Ollama 0.35.1) to the
+  `decision` operation.
+
+### Changed
+- Gemini 4 and later ids (`gemini-<major>` with major 4 or more) use
+  `thinkingLevel` without MINIMAL and never receive sampling parameters, instead of
+  the Gemini 2.5 `thinkingBudget` path. This is a forward guard until Google
+  publishes a Gemini 4 contract.
+- The Gemini Live transport no longer sends `thinkingConfig` to `gemini-3.8-live`,
+  and clamps MINIMAL to LOW on `gemini-3.8-live-extended-thinking`.
+- Replacement models and dates updated for Gemini 3.1 Flash Live, the 2.5 native
+  audio and TTS previews, Vertex Gemini 3.6/3.7 Flash and 2.5, and the Vertex
+  2.5 Flash Image retirement (now 2027-03-15).
+- The Bedrock gpt-oss note reflects AWS's correction: Responses is served on
+  bedrock-mantle only.
+
+### Deprecated
+- `claude-sonnet-4-5-20250929`: retires on the Claude API on 2026-11-30;
+  replacement `claude-sonnet-5-5`.
+
+### Removed
+- Marked retired (ids still resolve): Gemini API `gemini-omni-flash-preview`, and
+  Bedrock Nova Premier, Nova Sonic v1, Nova Reel v1, and Nova Canvas.
+
 ## [4.1.0] - 2026-09-30
 
 ### Added

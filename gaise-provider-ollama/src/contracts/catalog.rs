@@ -120,6 +120,11 @@ pub fn apply_ollama_show(model: &mut GaiseModel, show: &OllamaShowResponse, incl
     if has("vision") {
         caps.add_input(GaiseModality::Image);
     }
+    // Ollama 0.35.1 reports `decision` for System One models.
+    if has("decision") {
+        caps.add_input(GaiseModality::Text);
+        caps.add_operation(GaiseOperation::Decision);
+    }
     if has("embedding") {
         caps.add_input(GaiseModality::Text);
         caps.add_output(GaiseModality::Embedding);
@@ -175,6 +180,16 @@ mod tests {
             map_ollama_tag(&nimble, false).capabilities.operations,
             vec![GaiseOperation::Decision],
             "decision families are marked from the registry"
+        );
+        let mut decision = map_ollama_tag(&tags.models[0], false);
+        decision.capabilities.operations.clear();
+        let show: OllamaShowResponse =
+            serde_json::from_str(r#"{"capabilities":["decision"]}"#).unwrap();
+        apply_ollama_show(&mut decision, &show, false);
+        assert_eq!(
+            decision.capabilities.operations,
+            vec![GaiseOperation::Decision],
+            "Ollama 0.35.1 reports the decision capability"
         );
         let mut qwen = map_ollama_tag(&tags.models[0], true);
         assert_eq!(qwen.description.as_deref(), Some("qwen3 8.2B Q4_K_M"));

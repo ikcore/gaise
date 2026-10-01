@@ -85,11 +85,30 @@ pub struct GaiseClientGemini {
 /// `thinkingLevel`, 2.5 uses `thinkingBudget`; sampling parameters are
 /// deprecated (ignored or rejected) on every Gemini 3.x model.
 pub fn model_uses_thinking_level(model: &str) -> bool {
-    model.to_ascii_lowercase().starts_with("gemini-3")
+    gemini_major_version(model).is_some_and(|major| major >= 3)
 }
 
 pub fn model_uses_fixed_sampling(model: &str) -> bool {
-    model.to_ascii_lowercase().starts_with("gemini-3")
+    gemini_major_version(model).is_some_and(|major| major >= 3)
+}
+
+/// Major version of a `gemini-<major>[.<minor>]-...` id (`gemini-3.8-flash`
+/// -> 3, `gemini-4-argon` -> 4); `None` for other ids such as Gemma.
+///
+/// Gemini 4 (announced 2026-09-30, no API model id or request contract
+/// published yet) gets the Gemini 3 controls (`thinkingLevel`, no sampling)
+/// rather than the Gemini 2.5 `thinkingBudget` path. This is a forward guard,
+/// not documented behaviour; revisit when Google publishes a Gemini 4 page.
+pub fn gemini_major_version(model: &str) -> Option<u32> {
+    let m = model.to_ascii_lowercase();
+    let rest = m.strip_prefix("gemini-")?;
+    let digits: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    let after = &rest[digits.len()..];
+    if digits.is_empty() || !(after.is_empty() || after.starts_with('.') || after.starts_with('-'))
+    {
+        return None;
+    }
+    digits.parse().ok()
 }
 
 const LEVELS_ALL: &[&str] = &["MINIMAL", "LOW", "MEDIUM", "HIGH"];
@@ -121,6 +140,7 @@ pub fn thinking_levels_for(model: &str) -> &'static [&'static str] {
     } else if m.contains("-image") {
         LEVELS_IMAGE
     } else if gemini_3_minor_without_minimal(&m)
+        || gemini_major_version(&m).is_some_and(|major| major >= 4)
         || m.contains("gemini-3.1-pro")
         || m.contains("gemini-3-pro")
     {

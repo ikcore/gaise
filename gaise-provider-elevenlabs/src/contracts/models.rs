@@ -151,10 +151,12 @@ pub fn model_accepts_language_code(model: &str) -> bool {
         .starts_with("eleven_multilingual_v2")
 }
 
-/// `eleven_v3*` models use the text-to-dialogue WebSocket; every other TTS
+/// `eleven_v3*` and `eleven_v4*` models use the text-to-dialogue WebSocket
+/// ("`model_id` must start with `eleven_v3` or `eleven_v4`"); every other TTS
 /// model uses `stream-input`.
 pub fn model_uses_dialogue_websocket(model: &str) -> bool {
-    model.to_ascii_lowercase().starts_with("eleven_v3")
+    let m = model.to_ascii_lowercase();
+    m.starts_with("eleven_v3") || m.starts_with("eleven_v4")
 }
 
 /// Build the REST body for a speech request. The voice travels in the path.
@@ -559,6 +561,9 @@ mod tests {
         assert!(body.get("voice_settings").is_none());
         assert!(model_uses_dialogue_websocket("eleven_v3"));
         assert!(model_uses_dialogue_websocket("eleven_v3_conversational"));
+        assert!(model_uses_dialogue_websocket("eleven_v4"));
+        assert!(model_uses_dialogue_websocket("eleven_v4_turbo"));
+        assert!(!model_uses_dialogue_websocket("eleven_flash_v2_5"));
         assert!(!model_uses_dialogue_websocket("eleven_flash_v2_5"));
     }
 
