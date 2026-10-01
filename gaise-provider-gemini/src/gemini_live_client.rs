@@ -4,7 +4,7 @@ use futures_util::{SinkExt, StreamExt};
 use gaise_core::GaiseLiveClient;
 use gaise_core::contracts::{
     GaiseLiveConfig, GaiseLiveEvent, GaiseLiveEventStream, GaiseLiveInput, GaiseLiveModality,
-    GaiseLiveSession, GaiseReasoningEffort, GaiseTool, GaiseToolParameter, GaiseUsage,
+    GaiseLiveSession, GaiseTool, GaiseToolParameter, GaiseUsage,
 };
 use std::collections::HashMap;
 use tokio::sync::mpsc;
@@ -22,20 +22,21 @@ fn live_thinking_level_from_tokens(tokens: usize) -> String {
     .to_string()
 }
 
-/// Live models accept `MINIMAL`…`HIGH`; resolved through the canonical
-/// vocabulary (`none` → MINIMAL, `xhigh`/`max`/`ultra` → HIGH, `auto` → omit).
-fn normalize_live_thinking_level(effort: &str) -> Option<String> {
-    const LIVE_LEVELS: &[&str] = &["minimal", "low", "medium", "high"];
-    match GaiseReasoningEffort::parse(effort) {
-        GaiseReasoningEffort::Auto => None,
-        GaiseReasoningEffort::Custom(raw) => Some(raw.to_ascii_uppercase()),
-        level => Some(
-            level
-                .clamp_to(&GaiseReasoningEffort::levels(LIVE_LEVELS))
-                .as_str()
-                .to_ascii_uppercase(),
-        ),
-    }
+/// Live models take the same per-family `thinkingLevel` set as
+/// generateContent (`thinking_levels_for`): `MINIMAL`…`HIGH` on 3.1 Flash
+/// Live, no `MINIMAL` on 3.8 Live Extended Thinking. Resolved through the
+/// canonical vocabulary (`none` → lowest, `xhigh`/`max`/`ultra` → HIGH,
+/// `auto` → omit).
+fn normalize_live_thinking_level(model: &str, effort: &str) -> Option<String> {
+    crate::gemini_client::normalize_thinking_level(model, effort)
+}
+
+/// Gemini 3.8 Live (GA 2026-09-15) rejects thinking configuration: "Omit
+/// thinking_level (or thinking_config) from your session setup". Its
+/// Extended Thinking variant accepts `thinking_level` low, medium, or high.
+pub fn live_model_rejects_thinking_config(model: &str) -> bool {
+    let m = model.to_ascii_lowercase();
+    m.strip_prefix("models/").unwrap_or(&m) == "gemini-3.8-live"
 }
 
 fn normalize_live_media_resolution(resolution: &str) -> String {
@@ -241,10 +242,11 @@ fn build_setup_message(config: &GaiseLiveConfig, api_model_path: &str) -> Gemini
         .as_ref()
         .and_then(|gc| gc.max_tokens);
     let thinking_config = config.generation_config.as_ref().and_then(|gc| {
-        let uses_levels = config.model.to_ascii_lowercase().starts_with("gemini-3");
-        let requested = gc.thinking_effort.is_some()
+        let uses_levels = crate::gemini_client::model_uses_thinking_level(&config.model);
+        let requested = (gc.thinking_effort.is_some()
             || gc.thinking_tokens.is_some()
-            || gc.include_thoughts.is_some();
+            || gc.include_thoughts.is_some())
+            && !live_model_rejects_thinking_config(&config.model);
         requested.then(|| {
             if uses_levels {
                 crate::contracts::GeminiThinkingConfig {
@@ -252,8 +254,15 @@ fn build_setup_message(config: &GaiseLiveConfig, api_model_path: &str) -> Gemini
                     thinking_level: gc
                         .thinking_effort
                         .as_deref()
-                        .and_then(normalize_live_thinking_level)
-                        .or_else(|| gc.thinking_tokens.map(live_thinking_level_from_tokens)),
+                        .and_then(|effort| normalize_live_thinking_level(&config.model, effort))
+                        .or_else(|| {
+                            gc.thinking_tokens.and_then(|tokens| {
+                                normalize_live_thinking_level(
+                                    &config.model,
+                                    &live_thinking_level_from_tokens(tokens),
+                                )
+                            })
+                        }),
                     include_thoughts: gc.include_thoughts,
                 }
             } else {
@@ -737,6 +746,39 @@ fn uuid_simple() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn live_setup_json(model: &str, effort: Option<&str>, tokens: Option<usize>) -> String {
+        let config = GaiseLiveConfig {
+            model: model.into(),
+            generation_config: Some(gaise_core::contracts::GaiseGenerationConfig {
+                thinking_effort: effort.map(str::to_string),
+                thinking_tokens: tokens,
+                include_thoughts: Some(true),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        serde_json::to_string(&build_setup_message(&config, &format!("models/{model}"))).unwrap()
+    }
+
+    #[test]
+    fn live_thinking_follows_each_live_model_contract() {
+        // 3.8 Live: "Omit thinking_level (or thinking_config) from your session setup".
+        let json = live_setup_json("gemini-3.8-live", Some("high"), None);
+        assert!(!json.contains("thinkingConfig"), "{json}");
+        assert!(live_model_rejects_thinking_config("models/gemini-3.8-live"));
+        assert!(!live_model_rejects_thinking_config(
+            "gemini-3.8-live-extended-thinking"
+        ));
+        // 3.8 Live Extended Thinking: low, medium, or high; MINIMAL is not supported.
+        let json = live_setup_json("gemini-3.8-live-extended-thinking", Some("none"), None);
+        assert!(json.contains("\"thinkingLevel\":\"LOW\""), "{json}");
+        let json = live_setup_json("gemini-3.8-live-extended-thinking", None, Some(0));
+        assert!(json.contains("\"thinkingLevel\":\"LOW\""), "{json}");
+        // 3.1 Flash Live keeps MINIMAL.
+        let json = live_setup_json("gemini-3.1-flash-live-preview", Some("minimal"), None);
+        assert!(json.contains("\"thinkingLevel\":\"MINIMAL\""), "{json}");
+    }
 
     #[test]
     fn maps_live_usage_modalities_and_keeps_total_neutral() {

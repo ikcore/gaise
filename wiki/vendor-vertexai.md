@@ -125,13 +125,14 @@ Not mapped: `safetySettings`, `responseMimeType`/`responseSchema` (structured ou
 
 No other model-name rules exist; arbitrary IDs (including `publishers/anthropic` Claude models via the template) are passed through.
 
-### Parameter compatibility (audited 2026-09-12)
+### Parameter compatibility (audited 2026-10-01)
 
 [`model_uses_fixed_sampling`](../gaise-provider-vertexai/src/contracts/models.rs), [`thinking_levels_for`](../gaise-provider-vertexai/src/contracts/models.rs), [`normalize_thinking_level`](../gaise-provider-vertexai/src/contracts/models.rs), and [`thinking_budget_for`](../gaise-provider-vertexai/src/contracts/models.rs) enforce the table; [`tests/parameter_matrix_tests.rs`](../gaise-provider-vertexai/tests/parameter_matrix_tests.rs) pins it.
 
 | Family | `temperature` / `topP` / `topK` | Thinking control | Accepted levels / budget | `none` effort |
 |---|---|---|---|---|
 | Gemini 3.8 Flash (2026-09-02), 3.7 Flash, any later `gemini-3.<n>` Flash, 3.1 Pro | never sent (ignored on 3.6+/3.5-Lite/3.7/3.8; `frequency_penalty`, `presence_penalty`, and `candidate_count` raise errors there) | `thinkingLevel` | LOW, MEDIUM, HIGH (`minimal` → LOW) | → LOW (cannot disable) |
+| Gemini 4 and later (`gemini-<major>` with major ≥ 4; none published yet) | never sent | `thinkingLevel` | LOW, MEDIUM, HIGH (`minimal` → LOW) | → LOW |
 | Gemini 3.6, 3.5, 3.5-Lite, 3.1-Lite, 3 Flash preview (deprecated on Vertex, no date) | never sent | `thinkingLevel` | MINIMAL, LOW, MEDIUM, HIGH | → MINIMAL |
 | 3.1 Flash Image, 3.1 Flash-Lite Image | never sent | `thinkingLevel` | MINIMAL, HIGH (LOW → MINIMAL, MEDIUM → HIGH) | → MINIMAL |
 | 3 Pro Image | never sent | `thinkingLevel` | HIGH only | → HIGH |
@@ -140,6 +141,8 @@ No other model-name rules exist; arbitrary IDs (including `publishers/anthropic`
 | Gemini 2.5 Flash-Lite | accepted | `thinkingBudget` | 0 or 512–24,576 | → 0 |
 
 On 2.5, an effort without a budget is approximated (`low` 2,048, `medium` 8,192, `high` 24,576, `minimal` 512); `xhigh`/`max` map to HIGH on 3.x. `thinkingLevel` and `thinkingBudget` are never sent together. Sources: Vertex inference reference ("deprecated for all Gemini 3 models"), Vertex thinking page, model cards. The same helpers are duplicated in the Gemini crate.
+
+Gemini 4 Argon was announced on 2026-09-30 for restricted early access with no API model id or request contract. [`gemini_major_version`](../gaise-provider-vertexai/src/contracts/models.rs) makes `model_uses_thinking_level` and `model_uses_fixed_sampling` true for any `gemini-<major>` id with major ≥ 3, so a Gemini 4 id gets the Gemini 3 controls instead of the 2.5 `thinkingBudget` path. This is a forward guard, not documented behaviour; `gemini_4_ids_get_the_gemini_3_controls_without_minimal` pins it until Google publishes a Gemini 4 model page.
 
 ## Response mapping
 
@@ -231,10 +234,12 @@ Tests: [`catalog.rs#L150`](../gaise-provider-vertexai/src/contracts/catalog.rs#L
 
 ## Models
 
-From `model-registry.toml` (audited 2026-09-12), `provider = "vertexai"` entries. Dates are Google Cloud dates only; Gemini API (`gemini`) lifecycle dates must never be copied here or vice versa. "Short-term" models retire 45 days after a designated replacement ships.
+From `model-registry.toml` (audited 2026-10-01), `provider = "vertexai"` entries. Dates are Google Cloud dates only; Gemini API (`gemini`) lifecycle dates must never be copied here or vice versa. "Short-term" models retire 45 days after a designated replacement ships.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
+| `gemini-3.8-flash-cyber` | — | `limited_availability` | — | text, image, file | text | instruct, instruct_stream | supported | native generateContent for allowlisted projects; function calling not supported | GA behind an allowlist since 2026-09-16; no retirement date announced. Thinking and structured output supported; function calling not suppor… |
+| `gemini-3.8-live` | — | `active` | — | text, image, audio, video | text, audio | — | — | not reachable: the Vertex AI crate has no Live transport | GA on Vertex 2026-09-24 (the Gemini API date is 2026-09-15). Thinking not supported; Count Tokens not supported. |
 | `gemini-3.8-flash` | — | `short_term_active` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native | GA 2026-09-02; short-term availability table, no retirement date announced. thinking_level LOW, MEDIUM (default), HIGH; MINIMAL not supporte… |
 | `gemini-3.7-flash` | — | `short_term_active` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native | GA 2026-08-13; short-term availability table, no retirement date announced and no replacement named as of 2026-09-12 (gemini-3.8-flash has n… |
 | `gemini-3.6-flash` | — | `short_term_active` | — | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | Released 2026-07-21; short-term availability (retires 45 days after a designated replacement). Neither 3.7 nor 3.8 Flash is named as that re… |
@@ -244,7 +249,7 @@ From `model-registry.toml` (audited 2026-09-12), `provider = "vertexai"` entries
 | `gemini-3.1-pro-preview` | `gemini-3.1-pro-preview-customtools` | `preview` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native | Public preview since 2026-02-19 (customtools variant 2026-02-23); global endpoint only; not in the lifecycle table. thinking_level LOW, MEDI… |
 | `gemini-3-flash-preview` | — | `preview` | — | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | Public preview since 2025-12-17; not in the Vertex lifecycle table. The Vertex model page shows launch stage Public preview with no deprecat… |
 | `gemini-3.1-flash-image` | — | `active` | not before 2027-05-28 | text, image, video, file | text, image | instruct, instruct_stream | `minimal`, `high` | native image output through generateContent | Video input and 4K output are GA since 2026-08-31; us and eu multi-region endpoints added. Function calling is not supported. Resolutions 51… |
-| `gemini-3.1-flash-lite-image` | — | `active` | — | text, image, video, file | text, image | instruct, instruct_stream | `minimal`, `high` | native image output through generateContent | GA 2026-06-23 on Vertex (the Gemini API date is 2026-06-30). Listed in the 12-month availability table with no retirement date announced (co… |
+| `gemini-3.1-flash-lite-image` | — | `active` | not before 2027-06-28 | text, image, video, file | text, image | instruct, instruct_stream | `minimal`, `high` | native image output through generateContent | GA 2026-06-23 on Vertex (the Gemini API date is 2026-06-30). Listed in the 12-month availability table with no retirement date announced (co… |
 | `gemini-3-pro-image` | — | `active` | not before 2027-05-28 | text, image, file | text, image | instruct, instruct_stream | `high` | native image output through generateContent | Function calling is not supported; video input is not supported; 4K output GA since 2026-08-31. thinking_level HIGH only. |
 | `gemini-embedding-2` | `gemini-embedding-2-preview` | `active` | — | text, image, audio, video | embedding | — | — | not yet: Vertex serves it via :embedContent on the aiplatform.{location}.rep.googleapis.com host, which the adapter does not call; use gemini::gemini-embedding-2 | GA 2026-04-22 (preview alias since 2026-03-10). Text, image, audio, video, and PDF input; 8,192 input tokens; up to 3,072 dimensions with MR… |
 | `gemini-embedding-001` | — | `active` | not before 2028-05-20 | text | embedding | embeddings | — | native | Previous-generation text embedding model; gemini-embedding-2 is current. Accepts one input text per :predict call; GAISe loops. |
@@ -255,10 +260,10 @@ From `model-registry.toml` (audited 2026-09-12), `provider = "vertexai"` entries
 | `gemini-omni-1.1-flash-preview` | — | `preview` | — | text, image, video | text | — | — | not supported: video generation has no GAISe surface | Preview since 2026-08-27 (the Gemini API serves gemini-omni-1.1-flash as GA); fixed quota only. |
 | `gemini-omni-flash-preview` | — | `preview` | shutdown 2027-06-30 | text, image, video | text | — | — | not supported: video generation has no GAISe surface | Preview on Vertex since 2026-06-30 with a Vertex retirement date of 2027-06-30 (the Gemini API shuts the same id down on 2026-09-30; the dat… |
 | `gemini-3.5-live-translate-preview` | — | `preview` | — | audio | audio | — | — | not supported: speech-to-speech translation uses translationConfig on the Live API, and the Vertex AI adapter has no Live transport | Preview since 2026-08, global region only. Text transcript output; no thinking, tools, or system instructions. No retirement date announced. |
-| `gemini-2.5-pro` | — | `deprecated` | shutdown 2026-10-20 | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | Replacement `gemini-3.5-flash`. |
-| `gemini-2.5-flash` | — | `deprecated` | shutdown 2026-10-20 | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | Replacement `gemini-3.5-flash-lite or gemini-3.1-flash-lite`. |
-| `gemini-2.5-flash-lite` | — | `deprecated` | shutdown 2026-10-20 | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | Replacement `gemini-3.1-flash-lite or Gemma 4`. |
-| `gemini-2.5-flash-image` | — | `deprecated` | shutdown 2026-10-02 | text, image | text, image | instruct, instruct_stream | — | — | Vertex documents a 32,768-token context window for this model; the Gemini API documents 65,536. Replacement `gemini-3.1-flash-lite-image`. |
+| `gemini-2.5-pro` | — | `deprecated` | shutdown 2026-10-20 | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | Replacement `gemini-3.8-flash or gemini-3.5-flash`. |
+| `gemini-2.5-flash` | — | `deprecated` | shutdown 2026-10-20 | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | Replacement `gemini-3.8-flash or gemini-3.5-flash-lite or gemini-3.1-flash-lite`. |
+| `gemini-2.5-flash-lite` | — | `deprecated` | shutdown 2026-10-20 | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | Replacement `gemini-3.8-flash or gemini-3.1-flash-lite or Gemma 4`. |
+| `gemini-2.5-flash-image` | — | `deprecated` | shutdown 2027-03-15 | text, image | text, image | instruct, instruct_stream | — | — | Vertex documents a 32,768-token context window for this model; the Gemini API documents 65,536. Vertex retirement extended from 2026-10-02 t… |
 | `gemini-2.0-flash` | `gemini-2.0-flash-lite` | `retired` | shutdown 2026-06-01 | unknown | unknown | — | — | — | Replacement `gemini-3.1-flash-lite`. |
 
 The registry is advisory: any model ID the template endpoint accepts can be used. Note that the adapter's own rules key off name prefixes (`gemini-3*`, `gemini-3.5-flash*`, `gemini-3.6-flash*`), not registry entries.

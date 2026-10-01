@@ -103,7 +103,7 @@ Mapped by [`map_content_parts`](../gaise-provider-openai/src/openai_client.rs#L1
 | Reasoning families | none | No allowlist: `reasoning_effort` is sent whenever configured. The catalog heuristics in [`classify_openai_model_id`](../gaise-provider-openai/src/contracts/catalog.rs#L53) recognize `gpt-`, `chatgpt-`, `o1`/`o3`/`o4`, `codex` as Chat but do not gate request fields |
 | Fixed-sampling models | none | `temperature`/`top_p` are never suppressed per model |
 
-### Parameter compatibility (audited 2026-09-30)
+### Parameter compatibility (audited 2026-10-01)
 
 [`openai_chat_rules`](../gaise-provider-openai/src/openai_client.rs) drives per-family filtering before a Chat Completions request is serialized; [`tests/parameter_matrix_tests.rs`](../gaise-provider-openai/tests/parameter_matrix_tests.rs) pins every row.
 
@@ -127,7 +127,7 @@ Realtime: `gpt-live-*` ids are refused before any connection ([`realtime_model_u
 
 ### Responses path for GPT-6 tools
 
-OpenAI serves function calling for GPT-6 Astra and GPT-6.1 Sol through the Responses API only, so [`responses.rs`](../gaise-provider-openai/src/responses.rs) maps those tool conversations onto `POST /responses` (audited 2026-09-30 against the function-calling, reasoning, and latest-model guides and the openai-python `types/responses` definitions).
+OpenAI serves function calling for GPT-6 Astra and GPT-6.1 Sol through the Responses API only, so [`responses.rs`](../gaise-provider-openai/src/responses.rs) maps those tool conversations onto `POST /responses` (audited 2026-10-01 against the function-calling, reasoning, and latest-model guides and the openai-python `types/responses` definitions).
 
 | Aspect | Mapping |
 |---|---|
@@ -227,7 +227,7 @@ Tests: [`catalog.rs#L167-L283`](../gaise-provider-openai/src/contracts/catalog.r
 
 ## Models
 
-From `model-registry.toml` (audited 2026-09-30). Status is the registry string; dates are `shutdown_date` / `retirement_not_before`.
+From `model-registry.toml` (audited 2026-10-01). Status is the registry string; dates are `shutdown_date` / `retirement_not_before`.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|

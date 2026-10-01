@@ -940,6 +940,45 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
         );
         assert_eq!(find("openai", "gpt-6-astra"), "gpt-6-astra");
         assert_eq!(find("openai", "gpt-6.1-sol"), "gpt-6.1-sol");
+        assert_eq!(find("gemini", "gemini-3.8-live"), "gemini-3.8-live");
+        assert_eq!(
+            find("gemini", "gemini-3.8-live-extended-thinking"),
+            "gemini-3.8-live-extended-thinking"
+        );
+        assert_eq!(
+            find("gemini", "gemini-3.8-flash-tts"),
+            "gemini-3.8-flash-tts"
+        );
+        assert_eq!(
+            find("gemini", "gemini-3.8-flash-lite-tts"),
+            "gemini-3.8-flash-lite-tts"
+        );
+        assert_eq!(
+            find("vertexai", "gemini-3.8-flash-cyber"),
+            "gemini-3.8-flash-cyber"
+        );
+        assert_eq!(find("vertexai", "gemini-3.8-live"), "gemini-3.8-live");
+        assert_eq!(
+            find("bedrock", "global.openai.gpt-6.1-sol"),
+            "openai.gpt-6.1-sol"
+        );
+        assert_eq!(find("bedrock", "us.openai.gpt-6-sol"), "openai.gpt-6-sol");
+        assert_eq!(find("bedrock", "us.openai.gpt-6-luna"), "openai.gpt-6-luna");
+        assert_eq!(
+            find("bedrock", "global.moonshotai.kimi-k3"),
+            "moonshotai.kimi-k3"
+        );
+        assert_eq!(find("bedrock", "us.xai.grok-4.7"), "xai.grok-4.7");
+        assert_eq!(find("elevenlabs", "eleven_v4"), "eleven_v4");
+        assert_eq!(find("elevenlabs", "eleven_v4_turbo"), "eleven_v4_turbo");
+        assert_eq!(
+            registry
+                .find("anthropic", "claude-sonnet-4-5")
+                .unwrap()
+                .shutdown_date
+                .as_deref(),
+            Some("2026-11-30")
+        );
         for tag in ["nimble", "nimble:latest", "nimble:9b"] {
             assert_eq!(find("ollama", tag), "nimble:*");
         }
@@ -1348,7 +1387,10 @@ max_output_tokens = 128000
         // image-generation and STT entries have no token window.
         // Entries whose vendor publishes no per-request figure at all; the
         // provider's model API reports one live where it exists.
-        const UNDOCUMENTED: &[&str] = &["elevenlabs::eleven_v3_conversational"];
+        const UNDOCUMENTED: &[&str] = &[
+            "elevenlabs::eleven_v3_conversational",
+            "elevenlabs::eleven_v4_turbo",
+        ];
         let registry = ModelRegistry::bundled();
         let mut missing = Vec::new();
         for entry in &registry.models {

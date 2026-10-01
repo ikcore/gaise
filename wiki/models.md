@@ -2,7 +2,7 @@
 
 > Part of the [GAISe wiki](README.md) · [Capabilities](capabilities.md) · [HTTP API](api.md#get-v1models) · [Rust SDK](sdk.md#model-discovery) · [Flows](flows.md#model-discovery) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Google Gemini API](vendor-gemini.md) · [Google Vertex AI](vendor-vertexai.md) · [Amazon Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md) · [ElevenLabs](vendor-elevenlabs.md)
 
-This page is the human-readable view of [`gaise-core/model-registry.toml`](../gaise-core/model-registry.toml) (schema 2, audited **2026-09-30**), which is compiled into the `gaise` crate and applied as an overlay by [`list_models`](api.md#get-v1models). It is advisory: GAISe accepts arbitrary model IDs so new releases work before this file is updated, and the provider's own model API (see [Model discovery](capabilities.md#model-discovery)) is always the first source of truth.
+This page is the human-readable view of [`gaise-core/model-registry.toml`](../gaise-core/model-registry.toml) (schema 2, audited **2026-10-01**), which is compiled into the `gaise` crate and applied as an overlay by [`list_models`](api.md#get-v1models). It is advisory: GAISe accepts arbitrary model IDs so new releases work before this file is updated, and the provider's own model API (see [Model discovery](capabilities.md#model-discovery)) is always the first source of truth.
 
 This page is generated from the registry by [`cargo run -p gaise --example models_page`](../gaise-core/examples/models_page.rs); edit the registry (or that example's introductions), not this file. Columns:
 
@@ -17,11 +17,11 @@ This page is generated from the registry by [`cargo run -p gaise --example model
 
 - [OpenAI](#openai) — 61 entries
 - [Anthropic](#anthropic) — 19 entries
-- [Google Gemini API](#gemini) — 29 entries
-- [Google Vertex AI](#vertexai) — 25 entries
-- [Amazon Bedrock](#bedrock) — 61 entries
+- [Google Gemini API](#gemini) — 33 entries
+- [Google Vertex AI](#vertexai) — 27 entries
+- [Amazon Bedrock](#bedrock) — 66 entries
 - [Ollama](#ollama) — 33 entries
-- [ElevenLabs](#elevenlabs) — 14 entries
+- [ElevenLabs](#elevenlabs) — 16 entries
 - [Maintaining the registry](#maintaining-the-registry)
 - [Lifecycle calendar](#lifecycle-calendar)
 
@@ -121,7 +121,7 @@ The Messages API. Anthropic's `GET /v1/models` reports image/PDF input, thinking
 - Vendor page: [vendor-anthropic.md](vendor-anthropic.md) · GAISe surface: Messages
 - Discovery: GET /v1/models (capabilities: image_input, pdf_input, thinking types, effort levels, structured_outputs, token limits)
 - Official catalog: <https://platform.claude.com/docs/en/about-claude/models/overview> · lifecycle: <https://platform.claude.com/docs/en/about-claude/model-deprecations>
-- Direct Claude API lifecycle. Bedrock-hosted Claude has a separate AWS lifecycle. Anthropic labels every 4.x model except Haiku 4.5, plus Fable 5, as Legacy (still served, no retirement date) since the 2026-09-01 Fable 5.1 release; the registry mirrors that as status legacy. Messages contract as of 2026-09-12: temperature/top_p/top_k are deprecated and rejected at non-default values on Opus 4.7 and later; output_format is deprecated in favour of output_config.format; stop_reason may be refusal (with stop_details) on Fable/Opus 5 models and model_context_window_exceeded; the Files API and Skills API are out of beta (no header); thinking.display accepts updates behind the thinking-display-updates-2026-08-18 beta; stop_details.category is one of cyber, bio, frontier_llm, reasoning_extraction, general_harms, or null; server-side fallback (fallbacks: default or a list of up to three models, beta server-side-fallback-2026-07-01) and per-message effort (beta mid-conversation-output-config-2026-07-01, also on Google Cloud since 2026-09-03) are documented but not sent. No model, limit, or lifecycle change between 2026-09-04 and 2026-09-12. Audit 2026-09-30: Opus 5.5 (2026-09-22) and Sonnet 5.5 (2026-09-28) added, which moves Opus 5 and Sonnet 5 to Legacy on the models overview; both 5.5 models reject thinking.type disabled and forced tool_choice; thinking.type between_tools (Sonnet 5.5), on-demand compaction (beta compact-2026-09-04), and the GA diagnostics object are documented but not sent.
+- Direct Claude API lifecycle. Bedrock-hosted Claude has a separate AWS lifecycle. Anthropic labels every 4.x model except Haiku 4.5, plus Fable 5, as Legacy (still served, no retirement date) since the 2026-09-01 Fable 5.1 release; the registry mirrors that as status legacy. Messages contract as of 2026-09-12: temperature/top_p/top_k are deprecated and rejected at non-default values on Opus 4.7 and later; output_format is deprecated in favour of output_config.format; stop_reason may be refusal (with stop_details) on Fable/Opus 5 models and model_context_window_exceeded; the Files API and Skills API are out of beta (no header); thinking.display accepts updates behind the thinking-display-updates-2026-08-18 beta; stop_details.category is one of cyber, bio, frontier_llm, reasoning_extraction, general_harms, or null; server-side fallback (fallbacks: default or a list of up to three models, beta server-side-fallback-2026-07-01) and per-message effort (beta mid-conversation-output-config-2026-07-01, also on Google Cloud since 2026-09-03) are documented but not sent. No model, limit, or lifecycle change between 2026-09-04 and 2026-09-12. Audit 2026-10-01: claude-sonnet-4-5-20250929 deprecated on 2026-09-30 (retires 2026-11-30); no new models or Messages API changes; the deprecations table still lists the overview's Legacy models as Active. Audit 2026-09-30: Opus 5.5 (2026-09-22) and Sonnet 5.5 (2026-09-28) added, which moves Opus 5 and Sonnet 5 to Legacy on the models overview; both 5.5 models reject thinking.type disabled and forced tool_choice; thinking.type between_tools (Sonnet 5.5), on-demand compaction (beta compact-2026-09-04), and the GA diagnostics object are documented but not sent.
 
 #### Current and preview
 
@@ -146,7 +146,7 @@ The Messages API. Anthropic's `GET /v1/models` reports image/PDF input, thinking
 | `claude-opus-4-5-20251101` | `claude-opus-4-5` | `legacy` | not before 2026-11-24 | text, image, file | text | IS | ✓ | ✓ manual (low, medium, high) | native — Labelled Legacy since 2026-09-01. Manual thinking budget plus output_config.effort (low/medium/high)… |
 | `claude-sonnet-5` | — | `legacy` | not before 2027-06-30 | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, xhigh, max) | native — Listed under Legacy models since the 2026-09-28 Sonnet 5.5 release (still served). Adaptive thinking… |
 | `claude-sonnet-4-6` | — | `legacy` | not before 2027-02-17 | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, max) | native — Labelled Legacy since 2026-09-01 (migrate to claude-sonnet-5). Adaptive thinking recommended; enable… |
-| `claude-sonnet-4-5-20250929` | `claude-sonnet-4-5` | `legacy` | not before 2026-09-29 | text, image, file | text | IS | ✓ | ✓ manual | native — Labelled Legacy since 2026-09-01. Manual thinking budget only; no effort parameter. The retirement f… |
+| `claude-sonnet-4-5-20250929` | `claude-sonnet-4-5` | `deprecated` | shutdown 2026-11-30 · not before 2026-09-29 | text, image, file | text | IS | ✓ | ✓ manual | native — Labelled Legacy since 2026-09-01; deprecated 2026-09-30 with retirement on the Claude API scheduled… |
 | `claude-mythos-preview` | — | `deprecated` | — | text, image, file | text | IS | ✓ | ✓ adaptive (low, medium, high, max) | Deprecated; migrate to claude-mythos-5-1 (Project Glasswing) or claude-fable-5-1. No retirement date is publi… |
 
 #### Retired
@@ -166,7 +166,7 @@ Google AI Gemini API lifecycle only — see [Vertex AI](#vertexai) for Google Cl
 - Vendor page: [vendor-gemini.md](vendor-gemini.md) · GAISe surface: Gemini generateContent, streamGenerateContent, Embeddings, and Live
 - Discovery: GET /v1beta/models (supportedGenerationMethods, token limits, thinking flag; no modalities)
 - Official catalog: <https://ai.google.dev/gemini-api/docs/models> · lifecycle: <https://ai.google.dev/gemini-api/docs/deprecations>
-- Google AI Gemini API lifecycle; do not reuse these dates for Vertex AI. Shutdown dates on the deprecations page are the earliest possible retirement dates. generateContent contract as of 2026-09-12: temperature/top_p/top_k are deprecated on every Gemini 3.x (the adapter omits them) and candidateCount is unsupported there; generationConfig gained responseFormat, enableAffectiveDialog, translationConfig, and audioTranscriptionConfig while responseSchema is deprecated in favour of responseJsonSchema; Part.mediaProcessing (STATIC | AGENTIC) selects agentic video understanding on 3.5 Flash-Lite, 3.6, 3.7, and 3.8; embedContent's top-level taskType/title/outputDimensionality are deprecated in favour of embedContentConfig (the adapter still sends the accepted top-level form). The thinking guide is now written against the Interactions API and lists the 2.5 family under thinking_level, but the REST reference and Vertex state that thinkingLevel errors on pre-3 models, so the adapter keeps thinkingBudget for 2.5. Requests also accept a top-level serviceTier (standard, flex, priority) and store, which the adapter does not send; batchEmbedContents returns usageMetadata; the Live API accepts only HIGH or LOW for start and end sensitivity (default HIGH), so the adapter omits any other value. No model or lifecycle change between 2026-09-04 and 2026-09-12.
+- Google AI Gemini API lifecycle; do not reuse these dates for Vertex AI. Shutdown dates on the deprecations page are the earliest possible retirement dates. generateContent contract as of 2026-09-12: temperature/top_p/top_k are deprecated on every Gemini 3.x (the adapter omits them) and candidateCount is unsupported there; generationConfig gained responseFormat, enableAffectiveDialog, translationConfig, and audioTranscriptionConfig while responseSchema is deprecated in favour of responseJsonSchema; Part.mediaProcessing (STATIC | AGENTIC) selects agentic video understanding on 3.5 Flash-Lite, 3.6, 3.7, and 3.8; embedContent's top-level taskType/title/outputDimensionality are deprecated in favour of embedContentConfig (the adapter still sends the accepted top-level form). The thinking guide is now written against the Interactions API and lists the 2.5 family under thinking_level, but the REST reference and Vertex state that thinkingLevel errors on pre-3 models, so the adapter keeps thinkingBudget for 2.5. Requests also accept a top-level serviceTier (standard, flex, priority) and store, which the adapter does not send; batchEmbedContents returns usageMetadata; the Live API accepts only HIGH or LOW for start and end sensitivity (default HIGH), so the adapter omits any other value. No model or lifecycle change between 2026-09-04 and 2026-09-12. Audit 2026-10-01: Gemini 4 Argon was announced 2026-09-30 (restricted early access through the Fairwind Program, 1M output tokens) with no API model id or model page; the adapters treat any gemini-<major> id with major >= 3 like Gemini 3 (thinkingLevel without MINIMAL, no sampling) as a forward guard. Added gemini-3.8-live, gemini-3.8-live-extended-thinking, and the 3.8 Flash / Flash-Lite TTS models; the Live transport omits thinking_config for gemini-3.8-live.
 
 #### Current and preview
 
@@ -180,25 +180,28 @@ Google AI Gemini API lifecycle only — see [Vertex AI](#vertexai) for Google Cl
 | `gemini-3.1-flash-lite` | — | `stable` | shutdown 2027-05-07 | text, image, audio, video, file | text | IS | ✓ | ✓ (minimal, low, medium, high) | native — thinkingLevel minimal (default), low, medium, high per the Gemini 3.5 guide's comparison table; the… |
 | `gemini-3.1-pro-preview` | — | `preview` | — | text, image, audio, video, file | text | IS | ✓ | ✓ (low, medium, high) | native — No shutdown date announced. A gemini-3.1-pro-preview-customtools variant endpoint exists. |
 | `gemini-3-flash-preview` | — | `preview` | — | text, image, audio, video, file | text | IS | ✓ | ✓ (minimal, low, medium, high) | native — No shutdown date announced. |
-| `gemini-3.1-flash-live-preview` | — | `preview` | — | text, image, audio, video | text, audio | L | ✓ | ✓ (minimal, low, medium, high) | native Live API transport — Released 2026-03-11; no shutdown date announced. |
+| `gemini-3.8-live` | — | `stable` | — | text, image, audio, video | text, audio | L | ✓ | ✗ | native Live API transport; thinking configuration is never sent — GA 2026-09-15; replaces gemini-3.1-flash-li… |
+| `gemini-3.8-live-extended-thinking` | — | `stable` | — | text, image, audio, video | text, audio | L | ✓ | ✓ (low, medium, high) | native Live API transport (thinking_level low, medium, or high) — GA 2026-09-15. Background reasoning during… |
+| `gemini-3.1-flash-live-preview` | — | `preview` | — | text, image, audio, video | text, audio | L | ✓ | ✓ (minimal, low, medium, high) | native Live API transport — Released 2026-03-11; no shutdown date announced. The deprecations page names gemi… |
 | `gemini-2.5-flash-native-audio-preview-12-2025` | — | `preview_legacy` | — | text, audio, video | text, audio | L | ✓ | ✓ | Live transport; migration recommended — Live guide still documents thinkingBudget (0 disables) for this model. |
 | `gemini-3.1-flash-image` | — | `stable` | — | text, image, video, file | text, image | IS | ✗ | ✓ (minimal, high) | native image output through generateContent — Released 2026-05-28. Function calling and structured outputs ar… |
 | `gemini-3.1-flash-lite-image` | — | `stable` | — | text, image | text, image | IS | ✗ | ✓ (minimal, high) | native image output through generateContent — GA 2026-06-30 (Nano Banana 2 Lite); 1K output only. The model p… |
 | `gemini-3-pro-image` | — | `stable` | — | text, image | text, image | IS | ✗ | ✓ | native image output through generateContent — Released 2026-05-28. Function calling is not supported. |
 | `gemini-embedding-2` | `gemini-embedding-2-preview` | `stable` | — | text, image, audio, video | embedding | E | ✗ | ✗ | native — Released 2026-04-22. Text, image, video, audio, and PDF input. The catalog table still shows the -pr… |
+| `gemini-3.8-flash-tts` | — | `stable` | — | text | text, audio | — | ✗ | ✗ | text-to-speech is outside the instruct surface — GA 2026-09-22; 130+ languages with automatic language detect… |
+| `gemini-3.8-flash-lite-tts` | — | `stable` | — | text | text, audio | — | ✗ | ✗ | text-to-speech is outside the instruct surface — GA 2026-09-22; 100+ languages with automatic language detect… |
 | `gemini-3.1-flash-tts-preview` | — | `preview` | — | text | text, audio | — | ✗ | ✗ | text-to-speech is outside the instruct surface — Released 2026-04-13; replacement for the 2.5 TTS previews (g… |
 | `gemini-3.5-transcribe` | `gemini-3.5-transcribe-live` | `stable` | — | text, audio | text | — | ✗ | ✗ | not supported: speech-to-text has no GAISe surface — GA 2026-08-26. gemini-3.5-transcribe is unary generateCo… |
 | `gemini-3.5-live-translate-preview` | — | `preview` | — | audio | audio | — | ✗ | ✗ | not supported: speech-to-speech translation uses translationConfig on the Live API, which the live transport… |
 | `gemini-omni-1.1-flash` | — | `stable` | — | text, image, video | text | — | ✗ | ✗ | not supported: video generation is served by the Interactions API only — GA 2026-08-27; conversational video… |
 | `gemini-2.5-pro` | — | `stable` | — | text, image, audio, video, file | text | IS | ✓ | ✓ | native (thinkingBudget mapper path) — No shutdown date announced on the Gemini API deprecations page; the 202… |
-| `gemini-2.5-flash` | — | `stable` | — | text, image, audio, video, file | text | IS | ✓ | ✓ | native (thinkingBudget mapper path) — No shutdown date announced on the Gemini API deprecations page. |
+| `gemini-2.5-flash` | — | `stable` | — | text, image, audio, video, file | text | IS | ✓ | ✓ | native (thinkingBudget mapper path) — No shutdown date announced on the Gemini API deprecations page. Since 2… |
 | `gemini-2.5-flash-lite` | — | `stable` | — | text, image, audio, video, file | text | IS | ✓ | ✓ | native (thinkingBudget mapper path) — Released 2025-07-22; thinking is off by default. No shutdown date annou… |
 
 #### Deprecated and legacy
 
 | Model | Aliases | Status | Dates | Input | Output | Ops | Tools | Reasoning | GAISe support / notes |
 |---|---|---|---|---|---|---|---|---|---|
-| `gemini-omni-flash-preview` | — | `deprecated` | shutdown 2026-09-30 | — | — | — | ? | ? | Released 2026-06-30; deprecated 2026-08-27. |
 | `gemini-2.5-flash-image` | — | `deprecated` | shutdown 2026-10-02 | — | — | — | ? | ? | The deprecations page names gemini-3.1-flash-image-preview (itself shut down 2026-06-25); the GA replacements… |
 | `gemini-embedding-001` | — | `deprecated` | shutdown 2028-05-14 | text | embedding | E | ✗ | ✗ | native — Still listed as callable; the earlier registry date (2026-07-14) was the release date. |
 
@@ -206,6 +209,7 @@ Google AI Gemini API lifecycle only — see [Vertex AI](#vertexai) for Google Cl
 
 | Model | Aliases | Status | Dates | Input | Output | Ops | Tools | Reasoning | GAISe support / notes |
 |---|---|---|---|---|---|---|---|---|---|
+| `gemini-omni-flash-preview` | — | `retired` | shutdown 2026-09-30 | — | — | — | ? | ? | Released 2026-06-30; deprecated 2026-08-27. Shut down 2026-09-30 and no longer listed (2026-10-01). |
 | `embedding-2-preview` | — | `retired` | shutdown 2026-08-10 | — | — | — | ? | ? | — |
 | `gemini-2.0-flash` | — | `retired` | shutdown 2026-06-01 | — | — | — | ? | ? | — |
 | `gemini-2.0-flash-lite` | — | `retired` | shutdown 2026-06-01 | — | — | — | ? | ? | — |
@@ -221,12 +225,14 @@ Google Cloud lifecycle only. Model Garden listing returns names, versions, and l
 - Vendor page: [vendor-vertexai.md](vendor-vertexai.md) · GAISe surface: Vertex AI generateContent, streamGenerateContent, and Embeddings
 - Discovery: GET {region}-aiplatform.googleapis.com/v1beta1/publishers/{publisher}/models (names, versionId, launchStage; no modalities or limits)
 - Official catalog: <https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/models> · lifecycle: <https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions>
-- Model availability and retirement dates are specific to Google Cloud. Short-term availability models retire 45 days after a replacement is released. Release notes moved to https://docs.cloud.google.com/gemini-enterprise-agent-platform/release-notes (the Vertex AI release-notes page is frozen at 2026-05-26). On 3.6+ Flash, 3.5 Flash-Lite, 3.7, and 3.8, custom temperature/topP/topK are ignored, frequency/presence penalties and candidateCount raise errors, and a trailing model turn is rejected; thinking_level on a pre-Gemini-3 model errors, and mixing thinking_level with thinking_budget on Gemini 3 errors. Claude on Vertex uses suffix-less ids (claude-fable-5-1, claude-opus-5, claude-sonnet-5, ...) through the Anthropic rawPredict Messages shape, which the Gemini-shaped Vertex adapter does not produce. Priority PayGo is available on the global and the us/eu multi-region endpoints since 2026-09-09 (X-Vertex-AI-LLM-Shared-Request-Type: priority, with X-Vertex-AI-LLM-Request-Type: shared to bypass Provisioned Throughput); a deferred service tier (preview) exists for the Interactions API only.
+- Model availability and retirement dates are specific to Google Cloud. Short-term availability models retire 45 days after a replacement is released. Release notes moved to https://docs.cloud.google.com/gemini-enterprise-agent-platform/release-notes (the Vertex AI release-notes page is frozen at 2026-05-26). On 3.6+ Flash, 3.5 Flash-Lite, 3.7, and 3.8, custom temperature/topP/topK are ignored, frequency/presence penalties and candidateCount raise errors, and a trailing model turn is rejected; thinking_level on a pre-Gemini-3 model errors, and mixing thinking_level with thinking_budget on Gemini 3 errors. Claude on Vertex uses suffix-less ids (claude-fable-5-1, claude-opus-5, claude-sonnet-5, ...) through the Anthropic rawPredict Messages shape, which the Gemini-shaped Vertex adapter does not produce. Priority PayGo is available on the global and the us/eu multi-region endpoints since 2026-09-09 (X-Vertex-AI-LLM-Shared-Request-Type: priority, with X-Vertex-AI-LLM-Request-Type: shared to bypass Provisioned Throughput); a deferred service tier (preview) exists for the Interactions API only. Audit 2026-10-01: added gemini-3.8-flash-cyber (allowlist) and gemini-3.8-live; gemini-2.5-flash-image retirement extended to 2027-03-15; Gemini 3 models are available on the Interactions API (preview, 2026-09-28); Gemini 4 Argon is not listed.
 
 #### Current and preview
 
 | Model | Aliases | Status | Dates | Input | Output | Ops | Tools | Reasoning | GAISe support / notes |
 |---|---|---|---|---|---|---|---|---|---|
+| `gemini-3.8-flash-cyber` | — | `limited_availability` | — | text, image, file | text | IS | ✗ | ✓ | native generateContent for allowlisted projects; function calling not supported — GA behind an allowlist sinc… |
+| `gemini-3.8-live` | — | `active` | — | text, image, audio, video | text, audio | — | ✓ | ✗ | not reachable: the Vertex AI crate has no Live transport — GA on Vertex 2026-09-24 (the Gemini API date is 20… |
 | `gemini-3.8-flash` | — | `short_term_active` | — | text, image, audio, video, file | text | IS | ✓ | ✓ (low, medium, high) | native — GA 2026-09-02; short-term availability table, no retirement date announced. thinking_level LOW, MEDI… |
 | `gemini-3.7-flash` | — | `short_term_active` | — | text, image, audio, video, file | text | IS | ✓ | ✓ (low, medium, high) | native — GA 2026-08-13; short-term availability table, no retirement date announced and no replacement named… |
 | `gemini-3.6-flash` | — | `short_term_active` | — | text, image, audio, video, file | text | IS | ✓ | ✓ (minimal, low, medium, high) | native — Released 2026-07-21; short-term availability (retires 45 days after a designated replacement). Neith… |
@@ -236,7 +242,7 @@ Google Cloud lifecycle only. Model Garden listing returns names, versions, and l
 | `gemini-3.1-pro-preview` | `gemini-3.1-pro-preview-customtools` | `preview` | — | text, image, audio, video, file | text | IS | ✓ | ✓ (low, medium, high) | native — Public preview since 2026-02-19 (customtools variant 2026-02-23); global endpoint only; not in the l… |
 | `gemini-3-flash-preview` | — | `preview` | — | text, image, audio, video, file | text | IS | ✓ | ✓ (minimal, low, medium, high) | native — Public preview since 2025-12-17; not in the Vertex lifecycle table. The Vertex model page shows laun… |
 | `gemini-3.1-flash-image` | — | `active` | not before 2027-05-28 | text, image, video, file | text, image | IS | ✗ | ✓ (minimal, high) | native image output through generateContent — Video input and 4K output are GA since 2026-08-31; us and eu mu… |
-| `gemini-3.1-flash-lite-image` | — | `active` | — | text, image, video, file | text, image | IS | ✗ | ✓ (minimal, high) | native image output through generateContent — GA 2026-06-23 on Vertex (the Gemini API date is 2026-06-30). Li… |
+| `gemini-3.1-flash-lite-image` | — | `active` | not before 2027-06-28 | text, image, video, file | text, image | IS | ✗ | ✓ (minimal, high) | native image output through generateContent — GA 2026-06-23 on Vertex (the Gemini API date is 2026-06-30). Li… |
 | `gemini-3-pro-image` | — | `active` | not before 2027-05-28 | text, image, file | text, image | IS | ✗ | ✓ (high) | native image output through generateContent — Function calling is not supported; video input is not supported… |
 | `gemini-embedding-2` | `gemini-embedding-2-preview` | `active` | — | text, image, audio, video | embedding | — | ✗ | ✗ | not yet: Vertex serves it via :embedContent on the aiplatform.{location}.rep.googleapis.com host, which the a… |
 | `gemini-embedding-001` | — | `active` | not before 2028-05-20 | text | embedding | E | ✗ | ✗ | native — Previous-generation text embedding model; gemini-embedding-2 is current. Accepts one input text per… |
@@ -255,7 +261,7 @@ Google Cloud lifecycle only. Model Garden listing returns names, versions, and l
 | `gemini-2.5-pro` | — | `deprecated` | shutdown 2026-10-20 | text, image, audio, video, file | text | IS | ✓ | ✓ | native (thinkingBudget mapper path) |
 | `gemini-2.5-flash` | — | `deprecated` | shutdown 2026-10-20 | text, image, audio, video, file | text | IS | ✓ | ✓ | native (thinkingBudget mapper path) |
 | `gemini-2.5-flash-lite` | — | `deprecated` | shutdown 2026-10-20 | text, image, audio, video, file | text | IS | ✓ | ✓ | native (thinkingBudget mapper path) |
-| `gemini-2.5-flash-image` | — | `deprecated` | shutdown 2026-10-02 | text, image | text, image | IS | ✗ | ✗ | Vertex documents a 32,768-token context window for this model; the Gemini API documents 65,536. |
+| `gemini-2.5-flash-image` | — | `deprecated` | shutdown 2027-03-15 | text, image | text, image | IS | ✗ | ✗ | Vertex documents a 32,768-token context window for this model; the Gemini API documents 65,536. Vertex retire… |
 
 #### Retired
 
@@ -272,7 +278,7 @@ Model IDs, inference profiles, and lifecycle are **region-specific**; entries ar
 - Vendor page: [vendor-bedrock.md](vendor-bedrock.md) · GAISe surface: Converse, ConverseStream, and InvokeModel
 - Discovery: ListFoundationModels, GetFoundationModel, and ListInferenceProfiles
 - Official catalog: <https://docs.aws.amazon.com/bedrock/latest/userguide/model-cards.html> · lifecycle: <https://docs.aws.amazon.com/bedrock/latest/userguide/model-lifecycle.html>
-- Model IDs, inference profiles, lifecycle, and availability vary by AWS region. AWS replaced the Converse feature matrix with per-model cards (model-card-*.html) and models-api-compatibility.html in mid-2026; models-supported.html and inference-profiles-support.html now redirect to them. Since 2026-08-15 AWS recommends the bedrock-runtime endpoint for new applications (bedrock-mantle keeps server-side tools, async inference, and some gated models). Cross-region profile prefixes seen on cards: us., eu., apac., jp., au., in. (India, 2026-08-18), global., us-gov.; the registry matcher strips all of them. Converse contract as of 2026-09-12: serviceTier priority/default/flex/reserved; outputConfig.textFormat for structured outputs; cachePoint.ttl 5m/1h; audio and searchResult content blocks; stopReason adds malformed_model_output, malformed_tool_use, model_context_window_exceeded. Since 2026-09-07 AWS splits the lifecycle policy: models launched on or after that date follow model-lifecycle.html (the card shows an EOL-no-sooner-than date plus a 6-month or 45-day Legacy period); earlier launches and every current Legacy/EOL table are on model-lifecycle-legacy.html.
+- Model IDs, inference profiles, lifecycle, and availability vary by AWS region. AWS replaced the Converse feature matrix with per-model cards (model-card-*.html) and models-api-compatibility.html in mid-2026; models-supported.html and inference-profiles-support.html now redirect to them. Since 2026-08-15 AWS recommends the bedrock-runtime endpoint for new applications (bedrock-mantle keeps server-side tools, async inference, and some gated models). Cross-region profile prefixes seen on cards: us., eu., apac., jp., au., in. (India, 2026-08-18), global., us-gov.; the registry matcher strips all of them. Converse contract as of 2026-09-12: serviceTier priority/default/flex/reserved; outputConfig.textFormat for structured outputs; cachePoint.ttl 5m/1h; audio and searchResult content blocks; stopReason adds malformed_model_output, malformed_tool_use, model_context_window_exceeded. Since 2026-09-07 AWS splits the lifecycle policy: models launched on or after that date follow model-lifecycle.html (the card shows an EOL-no-sooner-than date plus a 6-month or 45-day Legacy period); earlier launches and every current Legacy/EOL table are on model-lifecycle-legacy.html. Audit 2026-10-01: added GPT-6.1 Sol, GPT-6 Sol, GPT-6 Luna, Kimi K3, and Grok 4.7; Nova Premier, Nova Sonic v1, Nova Reel v1, and Nova Canvas passed their EOL dates; bedrock-runtime is the recommended path for Responses and Chat Completions (2026-09-15); per-model daily token quotas became a cross-model per-account quota (2026-09-21). Gemini models are not on Bedrock.
 
 #### Current and preview
 
@@ -312,9 +318,14 @@ Model IDs, inference profiles, and lifecycle are **region-specific**; entries ar
 | `openai.gpt-5.6-terra` | — | `active` | — | text, image | text | IS | ✓ | ✓ | Converse text, images, and tools; reasoning effort is not mapped on Converse — Converse on bedrock-runtime si… |
 | `openai.gpt-5.6-luna` | — | `active` | — | text, image | text | IS | ✓ | ✓ | Converse text, images, and tools; reasoning effort is not mapped on Converse — Converse on bedrock-runtime si… |
 | `openai.gpt-5.6-cyber` | — | `limited_availability` | — | text, image | text | — | ✓ | ✓ | not reachable: Responses API on bedrock-mantle only (us-east-2), Trusted Access for Cyber — OpenAI Daybreak R… |
+| `openai.gpt-6.1-sol` | — | `active` | — | text, image | text | IS | ✓ | ✓ | Converse text, images, and tools; reasoning effort is not mapped on Converse — Launched 2026-09-29; follows O… |
+| `openai.gpt-6-sol` | — | `active` | — | text, image | text | IS | ✓ | ✓ (none, low, medium, high, xhigh, max) | Converse text, images, and tools; reasoning effort is not mapped on Converse — Launched 2026-09-22 (EOL no so… |
+| `openai.gpt-6-luna` | — | `active` | — | text, image | text | IS | ✓ | ✓ (none, low, medium, high, xhigh, max) | Converse text, images, and tools; reasoning effort is not mapped on Converse — Launched 2026-09-22 (EOL no so… |
+| `moonshotai.kimi-k3` | — | `active` | — | text, image | text | IS | ✗ | ✓ | Converse text and images; do not replay earlier reasoning content — Launched 2026-09-18 (EOL notice at least… |
+| `xai.grok-4.7` | — | `active` | — | text, image | text | IS | ✗ | ✓ (low, medium, high, xhigh) | Converse text and images; reasoning effort is not mapped on Converse — Launched 2026-09-28 (EOL no sooner tha… |
 | `openai.gpt-6-astra` | — | `active` | — | text, image | text | IS | ✓ | ✓ | Converse text, images, and tools; reasoning effort is not mapped on Converse — Launched on Bedrock 2026-09-08… |
 | `openai.gpt-daybreak-blue-5.6-sol` | — | `limited_availability` | — | text, image | text | — | ✓ | ✓ | not reachable: Responses and Chat Completions on bedrock-mantle only (us-east-2), Trusted Access for Cyber re… |
-| `openai.gpt-oss-120b-1:0` | — | `active` | — | text | text | IS | ✓ | ✓ | native via Converse; reasoning effort is not mapped on Converse — Open-weight; Converse, InvokeModel, Chat Co… |
+| `openai.gpt-oss-120b-1:0` | — | `active` | — | text | text | IS | ✓ | ✓ | native via Converse; reasoning effort is not mapped on Converse — Open-weight; Converse, InvokeModel, and Cha… |
 | `openai.gpt-oss-20b-1:0` | — | `active` | — | text | text | IS | ✓ | ✓ | native via Converse; reasoning effort is not mapped on Converse |
 | `xai.grok-4.6` | — | `active` | — | text, image | text | IS | ✓ | ✓ (low, medium, high, xhigh) | Converse text, images, and tools; reasoning content and effort are Responses-API only — Launched 2026-08-18 (… |
 | `xai.grok-4.3` | — | `active` | — | text | text | — | ✓ | ✓ (none, low, medium, high) | not reachable: Responses and Chat Completions on bedrock-mantle only (Converse and InvokeModel are not suppor… |
@@ -337,10 +348,6 @@ Model IDs, inference profiles, and lifecycle are **region-specific**; entries ar
 | `anthropic.claude-sonnet-4-20250514-v1:0` | — | `legacy` | shutdown 2026-10-14 | — | — | — | ? | ? | Legacy since 2026-04-14; extended-access pricing applies since 2026-07-14. |
 | `ai21.jamba-1-5-*` | — | `legacy` | shutdown 2026-11-26 | — | — | — | ? | ? | ai21.jamba-1-5-large-v1:0 and ai21.jamba-1-5-mini-v1:0. Legacy since 2026-05-26; extended access from 2026-08… |
 | `twelvelabs.marengo-embed-2-7-v1:0` | — | `legacy` | shutdown 2026-11-30 | text, image, audio, video | embedding | — | ✗ | ✗ | not supported: no InvokeModel embedding builder for this schema — Legacy since 2026-05-29; extended access fr… |
-| `amazon.nova-premier-v1:0` | — | `legacy` | shutdown 2026-09-14 | — | — | — | ? | ? | — |
-| `amazon.nova-sonic-v1:0` | — | `legacy` | shutdown 2026-09-14 | — | — | — | ? | ? | — |
-| `amazon.nova-reel-v1:*` | — | `legacy` | shutdown 2026-09-30 | — | — | — | ? | ? | — |
-| `amazon.nova-canvas-v1:0` | — | `legacy` | shutdown 2026-09-30 | — | — | — | ? | ? | — |
 
 #### Retired
 
@@ -348,6 +355,10 @@ Model IDs, inference profiles, and lifecycle are **region-specific**; entries ar
 |---|---|---|---|---|---|---|---|---|---|
 | `anthropic.claude-3-haiku-20240307-v1:0` | — | `retired` | shutdown 2026-09-10 | — | — | — | ? | ? | Legacy since 2026-03-10; extended access from 2026-06-10; the AWS EOL date 2026-09-10 (commercial and GovClou… |
 | `anthropic.claude-3-5-haiku-20241022-v1:0` | — | `retired` | shutdown 2026-06-19 | — | — | — | ? | ? | AWS EOL date 2026-06-19 has passed; the card still reads Legacy and the id still appears in the API-compatibi… |
+| `amazon.nova-premier-v1:0` | — | `retired` | shutdown 2026-09-14 | — | — | — | ? | ? | EOL date passed; AWS's legacy table still listed it on 2026-10-01. |
+| `amazon.nova-sonic-v1:0` | — | `retired` | shutdown 2026-09-14 | — | — | — | ? | ? | EOL date passed; AWS's legacy table still listed it on 2026-10-01. |
+| `amazon.nova-reel-v1:*` | — | `retired` | shutdown 2026-09-30 | — | — | — | ? | ? | EOL date passed; AWS's legacy table still listed it on 2026-10-01. |
+| `amazon.nova-canvas-v1:0` | — | `retired` | shutdown 2026-09-30 | — | — | — | ? | ? | EOL date passed; AWS's legacy table still listed it on 2026-10-01. |
 | `cohere.command-r-*` | — | `retired` | shutdown 2026-08-19 | — | — | — | ? | ? | cohere.command-r-v1:0 and cohere.command-r-plus-v1:0. |
 
 ## ollama
@@ -359,7 +370,7 @@ Decision models (`nimble`, `tev1`) are driven through `decision` on Ollama's `PO
 - Vendor page: [vendor-ollama.md](vendor-ollama.md) · GAISe surface: Chat, streaming chat, Embeddings, and typed decisions (System One)
 - Discovery: GET /api/tags
 - Official catalog: <https://ollama.com/search> · lifecycle: <dynamic local catalog>
-- Ollama 0.35 (2026-09-29) added POST /v1/systemone, the TypeSafe System One wire protocol for local decision models (nimble, tev1); the adapter maps it to decision. Tags are installed locally and can move; Ollama has no centralized retirement calendar. Cloud-hosted tags (`family:size-cloud`, run through ollama.com with an API key) match the same family globs. API as of Ollama v0.34.0 (2026-09-05; the release adds OpenAI-compatible tool search and response compaction on /v1 only): `think` accepts true/false or the strings low, medium, high, max (any other string is rejected; GPT-OSS takes levels only); chat and generate responses report prompt_eval_cached_count; requests accept logprobs/top_logprobs; /api/show capabilities may include image and audio; the default repeat_penalty became 1.0 in v0.32.10.
+- Ollama 0.35 (released 2026-09-28, announced 2026-09-29) added POST /v1/systemone, the TypeSafe System One wire protocol for local decision models (nimble, tev1); the adapter maps it to decision. Tags are installed locally and can move; Ollama has no centralized retirement calendar. Cloud-hosted tags (`family:size-cloud`, run through ollama.com with an API key) match the same family globs. API as of Ollama v0.34.0 (2026-09-05; the release adds OpenAI-compatible tool search and response compaction on /v1 only): `think` accepts true/false or the strings low, medium, high, max (any other string is rejected; GPT-OSS takes levels only); chat and generate responses report prompt_eval_cached_count; requests accept logprobs/top_logprobs; /api/show capabilities may include image and audio; the default repeat_penalty became 1.0 in v0.32.10. Audit 2026-10-01: think also accepts null (model default) and, since v0.34.3, /api/show advertises each model's thinking values and default; named levels a model does not support fall back to its default instead of failing. typical_p is deprecated (v0.34.1; warns rather than fails since v0.35.0). v0.35.1 adds a decision capability to /api/show, which the adapter maps to the decision operation. No new decision models; no Gemini 4 or Gemma 5 in the library.
 
 #### Current and preview
 
@@ -408,12 +419,14 @@ Text-to-speech and realtime voice. `GET /v1/models` reports model ids, languages
 - Vendor page: [vendor-elevenlabs.md](vendor-elevenlabs.md) · GAISe surface: Text-to-speech, streaming speech, realtime voice WebSocket, and model listing
 - Discovery: GET /v1/models (model_id, languages, can_do_text_to_speech, can_use_style, character limits); GET /v2/voices for voices
 - Official catalog: <https://elevenlabs.io/docs/overview/models> · lifecycle: <https://elevenlabs.io/docs/overview/models>
-- Voices are account-specific and default voices expire 2026-12-31; never hard-code a voice id. Character limits per request are model-specific; the character-cost header reports billing.
+- Voices are account-specific and default voices expire 2026-12-31; never hard-code a voice id. Character limits per request are model-specific; the character-cost header reports billing. Audit 2026-10-01: eleven_v4 and eleven_v4_turbo (2026-09-28) use the text-to-dialogue WebSocket, which accepts model ids starting with eleven_v3 or eleven_v4; GET /v1/models deprecated max_characters_request_free_user and max_characters_request_subscribed_user in favour of maximum_text_length_per_request; is_final_audio_for_turn now follows every buffered byte (2026-09-21).
 
 #### Current and preview
 
 | Model | Aliases | Status | Dates | Input | Output | Ops | Tools | Reasoning | GAISe support / notes |
 |---|---|---|---|---|---|---|---|---|---|
+| `eleven_v4` | — | `active` | — | text | text, audio | L | ✗ | ✗ | realtime via the text-to-dialogue WebSocket (up to 10 voices); /v1/text-to-speech is not documented for v4 —… |
+| `eleven_v4_turbo` | — | `active` | — | text | text, audio | L | ✗ | ✗ | realtime only via the text-to-dialogue WebSocket (exactly one voice) — Released 2026-09-28; ElevenLabs' most… |
 | `eleven_v3` | — | `active` | — | text | audio | VL | ✗ | ✗ | speech via /v1/text-to-speech; realtime via the text-to-dialogue WebSocket — Flagship, 70+ languages, 5,000 c… |
 | `eleven_v3_conversational` | — | `active` | — | text | text, audio | L | ✗ | ✗ | realtime only via the text-to-dialogue WebSocket (one voice) — ~280 ms latency variant of v3 for realtime use. |
 | `eleven_multilingual_v2` | — | `active` | — | text | audio | VL | ✗ | ✗ | native — Default model; 29 languages; 10,000 characters per request. language_code is documented as not suppo… |
@@ -452,17 +465,11 @@ Published shutdown dates for entries that are not yet retired, soonest first. Tr
 
 | Date | Provider | Model | Replacement |
 |---|---|---|---|
-| 2026-09-14 | [bedrock](#bedrock) | `amazon.nova-premier-v1:0` | amazon.nova-2-lite-v1:0 |
-| 2026-09-14 | [bedrock](#bedrock) | `amazon.nova-sonic-v1:0` | amazon.nova-2-sonic-v1:0 |
-| 2026-09-30 | [gemini](#gemini) | `gemini-omni-flash-preview` | gemini-omni-1.1-flash |
-| 2026-09-30 | [bedrock](#bedrock) | `amazon.nova-canvas-v1:0` | — |
-| 2026-09-30 | [bedrock](#bedrock) | `amazon.nova-reel-v1:*` | — |
 | 2026-10-02 | [gemini](#gemini) | `gemini-2.5-flash-image` | gemini-3.1-flash-image |
-| 2026-10-02 | [vertexai](#vertexai) | `gemini-2.5-flash-image` | gemini-3.1-flash-lite-image |
 | 2026-10-14 | [bedrock](#bedrock) | `anthropic.claude-sonnet-4-20250514-v1:0` | anthropic.claude-sonnet-5 |
-| 2026-10-20 | [vertexai](#vertexai) | `gemini-2.5-flash` | gemini-3.5-flash-lite or gemini-3.1-flash-lite |
-| 2026-10-20 | [vertexai](#vertexai) | `gemini-2.5-flash-lite` | gemini-3.1-flash-lite or Gemma 4 |
-| 2026-10-20 | [vertexai](#vertexai) | `gemini-2.5-pro` | gemini-3.5-flash |
+| 2026-10-20 | [vertexai](#vertexai) | `gemini-2.5-flash` | gemini-3.8-flash or gemini-3.5-flash-lite or gemini-3.1-flash-lite |
+| 2026-10-20 | [vertexai](#vertexai) | `gemini-2.5-flash-lite` | gemini-3.8-flash or gemini-3.1-flash-lite or Gemma 4 |
+| 2026-10-20 | [vertexai](#vertexai) | `gemini-2.5-pro` | gemini-3.8-flash or gemini-3.5-flash |
 | 2026-10-23 | [openai](#openai) | `gpt-3.5-turbo` | gpt-5.6-terra |
 | 2026-10-23 | [openai](#openai) | `gpt-4` | gpt-5.6-sol |
 | 2026-10-23 | [openai](#openai) | `gpt-4-turbo` | gpt-5.6-sol |
@@ -473,6 +480,7 @@ Published shutdown dates for entries that are not yet retired, soonest first. Tr
 | 2026-10-23 | [openai](#openai) | `o3-mini` | gpt-5.6-sol |
 | 2026-10-23 | [openai](#openai) | `o4-mini` | gpt-5.6-terra |
 | 2026-11-26 | [bedrock](#bedrock) | `ai21.jamba-1-5-*` | — |
+| 2026-11-30 | [anthropic](#anthropic) | `claude-sonnet-4-5-20250929` | claude-sonnet-5-5 |
 | 2026-11-30 | [bedrock](#bedrock) | `twelvelabs.marengo-embed-2-7-v1:0` | twelvelabs.marengo-embed-3-0-v1:0 |
 | 2026-12-01 | [openai](#openai) | `gpt-image-1.5` | gpt-image-2 |
 | 2026-12-11 | [openai](#openai) | `gpt-5-2025-08-07` | gpt-5.6-sol |
@@ -486,6 +494,7 @@ Published shutdown dates for entries that are not yet retired, soonest first. Tr
 | 2027-01-20 | [openai](#openai) | `gpt-audio` | gpt-audio-1.5 |
 | 2027-01-20 | [openai](#openai) | `gpt-realtime` | gpt-realtime-2.1 or gpt-realtime-2.1-mini |
 | 2027-02-26 | [openai](#openai) | `whisper-1` | gpt-transcribe or gpt-live-transcribe |
+| 2027-03-15 | [vertexai](#vertexai) | `gemini-2.5-flash-image` | gemini-3.1-flash-lite-image |
 | 2027-05-07 | [gemini](#gemini) | `gemini-3.1-flash-lite` | gemini-3.5-flash-lite |
 | 2027-06-30 | [vertexai](#vertexai) | `gemini-omni-flash-preview` | gemini-omni-1.1-flash-preview |
 | 2028-05-14 | [gemini](#gemini) | `gemini-embedding-001` | gemini-embedding-2 |

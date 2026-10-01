@@ -143,7 +143,7 @@ Worked examples (from [`mapping_tests.rs`](../gaise-provider-anthropic/tests/map
 | `claude-opus-5` | effort `xhigh`, temp/top_p/top_k set | `{"type":"adaptive"}` | `{"effort":"xhigh"}` | none |
 | `claude-sonnet-4-5-20250929` | temp 0.4, top_p 0.8 | none | none | `temperature: 0.4` |
 
-### Parameter compatibility (audited 2026-09-30)
+### Parameter compatibility (audited 2026-10-01)
 
 [`claude_family_rules`](../gaise-provider-anthropic/src/anthropic_client.rs), [`normalize_effort`](../gaise-provider-anthropic/src/anthropic_client.rs), and [`resolve_output_budget`](../gaise-provider-anthropic/src/anthropic_client.rs) enforce the table below; [`tests/parameter_matrix_tests.rs`](../gaise-provider-anthropic/tests/parameter_matrix_tests.rs) pins it.
 
@@ -253,7 +253,7 @@ There are no heuristics from the model name and no opt-in detail calls (`include
 
 ## Models
 
-From `gaise-core/model-registry.toml` (audited 2026-09-30), entries with `provider = "anthropic"`. The registry is advisory; arbitrary IDs are accepted. Dates are the direct Claude API lifecycle — Bedrock-hosted Claude is tracked separately.
+From `gaise-core/model-registry.toml` (audited 2026-10-01), entries with `provider = "anthropic"`. The registry is advisory; arbitrary IDs are accepted. Dates are the direct Claude API lifecycle — Bedrock-hosted Claude is tracked separately.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
@@ -270,7 +270,7 @@ From `gaise-core/model-registry.toml` (audited 2026-09-30), entries with `provid
 | `claude-sonnet-5-5` | — | `active` | not before 2027-09-28 | text, image, file | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh`, `max` | native | Released 2026-09-28. Adaptive thinking on by default, default effort high; thinking.type disabled and budget_tokens return 400 (the adapter… |
 | `claude-sonnet-5` | — | `legacy` | not before 2027-06-30 | text, image, file | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh`, `max` | native | Listed under Legacy models since the 2026-09-28 Sonnet 5.5 release (still served). Adaptive thinking on by default (omitting thinking runs a… |
 | `claude-sonnet-4-6` | — | `legacy` | not before 2027-02-17 | text, image, file | text | instruct, instruct_stream | `low`, `medium`, `high`, `max` | native | Labelled Legacy since 2026-09-01 (migrate to claude-sonnet-5). Adaptive thinking recommended; enabled + budget_tokens deprecated but accepte… |
-| `claude-sonnet-4-5-20250929` | `claude-sonnet-4-5` | `legacy` | not before 2026-09-29 | text, image, file | text | instruct, instruct_stream | manual budget | native | Labelled Legacy since 2026-09-01. Manual thinking budget only; no effort parameter. The retirement floor (2026-09-29) passes without a depre… |
+| `claude-sonnet-4-5-20250929` | `claude-sonnet-4-5` | `deprecated` | shutdown 2026-11-30, not before 2026-09-29 | text, image, file | text | instruct, instruct_stream | manual budget | native | Labelled Legacy since 2026-09-01; deprecated 2026-09-30 with retirement on the Claude API scheduled for 2026-11-30 (migrate to claude-sonnet… |
 | `claude-haiku-4-5-20251001` | `claude-haiku-4-5` | `active` | not before 2026-10-15 | text, image, file | text | instruct, instruct_stream | manual budget | native | Manual thinking budget; no adaptive thinking or effort parameter. |
 | `claude-opus-4-1-20250805` | — | `retired` | shutdown 2026-08-05 | unknown | unknown | — | — | — | Replacement `claude-opus-4-8`. |
 | `claude-opus-4-20250514` | — | `retired` | shutdown 2026-06-15 | unknown | unknown | — | — | — | Replacement `claude-opus-4-8`. |
