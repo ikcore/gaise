@@ -90,6 +90,13 @@ pub trait GaiseClient: Send + Sync {
     async fn instruct(&self, request: &GaiseInstructRequest) -> Result<GaiseInstructResponse, BoxErr>;
     async fn instruct_stream(&self, request: &GaiseInstructRequest) -> Result<Pin<Box<dyn Stream<Item = Result<GaiseInstructStreamResponse, BoxErr>> + Send>>, BoxErr>;
     async fn embeddings(&self, request: &GaiseEmbeddingsRequest) -> Result<GaiseEmbeddingsResponse, BoxErr>;
+    // The methods below have default bodies, so custom clients keep compiling.
+    /// Default: forwards text-only requests to `embeddings`, else "not supported".
+    async fn embed_contents(&self, request: &GaiseContentEmbeddingsRequest) -> Result<GaiseEmbeddingsResponse, BoxErr>;
+    /// Default: "not supported". TypeSafe, OpenAI (gpt-6-luna), and Ollama implement it.
+    async fn decision(&self, request: &GaiseDecisionRequest) -> Result<GaiseDecisionResponse, BoxErr>;
+    /// Default: `decision` when `images` is empty, else "not supported". OpenAI and Ollama implement it.
+    async fn decision_with_images(&self, request: &GaiseDecisionRequest, images: &[GaiseContent]) -> Result<GaiseDecisionResponse, BoxErr>;
     /// Default body returns "not supported" so custom clients keep compiling.
     async fn list_models(&self, request: &GaiseListModelsRequest) -> Result<GaiseListModelsResponse, BoxErr>;
 }
@@ -362,7 +369,7 @@ All parsers tolerate SSE/NDJSON frames split across arbitrary byte boundaries ([
 
 ### Embeddings
 
-[`GaiseEmbeddingsRequest`](../gaise-core/src/contracts/gaise_embeddings_request.rs) (`model`, `input: OneOrMany<String>`, `task: Option<GaiseEmbeddingTask>`, `dimensions`, `normalize`, `correlation_id`, `connection`) → [`GaiseEmbeddingsResponse`](../gaise-core/src/contracts/gaise_embeddings_response.rs) (`output: Vec<Vec<f32>>`, `external_id`, `usage`). Embed corpus text with `task: Document` and queries with `task: Query` (`GaiseEmbeddingTask::parse` accepts aliases and turns unknown vendor values into `Custom`); use `dimensions` for Matryoshka models; set `normalize: true` when you mix dot-product and cosine. Adapters resolve all three through [`resolve_embedding`](../gaise-core/src/contracts/gaise_embeddings_request.rs) and the model's [`EmbeddingProfile`](../gaise-core/src/contracts/gaise_embeddings_request.rs) from the registry (`gaise_core::registry::embedding_profile(provider, model)`), so prefixes, wire task fields, dimension snapping, and local normalization are applied consistently — see [embeddings.md](embeddings.md#how-a-request-is-resolved). The contract is text-only even where a provider sells multimodal embeddings. Per-model limits and practices: [embeddings.md](embeddings.md).
+[`GaiseEmbeddingsRequest`](../gaise-core/src/contracts/gaise_embeddings_request.rs) (`model`, `input: OneOrMany<String>`, `task: Option<GaiseEmbeddingTask>`, `dimensions`, `normalize`, `correlation_id`, `connection`) → [`GaiseEmbeddingsResponse`](../gaise-core/src/contracts/gaise_embeddings_response.rs) (`output: Vec<Vec<f32>>`, `external_id`, `usage`). Embed corpus text with `task: Document` and queries with `task: Query` (`GaiseEmbeddingTask::parse` accepts aliases and turns unknown vendor values into `Custom`); use `dimensions` for Matryoshka models; set `normalize: true` when you mix dot-product and cosine. Adapters resolve all three through [`resolve_embedding`](../gaise-core/src/contracts/gaise_embeddings_request.rs) and the model's [`EmbeddingProfile`](../gaise-core/src/contracts/gaise_embeddings_request.rs) from the registry (`gaise_core::registry::embedding_profile(provider, model)`), so prefixes, wire task fields, dimension snapping, and local normalization are applied consistently — see [embeddings.md](embeddings.md#how-a-request-is-resolved). This request is text only. For images, audio, video, and PDFs, use [`GaiseContentEmbeddingsRequest`](../gaise-core/src/contracts/gaise_content_embeddings.rs) (`input: Vec<GaiseContent>`, one vector per item, a `Parts` item aggregated) with `GaiseClient::embed_contents`. Gemini (`gemini-embedding-2`) implements it; other clients accept text-only items. Per-model limits and practices: [embeddings.md](embeddings.md).
 
 ### Speech
 

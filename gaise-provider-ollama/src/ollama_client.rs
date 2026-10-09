@@ -482,19 +482,38 @@ impl GaiseClientOllama {
 impl GaiseClient for GaiseClientOllama {
     /// Typed decisions through Ollama's System One endpoint
     /// (`POST /v1/systemone`, Ollama 0.35+), which speaks the same wire
-    /// protocol as TypeSafe. Local decision models only (`nimble`, `tev1`).
+    /// protocol as TypeSafe. Local decision models (`nimble`, `tev1`, `clef`,
+    /// `clef-flash`, `laya`).
     async fn decision(
         &self,
         request: &GaiseDecisionRequest,
     ) -> Result<GaiseDecisionResponse, Box<dyn std::error::Error + Send + Sync>> {
+        self.decision_with_images(request, &[]).await
+    }
+
+    /// System One with `images` (base64, shared by all questions), which
+    /// Ollama 0.35.1+ accepts for the Clef and Clef Flash vision models.
+    async fn decision_with_images(
+        &self,
+        request: &GaiseDecisionRequest,
+        images: &[GaiseContent],
+    ) -> Result<GaiseDecisionResponse, Box<dyn std::error::Error + Send + Sync>> {
         request.validate()?;
+        let mut body = serde_json::to_value(request.wire(&request.model))?;
+        if !images.is_empty() {
+            let encoded = images
+                .iter()
+                .map(|image| match image {
+                    GaiseContent::Image { data, .. } => {
+                        Ok(base64::prelude::BASE64_STANDARD.encode(data))
+                    }
+                    _ => Err("Ollama decisions accept only image content alongside the state"),
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            body["images"] = encoded.into();
+        }
         let url = format!("{}/v1/systemone", self.api_url.trim_end_matches('/'));
-        let response = self
-            .client
-            .post(url)
-            .json(&request.wire(&request.model))
-            .send()
-            .await?;
+        let response = self.client.post(url).json(&body).send().await?;
         if !response.status().is_success() {
             let status = response.status();
             let err_text = response.text().await?;

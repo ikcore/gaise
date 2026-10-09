@@ -110,3 +110,32 @@ async fn decision_surfaces_ollama_errors_and_mismatched_answers() {
     assert!(client.decision(&empty).await.is_err(), "validated locally");
     task.abort();
 }
+
+// Clef / Clef Flash (Ollama 0.35.1): `images` is base64 without a data-URL
+// prefix, shared by all questions.
+#[tokio::test]
+async fn decision_with_images_sends_raw_base64_images() {
+    let app = Router::new().route(
+        "/v1/systemone",
+        post(|Json(body): Json<Value>| async move {
+            assert_eq!(body["images"], json!(["iVBORw=="]));
+            assert_eq!(body.as_object().unwrap().len(), 4);
+            let mut reply = answer();
+            reply["model"] = json!("clef");
+            Json(reply)
+        }),
+    );
+    let (client, task) = server(app).await;
+    let mut clef = request();
+    clef.model = "clef".into();
+    let png = GaiseContent::Image {
+        data: vec![137, 80, 78, 71],
+        format: Some("png".into()),
+    };
+    let response = client.decision_with_images(&clef, &[png]).await.unwrap();
+    assert_eq!(response.model, "clef");
+
+    let text = GaiseContent::Text { text: "no".into() };
+    assert!(client.decision_with_images(&clef, &[text]).await.is_err());
+    task.abort();
+}

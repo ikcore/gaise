@@ -971,6 +971,44 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
         assert_eq!(find("bedrock", "us.xai.grok-4.7"), "xai.grok-4.7");
         assert_eq!(find("elevenlabs", "eleven_v4"), "eleven_v4");
         assert_eq!(find("elevenlabs", "eleven_v4_turbo"), "eleven_v4_turbo");
+        // Audit 2026-10-09.
+        assert_eq!(find("anthropic", "claude-haiku-5-5"), "claude-haiku-5-5");
+        assert_eq!(
+            find("anthropic", "claude-haiku-4-5"),
+            "claude-haiku-4-5-20251001",
+            "Haiku 5.5 is a separate model, not a snapshot of Haiku 4.5"
+        );
+        assert_eq!(
+            find("bedrock", "global.anthropic.claude-haiku-5-5"),
+            "anthropic.claude-haiku-5-5"
+        );
+        assert_eq!(find("bedrock", "us.zai.glm-5.3"), "zai.glm-5.3");
+        assert_eq!(find("bedrock", "zai.glm-5"), "zai.glm-5");
+        assert_eq!(
+            find("bedrock", "global.twelvelabs.pegasus-1-5-v1:0"),
+            "twelvelabs.pegasus-1-5-v1:0"
+        );
+        assert_eq!(
+            find("gemini", "gemini-nano-banana-2.1"),
+            "gemini-nano-banana-2.1"
+        );
+        assert_eq!(
+            find("vertexai", "gemini-nano-banana-2.1"),
+            "gemini-nano-banana-2.1"
+        );
+        assert_eq!(find("elevenlabs", "scribe_v2_medical"), "scribe_v2_medical");
+        assert_eq!(find("elevenlabs", "scribe_v2"), "scribe_v2");
+        assert_eq!(find("ollama", "clef:27b"), "clef:*");
+        assert_eq!(find("ollama", "clef-flash:9b"), "clef-flash:*");
+        assert_eq!(find("ollama", "laya:421m-english-mlx-fp16"), "laya:*");
+        assert_eq!(find("ollama", "mistral-large-4:cloud"), "mistral-large-4:*");
+        assert_eq!(
+            find("ollama", "embeddinggemma-2:270m"),
+            "embeddinggemma-2:*"
+        );
+        assert_eq!(find("ollama", "embeddinggemma:300m"), "embeddinggemma:*");
+        let luna = registry.find("openai", "gpt-6-luna").unwrap();
+        assert!(luna.capabilities.iter().any(|c| c == "decision"));
         assert_eq!(
             registry
                 .find("anthropic", "claude-sonnet-4-5")

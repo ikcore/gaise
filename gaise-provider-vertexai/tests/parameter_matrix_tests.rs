@@ -50,6 +50,7 @@ const GEMINI_3_TEXT: &[&str] = &[
     "gemini-3-flash-preview",
 ];
 const GEMINI_3_IMAGE: &[&str] = &[
+    "gemini-nano-banana-2.1",
     "gemini-3.1-flash-image",
     "gemini-3.1-flash-lite-image",
     "gemini-3-pro-image",
@@ -187,6 +188,11 @@ fn thinking_levels_are_clamped_per_family() {
     );
     assert_eq!(level("gemini-3.5-flash", "max"), "HIGH");
     assert_eq!(level("gemini-3.5-flash", "xhigh"), "HIGH");
+    // Nano Banana 2.1 (2026-10-06): minimal, medium (default), and high.
+    assert_eq!(level("gemini-nano-banana-2.1", "minimal"), "MINIMAL");
+    assert_eq!(level("gemini-nano-banana-2.1", "medium"), "MEDIUM");
+    assert_eq!(level("gemini-nano-banana-2.1", "max"), "HIGH");
+    assert!(["MINIMAL", "MEDIUM"].contains(&level("gemini-nano-banana-2.1", "low").as_str()));
     // Image models: minimal or high only.
     assert_eq!(level("gemini-3.1-flash-image", "low"), "MINIMAL");
     assert_eq!(level("gemini-3.1-flash-image", "medium"), "HIGH");

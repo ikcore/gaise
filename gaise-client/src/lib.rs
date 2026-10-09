@@ -8,10 +8,11 @@ use tokio::sync::RwLock;
 use gaise_core::{
     GaiseClient,
     contracts::{
-        GaiseConnection, GaiseDecisionRequest, GaiseDecisionResponse, GaiseEmbeddingsRequest,
-        GaiseEmbeddingsResponse, GaiseInstructRequest, GaiseInstructResponse,
-        GaiseInstructStreamResponse, GaiseListModelsRequest, GaiseListModelsResponse, GaiseModel,
-        GaiseProviderError, redact_secrets,
+        GaiseConnection, GaiseContent, GaiseContentEmbeddingsRequest, GaiseDecisionRequest,
+        GaiseDecisionResponse, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse,
+        GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
+        GaiseListModelsRequest, GaiseListModelsResponse, GaiseModel, GaiseProviderError,
+        redact_secrets,
     },
     logging::IGaiseLogger,
     registry::ModelRegistry,
@@ -510,6 +511,76 @@ impl GaiseClient for GaiseClientService {
             logger.log_response(
                 request.correlation_id.as_deref(),
                 "decision",
+                &request.model,
+                serde_json::to_value(&response).unwrap_or(serde_json::Value::Null),
+                serde_json::to_value(&response.usage).ok(),
+            );
+        }
+        Ok(response)
+    }
+
+    async fn decision_with_images(
+        &self,
+        request: &GaiseDecisionRequest,
+        images: &[GaiseContent],
+    ) -> Result<GaiseDecisionResponse, Box<dyn std::error::Error + Send + Sync>> {
+        if images.is_empty() {
+            return self.decision(request).await;
+        }
+        request.validate()?;
+        let (provider, model) = Self::parse_model(&request.model)?;
+        let client = self
+            .get_client_with(provider, request.connection.as_ref())
+            .await?;
+        if let Some(logger) = &self.logger {
+            logger.log_request(
+                request.correlation_id.as_deref(),
+                "decision",
+                &request.model,
+                log_value(request),
+            );
+        }
+        let mut req = request.clone();
+        req.model = model.into();
+        req.connection = None;
+        let response = client.decision_with_images(&req, images).await?;
+        if let Some(logger) = &self.logger {
+            logger.log_response(
+                request.correlation_id.as_deref(),
+                "decision",
+                &request.model,
+                serde_json::to_value(&response).unwrap_or(serde_json::Value::Null),
+                serde_json::to_value(&response.usage).ok(),
+            );
+        }
+        Ok(response)
+    }
+
+    async fn embed_contents(
+        &self,
+        request: &GaiseContentEmbeddingsRequest,
+    ) -> Result<GaiseEmbeddingsResponse, Box<dyn std::error::Error + Send + Sync>> {
+        request.validate()?;
+        let (provider, actual_model) = Self::parse_model(&request.model)?;
+        let client = self
+            .get_client_with(provider, request.connection.as_ref())
+            .await?;
+        if let Some(logger) = &self.logger {
+            logger.log_request(
+                request.correlation_id.as_deref(),
+                "embeddings",
+                &request.model,
+                log_value(request),
+            );
+        }
+        let mut req = request.clone();
+        req.model = actual_model.to_string();
+        req.connection = None;
+        let response = client.embed_contents(&req).await?;
+        if let Some(logger) = &self.logger {
+            logger.log_response(
+                request.correlation_id.as_deref(),
+                "embeddings",
                 &request.model,
                 serde_json::to_value(&response).unwrap_or(serde_json::Value::Null),
                 serde_json::to_value(&response.usage).ok(),

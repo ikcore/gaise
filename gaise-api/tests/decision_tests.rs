@@ -241,3 +241,59 @@ async fn ollama_decisions_are_served_on_both_paths() {
     }
     task.abort();
 }
+
+#[tokio::test]
+async fn decision_route_forwards_images_and_rejects_them_where_unsupported() {
+    let upstream = Router::new().route(
+        "/v1/systemone",
+        post(|Json(body): Json<Value>| async move {
+            assert_eq!(body["images"], json!(["AQID"]));
+            Json(json!({"model": "clef", "answers": {"damaged": {"type": "noul", "noul": 0.9}}}))
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move {
+        axum::serve(listener, upstream).await.unwrap();
+    });
+    let app = create_app(Arc::new(AppState {
+        client_service: GaiseClientService::new(GaiseClientConfig {
+            ollama_url: Some(url),
+            typesafe_api_key: Some("ts-key".into()),
+            ..Default::default()
+        }),
+    }));
+    let body = |model: &str| {
+        json!({"model": model, "state": "Product photo", "images": [{"type": "image", "data": [1, 2, 3], "format": "png"}],
+            "questions": {"damaged": {"type": "noul", "instructions": "Damaged?"}}})
+        .to_string()
+    };
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post("/v1/decision")
+                .header("content-type", "application/json")
+                .body(Body::from(body("ollama::clef")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // TypeSafe Jev is text only: the router never calls it with images.
+    let response = app
+        .oneshot(
+            Request::post("/v1/decision")
+                .header("content-type", "application/json")
+                .body(Body::from(body("typesafe::jev")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    let text = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
+    assert!(String::from_utf8_lossy(&text).contains("not supported"));
+    task.abort();
+}

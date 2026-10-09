@@ -302,6 +302,110 @@ pub fn gemini_embed_request(
     (GeminiBatchEmbedRequest { requests }, resolved)
 }
 
+/// MIME type of one embeddable part. Gemini Embedding 2 takes PNG/JPEG
+/// images, MP3/WAV audio, MP4/MOV video (as `File` items named `*.mp4` /
+/// `*.mov`), and PDF documents.
+fn gemini_embed_part(
+    content: &gaise_core::contracts::GaiseContent,
+) -> Result<GeminiPart, Box<dyn std::error::Error + Send + Sync>> {
+    use base64::Engine;
+    use gaise_core::contracts::{
+        GaiseContent, audio_media_type, file_media_type, image_media_type,
+    };
+    let inline = |mime_type: String, data: &[u8]| GeminiPart {
+        inline_data: Some(GeminiInlineData {
+            mime_type,
+            data: base64::engine::general_purpose::STANDARD.encode(data),
+        }),
+        ..Default::default()
+    };
+    Ok(match content {
+        GaiseContent::Text { text } => GeminiPart {
+            text: Some(text.clone()),
+            ..Default::default()
+        },
+        GaiseContent::Image { data, format } => inline(image_media_type(format.as_deref()), data),
+        GaiseContent::Audio { data, format } => inline(audio_media_type(format.as_deref()), data),
+        GaiseContent::File { data, name } => {
+            let extension = name
+                .as_deref()
+                .and_then(|n| std::path::Path::new(n).extension())
+                .and_then(|e| e.to_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            let mime_type = match extension.as_str() {
+                "mp4" => "video/mp4",
+                "mov" => "video/quicktime",
+                _ => file_media_type(name.as_deref()),
+            };
+            inline(mime_type.to_string(), data)
+        }
+        _ => return Err("Gemini embeddings accept text, image, audio, and file content".into()),
+    })
+}
+
+/// Build the `batchEmbedContents` body for content items: one request (and
+/// one embedding) per item, with a `parts` item aggregated into a single
+/// embedding. Text-only items get the same task handling as
+/// [`gemini_embed_request`]; multimodal items are sent without a task prefix,
+/// as Google recommends.
+pub fn gemini_content_embed_request(
+    request: &gaise_core::contracts::GaiseContentEmbeddingsRequest,
+) -> Result<
+    (
+        GeminiBatchEmbedRequest,
+        gaise_core::contracts::ResolvedEmbedding,
+    ),
+    Box<dyn std::error::Error + Send + Sync>,
+> {
+    use gaise_core::contracts::{
+        EmbeddingTaskControl, GaiseContent, GaiseEmbeddingsRequest, OneOrMany, resolve_embedding,
+    };
+    let texts: Vec<String> = request
+        .input
+        .iter()
+        .filter_map(|item| match item {
+            GaiseContent::Text { text } => Some(text.clone()),
+            _ => None,
+        })
+        .collect();
+    let profile = gaise_core::registry::embedding_profile("gemini", &request.model);
+    let resolved = resolve_embedding(
+        &GaiseEmbeddingsRequest {
+            model: request.model.clone(),
+            input: OneOrMany::Many(texts),
+            task: request.task.clone(),
+            dimensions: request.dimensions,
+            normalize: request.normalize,
+            ..Default::default()
+        },
+        profile,
+        &EmbeddingTaskControl::TaskType,
+    );
+    let mut prefixed = resolved.texts.iter();
+    let mut requests = Vec::with_capacity(request.input.len());
+    for item in &request.input {
+        let parts = match item {
+            GaiseContent::Text { .. } => vec![GeminiPart {
+                text: prefixed.next().cloned(),
+                ..Default::default()
+            }],
+            GaiseContent::Parts { parts } => parts
+                .iter()
+                .map(gemini_embed_part)
+                .collect::<Result<_, _>>()?,
+            other => vec![gemini_embed_part(other)?],
+        };
+        requests.push(GeminiEmbedRequest {
+            model: format!("models/{}", request.model),
+            content: GeminiContent { role: None, parts },
+            task_type: resolved.wire_task.clone(),
+            output_dimensionality: resolved.dimensions,
+        });
+    }
+    Ok((GeminiBatchEmbedRequest { requests }, resolved))
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GeminiBatchEmbedResponse {
     #[serde(default)]

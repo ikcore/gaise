@@ -335,7 +335,7 @@ for vector in response.output {
 }
 ```
 
-Supported routes are OpenAI, Gemini, Vertex AI, Bedrock Titan/Cohere, and Ollama. Anthropic has no embeddings endpoint. The shared request is text-only.
+Supported routes are OpenAI, Gemini, Vertex AI, Bedrock Titan/Cohere, and Ollama. Anthropic has no embeddings endpoint. The shared request is text only; for images, audio, video, or PDFs, see [multimodal input](embeddings.md#multimodal-input).
 
 ## Usage inspection
 

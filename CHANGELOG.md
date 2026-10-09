@@ -8,6 +8,50 @@ change, or an additive adapter feature is a minor release; a change to a public
 contract (removed or renamed items, new required fields, changed serialization)
 is a major release.
 
+## [4.3.0] - 2026-10-09
+
+Model audit of every provider, plus OpenAI's Decisions API (public beta since
+2026-10-06), image input for decisions, and multimodal embeddings for
+`gemini-embedding-2`. Every change is additive.
+
+### Added
+- OpenAI Decisions API: `GaiseClient::decision` on `openai::gpt-6-luna` sends
+  `POST /v1/decisions`. Questions map to named `predicate` / `choice` / `score`
+  questions, answers are matched back by name, and a refused question fails the
+  call. New `gaise_provider_openai::decisions` module (`decision_request`,
+  `decision_request_with_images`, `map_decision_answers`, `map_decision_usage`).
+- `GaiseClient::decision_with_images` (default: unsupported unless the image list
+  is empty), implemented for OpenAI (base64 data URLs, up to 128 images) and
+  Ollama (`images` on `/v1/systemone` for Clef and Clef Flash), and forwarded by
+  the router. `POST /v1/decision` accepts an optional `images` array.
+- `GaiseContentEmbeddingsRequest` and `GaiseClient::embed_contents`: one embedding
+  per `GaiseContent` item (a `parts` item is one aggregated embedding). Gemini
+  sends images, audio, video (`File` named `*.mp4` / `*.mov`), and PDFs to
+  `gemini-embedding-2`; text-only requests fall back to `embeddings` on every
+  client. New route `POST /v1/embeddings/contents`.
+- Anthropic: `claude-haiku-5-5`. Bedrock: `anthropic.claude-haiku-5-5`,
+  `zai.glm-5.3`, and `twelvelabs.pegasus-1-5-v1:0` (listed only).
+- Gemini API and Vertex AI: `gemini-nano-banana-2.1`.
+- Ollama: `clef`, `clef-flash`, and `laya` decision models, `mistral-large-4`
+  (cloud), and `embeddinggemma-2`. ElevenLabs: `scribe_v2_medical` (listed only).
+
+### Changed
+- `claude-haiku-5*` ids (Anthropic and Bedrock) use the Opus 5 / Sonnet 5 rules:
+  adaptive thinking only, five effort levels, thinking can be turned off, and no
+  sampling parameters. Before this release they fell through to manual budgets.
+- `gemini-nano-banana-*` ids (Gemini and Vertex) use `thinkingLevel` with MINIMAL,
+  MEDIUM, and HIGH and never receive sampling parameters, instead of the
+  Gemini 2.5 `thinkingBudget` path.
+- `gpt-6-luna` gains the `decision` capability and operation.
+- Lifecycle: `gpt-5.1` and `gpt-5.4-nano` deprecated (shutdown 2027-04-01);
+  `gpt-image-1` and `gpt-image-1.5` now point to GPT Image 2.5; `claude-haiku-4-5`
+  is Legacy; Gemini API `gemini-3.1-flash-image` deprecated, and new shutdown
+  dates for the 3.1 Flash Live, 2.5 native audio, 3.1 Flash TTS, Omni Flash
+  previews, and 2.5 Flash Image; Vertex `gemini-3.6-flash` (2026-11-19) and
+  `gemini-3.7-flash` (2027-01-28) retirement dates; Bedrock Claude Sonnet 4.5
+  and Llama 4 Maverick are Legacy, and the Haiku 4.5, Opus 4.5, and Sonnet 5.5
+  notes are corrected.
+
 ## [4.2.0] - 2026-10-01
 
 Model audit of every provider. Gemini 4 Argon was announced on 2026-09-30 but
@@ -128,6 +172,7 @@ request rules in advance.
   ElevenLabs speech, standardized embeddings, the model limits matrix
   (`/v1/models/limits`), and the wiki.
 
+[4.3.0]: https://github.com/ikcore/gaise/pull/18
 [4.2.0]: https://github.com/ikcore/gaise/pull/17
 [4.1.0]: https://github.com/ikcore/gaise/commit/81116ed
 [4.0.1]: https://github.com/ikcore/gaise/pull/15

@@ -70,10 +70,10 @@ Each adapter filters the request to what the model family accepts before seriali
 
 | Provider | Rules | Tests |
 |---|---|---|
-| OpenAI | [`max_completion_tokens` always; sampling only with effort `none` on GPT-5.x, GPT-6 Sol, and GPT-6 Luna, and never on GPT-6 Astra or GPT-6.1 Sol; effort sets per family (GPT-6 Astra and GPT-6.1 Sol have no `none`/`minimal`); no effort on non-reasoning models; `original` detail only on 5.4+; Responses-only models rejected; GPT-6 function tools rejected with a Responses-API error](vendor-openai.md#parameter-compatibility-audited-2026-10-01) | [`gaise-provider-openai/tests/parameter_matrix_tests.rs`](../gaise-provider-openai/tests/parameter_matrix_tests.rs) |
-| Anthropic | [adaptive vs manual thinking, always-on families, effort clamping, budget ≥ 1024 and < `max_tokens`, 64k/128k ceilings, fixed and exclusive sampling](vendor-anthropic.md#parameter-compatibility-audited-2026-10-01) | [`gaise-provider-anthropic/tests/parameter_matrix_tests.rs`](../gaise-provider-anthropic/tests/parameter_matrix_tests.rs) |
-| Gemini / Vertex AI | [no sampling on any 3.x; `thinkingLevel` sets per family; 2.5 `thinkingBudget` ranges](vendor-gemini.md#parameter-compatibility-audited-2026-10-01) | [`gemini`](../gaise-provider-gemini/tests/parameter_matrix_tests.rs), [`vertexai`](../gaise-provider-vertexai/tests/parameter_matrix_tests.rs) |
-| Bedrock | [Claude rules as above plus `anthropic_beta` for Opus 4.5 effort; Nova either/or sampling, `topK` via AMRF, `maxTokens` caps](vendor-bedrock.md#parameter-compatibility-audited-2026-10-01) | `bedrock_client.rs` unit tests |
+| OpenAI | [`max_completion_tokens` always; sampling only with effort `none` on GPT-5.x, GPT-6 Sol, and GPT-6 Luna, and never on GPT-6 Astra or GPT-6.1 Sol; effort sets per family (GPT-6 Astra and GPT-6.1 Sol have no `none`/`minimal`); no effort on non-reasoning models; `original` detail only on 5.4+; Responses-only models rejected; GPT-6 function tools rejected with a Responses-API error](vendor-openai.md#parameter-compatibility-audited-2026-10-09) | [`gaise-provider-openai/tests/parameter_matrix_tests.rs`](../gaise-provider-openai/tests/parameter_matrix_tests.rs) |
+| Anthropic | [adaptive vs manual thinking, always-on families, effort clamping, budget ≥ 1024 and < `max_tokens`, 64k/128k ceilings, fixed and exclusive sampling](vendor-anthropic.md#parameter-compatibility-audited-2026-10-09) | [`gaise-provider-anthropic/tests/parameter_matrix_tests.rs`](../gaise-provider-anthropic/tests/parameter_matrix_tests.rs) |
+| Gemini / Vertex AI | [no sampling on any 3.x; `thinkingLevel` sets per family; 2.5 `thinkingBudget` ranges](vendor-gemini.md#parameter-compatibility-audited-2026-10-09) | [`gemini`](../gaise-provider-gemini/tests/parameter_matrix_tests.rs), [`vertexai`](../gaise-provider-vertexai/tests/parameter_matrix_tests.rs) |
+| Bedrock | [Claude rules as above plus `anthropic_beta` for Opus 4.5 effort; Nova either/or sampling, `topK` via AMRF, `maxTokens` caps](vendor-bedrock.md#parameter-compatibility-audited-2026-10-09) | `bedrock_client.rs` unit tests |
 | Ollama | options forwarded; `think` boolean, or a level string for GPT-OSS, GLM 5.3, and Granite 4.2 (daemon accepts `low`/`medium`/`high`/`max` since v0.33) | [`gaise-provider-ollama/tests/parameter_matrix_tests.rs`](../gaise-provider-ollama/tests/parameter_matrix_tests.rs) |
 | ElevenLabs | [`language_code` omitted for multilingual_v2; speed 0.7–1.2; v3 realtime via text-to-dialogue](vendor-elevenlabs.md#model-family-rules) | crate unit tests |
 
@@ -152,7 +152,7 @@ Protocol: [sdk.md#live](sdk.md#live) · wire: [examples.md#live--realtime](examp
 | Ollama | `POST /api/embed` | any `embedding`-capable tag | `prompt_eval_count` |
 | Anthropic | — | — | — |
 
-The contract is text-only; `task`, `dimensions`, and `normalize` are mapped where the model supports them; an absent usage map means the endpoint did not report one — GAISe never estimates. Per-model limits and practices: [embeddings.md](embeddings.md).
+`GaiseEmbeddingsRequest` is text only; images, audio, video, and PDFs go through `embed_contents` (`gemini::gemini-embedding-2` only, see [embeddings.md](embeddings.md#multimodal-input)); `task`, `dimensions`, and `normalize` are mapped where the model supports them; an absent usage map means the endpoint did not report one — GAISe never estimates. Per-model limits and practices: [embeddings.md](embeddings.md).
 
 ## Usage counters
 

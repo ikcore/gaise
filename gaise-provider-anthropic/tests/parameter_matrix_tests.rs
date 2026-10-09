@@ -59,6 +59,8 @@ const ADAPTIVE_ONLY: &[&str] = &[
     "claude-opus-4-8",
     "claude-opus-4-7",
     "claude-sonnet-5",
+    // Haiku 5.5 (2026-10-07): adaptive only, no manual budgets, fixed sampling.
+    "claude-haiku-5-5",
 ];
 const ADAPTIVE_OR_MANUAL: &[&str] = &["claude-opus-4-6", "claude-sonnet-4-6"];
 const MANUAL: &[&str] = &[
@@ -203,6 +205,7 @@ fn effort_none_disables_thinking_where_allowed_and_is_dropped_on_always_on_famil
         "claude-opus-4-8",
         "claude-sonnet-5",
         "claude-sonnet-4-6",
+        "claude-haiku-5-5",
         "claude-haiku-4-5-20251001",
     ] {
         let json = request(

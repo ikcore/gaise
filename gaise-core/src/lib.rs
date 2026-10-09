@@ -21,6 +21,20 @@ pub trait GaiseClient: Send + Sync {
         Err("Decision is not supported by this client".into())
     }
 
+    /// [`GaiseClient::decision`] with images shared by every question
+    /// ([`contracts::GaiseContent::Image`] items). Without images this is
+    /// `decision`; clients whose decision models cannot see images reject them.
+    async fn decision_with_images(
+        &self,
+        request: &contracts::GaiseDecisionRequest,
+        images: &[contracts::GaiseContent],
+    ) -> Result<contracts::GaiseDecisionResponse, Box<dyn std::error::Error + Send + Sync>> {
+        if images.is_empty() {
+            return self.decision(request).await;
+        }
+        Err("Image input for decisions is not supported by this client".into())
+    }
+
     /// Pre-4.0 name of [`GaiseClient::decision`]; forwards to it.
     #[deprecated(since = "4.0.0", note = "renamed to `decision`")]
     async fn system_one(
@@ -55,6 +69,20 @@ pub trait GaiseClient: Send + Sync {
         &self,
         request: &GaiseEmbeddingsRequest,
     ) -> Result<GaiseEmbeddingsResponse, Box<dyn std::error::Error + Send + Sync>>;
+
+    /// Embed text, images, audio, video, or documents: one vector per input
+    /// item. Text-only requests go through [`GaiseClient::embeddings`] on
+    /// every client; other content needs a multimodal embedding adapter.
+    async fn embed_contents(
+        &self,
+        request: &contracts::GaiseContentEmbeddingsRequest,
+    ) -> Result<GaiseEmbeddingsResponse, Box<dyn std::error::Error + Send + Sync>> {
+        request.validate()?;
+        match request.text_request() {
+            Some(text) => self.embeddings(&text).await,
+            None => Err("Multimodal embeddings are not supported by this client".into()),
+        }
+    }
 
     /// List the models this client can reach.
     ///
