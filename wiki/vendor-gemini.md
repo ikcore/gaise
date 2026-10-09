@@ -116,7 +116,7 @@ MIME inference for files uses the shared [`file_media_type`](../gaise-core/src/c
 
 No rule gates image input, audio input, tools, or `responseModalities` by model; the API returns its own error for unsupported combinations.
 
-### Parameter compatibility (audited 2026-10-01)
+### Parameter compatibility (audited 2026-10-09)
 
 [`model_uses_fixed_sampling`](../gaise-provider-gemini/src/gemini_client.rs), [`thinking_levels_for`](../gaise-provider-gemini/src/gemini_client.rs), [`normalize_thinking_level`](../gaise-provider-gemini/src/gemini_client.rs), and [`thinking_budget_for`](../gaise-provider-gemini/src/gemini_client.rs) enforce the table; [`tests/parameter_matrix_tests.rs`](../gaise-provider-gemini/tests/parameter_matrix_tests.rs) pins it.
 
@@ -125,6 +125,7 @@ No rule gates image input, audio input, tools, or `responseModalities` by model;
 | Gemini 3.8 Flash (2026-09-02), 3.7 Flash, any later `gemini-3.<n>` Flash, 3.1 Pro | never sent (deprecated on all 3.x; 3.6+ ignore or 400; `candidateCount` is rejected on 3.x) | `thinkingLevel` | LOW, MEDIUM, HIGH (`minimal` → LOW) | → LOW (cannot disable) |
 | Gemini 4 and later (`gemini-<major>` with major ≥ 4; none published yet) | never sent | `thinkingLevel` | LOW, MEDIUM, HIGH (`minimal` → LOW) | → LOW |
 | Gemini 3.6, 3.5, 3.5-Lite, 3.1-Lite, 3 Flash preview | never sent | `thinkingLevel` | MINIMAL, LOW, MEDIUM, HIGH | → MINIMAL |
+| Nano Banana 2.1 (`gemini-nano-banana-*`, 2026-10-06) | never sent (Vertex: seed, temperature, topP, topK, and logprobs return an error) | `thinkingLevel` | MINIMAL, MEDIUM, HIGH (LOW → MEDIUM) | → MINIMAL |
 | 3.1 Flash Image, 3.1 Flash-Lite Image | never sent | `thinkingLevel` | MINIMAL, HIGH (LOW → MINIMAL, MEDIUM → HIGH) | → MINIMAL |
 | 3 Pro Image | never sent | `thinkingLevel` | HIGH only | → HIGH |
 | Gemini 2.5 Pro | accepted | `thinkingBudget` | 128–32,768 (cannot disable: 0 → 128) | → 128 |
@@ -191,7 +192,7 @@ Live sessions use [`map_live_usage`](../gaise-provider-gemini/src/gemini_live_cl
 
 [`embeddings`](../gaise-provider-gemini/src/gemini_client.rs#L868) posts [`GeminiBatchEmbedRequest`](../gaise-provider-gemini/src/contracts/models.rs#L266) to `models/{model}:batchEmbedContents?key=…`. Every input string becomes one `requests[]` entry `{ "model": "models/{model}", "content": { "parts": [{ "text": … }] } }`. The response's `embeddings[].values` are returned in order as `Vec<Vec<f32>>`.
 
-- Text only: the common request carries `OneOrMany<String>`, so the multimodal input of `gemini-embedding-2` is not reachable through this surface.
+- Multimodal: [`embed_contents`](../gaise-provider-gemini/src/gemini_client.rs) sends `GaiseContentEmbeddingsRequest` items through [`gemini_content_embed_request`](../gaise-provider-gemini/src/contracts/models.rs) on the same endpoint. Images and audio go as `inlineData` with their MIME type, `*.mp4` / `*.mov` files as video, and PDFs as `application/pdf`. A `parts` item becomes one aggregated embedding. The `task` prefix goes on text-only items only. See [embeddings.md](embeddings.md#multimodal-input) for the `gemini-embedding-2` limits.
 - `taskType`, `title`, and `outputDimensionality` are not mapped.
 - `usage` is `None`; `batchEmbedContents` returns no token counts. `external_id` is `None`.
 
@@ -267,7 +268,7 @@ The router clears the operation filter before calling the provider and re-applie
 
 ## Models
 
-From the bundled registry (audited 2026-10-01), entries with `provider = "gemini"`. Dates are Gemini API dates only; Vertex AI has a separate lifecycle. "—" means none recorded.
+From the bundled registry (audited 2026-10-09), entries with `provider = "gemini"`. Dates are Gemini API dates only; Vertex AI has a separate lifecycle. "—" means none recorded.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
@@ -281,23 +282,24 @@ From the bundled registry (audited 2026-10-01), entries with `provider = "gemini
 | `gemini-3-flash-preview` | — | `preview` | — | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | No shutdown date announced. Replacement `gemini-3.6-flash`. |
 | `gemini-3.8-live` | — | `stable` | — | text, image, audio, video | text, audio | live | — | native Live API transport; thinking configuration is never sent | GA 2026-09-15; replaces gemini-3.1-flash-live-preview and the 2.5 native-audio preview. thinking_level is not supported (omit thinking_confi… |
 | `gemini-3.8-live-extended-thinking` | — | `stable` | — | text, image, audio, video | text, audio | live | `low`, `medium`, `high` | native Live API transport (thinking_level low, medium, or high) | GA 2026-09-15. Background reasoning during live sessions: turnComplete no longer means idle (watch interaction_status IN_PROGRESS / IDLE). t… |
-| `gemini-3.1-flash-live-preview` | — | `preview` | — | text, image, audio, video | text, audio | live | `minimal`, `low`, `medium`, `high` | native Live API transport | Released 2026-03-11; no shutdown date announced. The deprecations page names gemini-3.8-live as its replacement (2026-10-01); no shutdown da… |
-| `gemini-2.5-flash-native-audio-preview-12-2025` | — | `preview_legacy` | — | text, audio, video | text, audio | live | supported | Live transport; migration recommended | Live guide still documents thinkingBudget (0 disables) for this model. Replacement `gemini-3.8-live`. |
-| `gemini-3.1-flash-image` | — | `stable` | — | text, image, video, file | text, image | instruct, instruct_stream | `minimal`, `high` | native image output through generateContent | Released 2026-05-28. Function calling and structured outputs are not supported. Video-to-image input is exclusive to this model; output size… |
+| `gemini-3.1-flash-live-preview` | — | `deprecated` | shutdown 2026-11-17 | text, image, audio, video | text, audio | live | `minimal`, `low`, `medium`, `high` | native Live API transport | Released 2026-03-11. The deprecations page names gemini-3.8-live as its replacement (2026-10-01) and a 2026-11-17 shutdown (2026-10-09). Replacement `gemini-3.8-live`. |
+| `gemini-2.5-flash-native-audio-preview-12-2025` | — | `deprecated` | shutdown 2026-11-17 | text, audio, video | text, audio | live | supported | Live transport; migration recommended | Live guide still documents thinkingBudget (0 disables) for this model. Shutdown 2026-11-17 per the deprecations table (2026-10-09). Replacement `gemini-3.8-live`. |
+| `gemini-nano-banana-2.1` | — | `stable` | — | text, image, video, file | text, image | instruct, instruct_stream | `minimal`, `medium`, `high` | native image output through generateContent | Nano Banana 2.1, GA 2026-10-06; replaces gemini-3.1-flash-image. Text, image, video, and PDF input; image and text output; 1K (default), 2K,… |
+| `gemini-3.1-flash-image` | — | `deprecated` | — | text, image, video, file | text, image | instruct, instruct_stream | `minimal`, `high` | native image output through generateContent | Released 2026-05-28. Function calling and structured outputs are not supported. Video-to-image input is exclusive to this model; output size… |
 | `gemini-3.1-flash-lite-image` | — | `stable` | — | text, image | text, image | instruct, instruct_stream | `minimal`, `high` | native image output through generateContent | GA 2026-06-30 (Nano Banana 2 Lite); 1K output only. The model page now lists function calling, structured outputs, caching, and search groun… |
 | `gemini-3-pro-image` | — | `stable` | — | text, image | text, image | instruct, instruct_stream | supported | native image output through generateContent | Released 2026-05-28. Function calling is not supported. |
-| `gemini-embedding-2` | `gemini-embedding-2-preview` | `stable` | — | text, image, audio, video | embedding | embeddings | — | native | Released 2026-04-22. Text, image, video, audio, and PDF input. The catalog table still shows the -preview endpoint name; the model page uses… |
+| `gemini-embedding-2` | `gemini-embedding-2-preview` | `stable` | — | text, image, audio, video | embedding | embeddings | — | native; images, audio, video, and PDF through embed_contents (POST /v1/embeddings/contents) | Released 2026-04-22. Text, image, video, audio, and PDF input. The catalog table still shows the -preview endpoint name; the model page uses… |
 | `gemini-3.8-flash-tts` | — | `stable` | — | text | text, audio | — | — | text-to-speech is outside the instruct surface | GA 2026-09-22; 130+ languages with automatic language detection. Batch, Flex, and Priority inference supported; thinking and function callin… |
 | `gemini-3.8-flash-lite-tts` | — | `stable` | — | text | text, audio | — | — | text-to-speech is outside the instruct surface | GA 2026-09-22; 100+ languages with automatic language detection. Batch, Flex, and Priority inference supported; thinking and function callin… |
-| `gemini-3.1-flash-tts-preview` | — | `preview` | — | text | text, audio | — | — | text-to-speech is outside the instruct surface | Released 2026-04-13; replacement for the 2.5 TTS previews (gemini-2.5-flash-preview-tts and gemini-2.5-pro-preview-tts, no shutdown date). s… |
+| `gemini-3.1-flash-tts-preview` | — | `deprecated` | shutdown 2026-11-17 | text | text, audio | — | — | text-to-speech is outside the instruct surface | Released 2026-04-13; replacement for the 2.5 TTS previews (gemini-2.5-flash-preview-tts and gemini-2.5-pro-preview-tts, no shutdown date). s… |
 | `gemini-3.5-transcribe` | `gemini-3.5-transcribe-live` | `stable` | — | text, audio | text | — | — | not supported: speech-to-text has no GAISe surface | GA 2026-08-26. gemini-3.5-transcribe is unary generateContent (audio up to 1 hour, word annotations); gemini-3.5-transcribe-live is the Live… |
 | `gemini-3.5-live-translate-preview` | — | `preview` | — | audio | audio | — | — | not supported: speech-to-speech translation uses translationConfig on the Live API, which the live transport does not expose | Released June 2026; no shutdown date announced. |
 | `gemini-omni-1.1-flash` | — | `stable` | — | text, image, video | text | — | — | not supported: video generation is served by the Interactions API only | GA 2026-08-27; conversational video generation and editing (3-10 s clips up to 4K). Replaces gemini-omni-flash-preview. |
-| `gemini-omni-flash-preview` | — | `retired` | shutdown 2026-09-30 | unknown | unknown | — | — | — | Released 2026-06-30; deprecated 2026-08-27. Shut down 2026-09-30 and no longer listed (2026-10-01). Replacement `gemini-omni-1.1-flash`. |
+| `gemini-omni-flash-preview` | — | `deprecated` | shutdown 2026-10-22 | unknown | unknown | — | — | — | Released 2026-06-30; deprecated 2026-08-27. Reported shut down 2026-09-30 at the last audit, but the deprecations table (2026-10-09) lists a… |
 | `gemini-2.5-pro` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | No shutdown date announced on the Gemini API deprecations page; the 2026-10 date circulating online is the Vertex AI retirement and must not… |
 | `gemini-2.5-flash` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | No shutdown date announced on the Gemini API deprecations page. Since 2026-09-18 access is limited to users who have used the 2.5 models bef… |
 | `gemini-2.5-flash-lite` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | Released 2025-07-22; thinking is off by default. No shutdown date announced. Since 2026-09-18 access is limited to users who have used the 2… |
-| `gemini-2.5-flash-image` | — | `deprecated` | shutdown 2026-10-02 | unknown | unknown | — | — | — | The deprecations page names gemini-3.1-flash-image-preview (itself shut down 2026-06-25); the GA replacements are gemini-3.1-flash-image or… |
+| `gemini-2.5-flash-image` | — | `deprecated` | shutdown 2027-03-15 | unknown | unknown | — | — | — | As of 2026-10-09 the Gemini API deprecations table shows a 2027-03-15 shutdown and gemini-3.1-flash-lite-image as the replacement (previousl… |
 | `gemini-embedding-001` | — | `deprecated` | shutdown 2028-05-14 | text | embedding | embeddings | — | native | Still listed as callable; the earlier registry date (2026-07-14) was the release date. Replacement `gemini-embedding-2`. |
 | `embedding-2-preview` | — | `retired` | shutdown 2026-08-10 | unknown | unknown | — | — | — | Replacement `gemini-embedding-2`. |
 | `gemini-2.0-flash` | — | `retired` | shutdown 2026-06-01 | unknown | unknown | — | — | — | Replacement `gemini-3.6-flash`. |
@@ -318,7 +320,7 @@ The registry is advisory: the adapter accepts any model ID and applies the famil
 - Temperature, `topP`, and `topK` are silently omitted for `gemini-3.5-flash*` and `gemini-3.6-flash*`.
 - Not mapped: `tool_config`/tool choice, stop sequences, `candidateCount`, `cachedContent`/`cache_key`, `input_image_detail`, structured output / `responseSchema`, built-in Google tools, Files API references, `finishReason`, `responseId`/`external_id`, `correlation_id`.
 - Safety settings are fixed at `OFF` for the four harm categories and cannot be tuned per request.
-- Embeddings are text-only with no `taskType`, dimensionality, or usage.
+- Embeddings report no usage. Images, audio, video, and PDFs need `embed_contents`, and only `gemini-embedding-2` accepts them.
 - Live: `ClearAudio` and `CancelResponse` emit an `Error` event; `clientContent` history seeding, `goAway.timeLeft`, `generationComplete`, and `tool_config` are not mapped; the `session_id` is generated locally.
 - No retries, backoff, or timeout configuration; HTTP errors propagate as `Gemini API error: {body}`.
 

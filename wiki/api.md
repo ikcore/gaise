@@ -12,6 +12,7 @@
 - [`POST /v1/instruct`](#post-v1instruct)
 - [`POST /v1/instruct/stream`](#post-v1instructstream)
 - [`POST /v1/embeddings`](#post-v1embeddings)
+- [`POST /v1/embeddings/contents`](#post-v1embeddingscontents)
 - [`GET /v1/models`](#get-v1models)
 - [`GET /v1/models/{provider}::{id}`](#get-v1modelsproviderid)
 - [`GET /v1/models/limits`](#get-v1modelslimits)
@@ -71,6 +72,8 @@ GAISe does not restrict IDs to an allowlist. Use [`GET /v1/models`](#get-v1model
 | `POST` | `/v1/instruct` | `GaiseInstructRequest` | `GaiseInstructResponse` | [`handle_instruct`](../gaise-api/src/lib.rs) |
 | `POST` | `/v1/instruct/stream` | `GaiseInstructRequest` | SSE of `GaiseInstructStreamResponse` | [`handle_instruct_stream`](../gaise-api/src/lib.rs) |
 | `POST` | `/v1/embeddings` | `GaiseEmbeddingsRequest` | `GaiseEmbeddingsResponse` | [`handle_embeddings`](../gaise-api/src/lib.rs) |
+| `POST` | `/v1/embeddings/contents` | `GaiseContentEmbeddingsRequest` | `GaiseEmbeddingsResponse` | [`handle_content_embeddings`](../gaise-api/src/lib.rs) |
+| `POST` | `/v1/decision` (alias `/v1/systemone`) | `GaiseDecisionRequest` plus optional `images` | `GaiseDecisionResponse` | [`handle_decision`](../gaise-api/src/lib.rs) |
 | `GET` | `/v1/models` | query | `GaiseListModelsResponse` | [`handle_list_models`](../gaise-api/src/lib.rs) |
 | `GET` | `/v1/models/{provider}::{id}` | query | `GaiseModel` | [`handle_get_model`](../gaise-api/src/lib.rs) |
 | `GET` | `/v1/models/limits` | query | `GaiseModelLimitsMatrix` | [`handle_model_limits`](../gaise-api/src/lib.rs) |
@@ -258,7 +261,27 @@ Errors after the stream has started arrive as an SSE `event: error`. Accumulatio
 }
 ```
 
-`input` is one string or an array. Optional fields: `task` (`document`, `query`, `classification`, `clustering`, `similarity`, `code_query`, `fact_verification`, `question_answering`, their aliases such as `search_query` / `retrieval_document`, or any vendor value passed through as a custom task — resolved per model to Gemini/Vertex `taskType`, Cohere `input_type`, Nova `embeddingPurpose`, a prompt instruction, or a local-model text prefix), `dimensions` (snapped or clamped to what the model offers, dropped for fixed-size models, forwarded for unknown ones), and `normalize` (unit-length vectors; native on Titan V2, applied locally elsewhere; unset repairs truncations the provider leaves raw). The resolution rules and the per-model profiles are in [embeddings.md](embeddings.md#how-a-request-is-resolved); the contract is text-only and usage is present only when the provider reports it.
+`input` is one string or an array. Optional fields: `task` (`document`, `query`, `classification`, `clustering`, `similarity`, `code_query`, `fact_verification`, `question_answering`, their aliases such as `search_query` / `retrieval_document`, or any vendor value passed through as a custom task — resolved per model to Gemini/Vertex `taskType`, Cohere `input_type`, Nova `embeddingPurpose`, a prompt instruction, or a local-model text prefix), `dimensions` (snapped or clamped to what the model offers, dropped for fixed-size models, forwarded for unknown ones), and `normalize` (unit-length vectors; native on Titan V2, applied locally elsewhere; unset repairs truncations the provider leaves raw). The resolution rules and the per-model profiles are in [embeddings.md](embeddings.md#how-a-request-is-resolved); this route takes text only, and usage is present only when the provider reports it. For images, audio, video, or PDFs, use [`POST /v1/embeddings/contents`](#post-v1embeddingscontents).
+
+## `POST /v1/embeddings/contents`
+
+Multimodal embeddings. The body is a `GaiseContentEmbeddingsRequest`: `model`, `input` (an array of [content objects](#content-objects)), and the optional `task`, `dimensions`, `normalize`, `correlation_id`, and `connection` fields of `/v1/embeddings`. Each `input` item produces one vector. A `parts` item produces one aggregated embedding of all its parts.
+
+```json
+{
+  "model": "gemini::gemini-embedding-2",
+  "input": [
+    { "type": "text", "text": "a dog on a beach" },
+    { "type": "image", "data": [137, 80, 78, 71], "format": "png" },
+    { "type": "parts", "parts": [ { "type": "text", "text": "An image of a dog" }, { "type": "image", "data": [137, 80, 78, 71], "format": "png" } ] }
+  ],
+  "dimensions": 768
+}
+```
+
+The response is a `GaiseEmbeddingsResponse`, with `output` in input order. Requests whose items are all `text` fall back to the text embeddings path, so they work with any provider. Other content needs a multimodal adapter; today that is only `gemini::gemini-embedding-2`. Other models return `500` with "Multimodal embeddings are not supported by this client".
+
+Gemini Embedding 2 accepts PNG and JPEG images, MP3 and WAV audio, MP4 and MOV video (send a `file` item named `*.mp4` or `*.mov`), and PDFs (a `file` item). Its limits and task handling are in [embeddings.md](embeddings.md#multimodal-input). An empty `input` returns `400`.
 
 ## `GET /v1/models`
 
@@ -566,6 +589,6 @@ Per-vendor configuration details are on each [vendor page](README.md#vendors).
 
 ## POST /v1/decision
 
-Also served at `POST /v1/systemone`. Evaluate typed questions against shared state using `typesafe::jev` or an Ollama decision model such as `ollama::nimble`. See the
+Also served at `POST /v1/systemone`. Evaluate typed questions against shared state using `typesafe::jev`, `openai::gpt-6-luna` (OpenAI Decisions API, beta), or an Ollama decision model such as `ollama::nimble`. Add an optional `images` array of image [content objects](#content-objects) to share images with every question. Images work with `openai::gpt-6-luna` and `ollama::clef` / `ollama::clef-flash`; other models return `500`. See the
 [Decision endpoint guide](decision.md) for complete JSON requests and responses,
 configuration precedence, status codes, retries, and Rust examples.

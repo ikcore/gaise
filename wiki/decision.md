@@ -1,4 +1,4 @@
-# Decision: TypeSafe Jev and Ollama
+# Decision: TypeSafe Jev, OpenAI, and Ollama
 
 ## Decision and TypeSafe Jev
 
@@ -123,7 +123,8 @@ Illustrative response (values are examples, not a live prediction):
 
 Upstream `usage.input_tokens` maps to `usage.input.input_tokens`, and
 `usage.output_tokens` maps to `usage.output.output_tokens`. Zero counts remain
-zero. GAISe does not invent a `total` counter. Scores, probabilities, confidence,
+zero. GAISe does not invent a `total` counter; only OpenAI reports one (see
+[OpenAI Decisions](#openai-decisions-gpt-6-luna)). Scores, probabilities, confidence,
 and score legends remain typed JSON values.
 
 ### Configuration
@@ -186,23 +187,78 @@ curl http://localhost:3000/v1/decision \
 | --- | --- |
 | `nimble` | Bespoke Labs, 9B |
 | `tev1`, `tev1:0.8b` | Together AI, 4B and 0.8B (experimental) |
+| `clef`, `clef-flash` | Cloudflare, 27B and 9B; accept images (Ollama 0.35.1+) |
+| `laya` | Convai Innovations, 421M ModernBERT-large; MLX only (Ollama 0.40+) |
 
 Ollama's limits differ from TypeSafe's: at most 64 questions and a 64 KiB body per
 request, 2 to 26 choice options or score levels, `instructions` required on every
 question, and each rendered prompt must fit the loaded context. It accepts local
-models only and has no streaming, image, or tool support on this endpoint. GAISe
+models only and has no streaming or tool support on this endpoint. Only Clef and
+Clef Flash accept images: GAISe sends them as raw base64 strings in `images` (no
+data-URL prefix), and a request with images may be up to 32 MiB. GAISe
 applies its own validation and leaves these limits to Ollama, whose error text is
 returned with the status code. The model tag is sent unchanged (no `jev` mapping)
 and `usage.output_tokens` can be non-zero. `GET /v1/models?provider=ollama&operation=decision`
 lists installed decision tags.
 
-### Other decision providers
+### OpenAI Decisions (gpt-6-luna)
 
-TypeSafe and Ollama are the providers GAISe drives through this operation. OpenAI announced
-a Decisions API on 2026-09-29 (limited preview, reported to run on a GPT-6 Luna
-variant). As of 2026-09-30 it has no published API reference, SDK, model id, or
-pricing, so GAISe does not map it; its request shape should not be assumed to
-match the one above.
+OpenAI's Decisions API (`POST /v1/decisions`) has been in public beta since
+2026-10-06, and `gpt-6-luna` is the only model it accepts. GAISe routes
+`openai::gpt-6-luna` decisions there with the `OPENAI_API_KEY` configured for
+chat. It bills input tokens only ($0.10 per 1M at launch). OpenAI's shape differs
+from System One, so the adapter
+([`decisions.rs`](../gaise-provider-openai/src/decisions.rs)) translates it:
+
+| GAISe | OpenAI | Notes |
+| --- | --- | --- |
+| `state` | `input` text | Strings pass through; objects and arrays are sent as compact JSON text; `null` is rejected |
+| question id | `name` | Answers are matched back by name, not position |
+| `noul` | `predicate` | `true` / `false` criteria are appended to the instructions as `True when: …` / `False when: …` lines |
+| `choice` criteria | `choices` (`value`, `description`) | 2 to 255 options; a `null` description is omitted |
+| `score` criteria | ordered `levels` (`label`, `description`) | A string becomes the label; a `{label, description}` object passes through; `null` becomes the index; anything else becomes JSON text |
+| `instructions` | `instructions` | Required on every question; non-string values are sent as JSON text |
+
+On the way back, `predicate.probability` becomes `noul`. Choice values become
+strings (OpenAI's boolean values turn into `"true"` / `"false"`). Score
+probabilities are keyed by level index (`"0"`, `"1"`, …), and the score `legend`
+is rebuilt from the request criteria, so it matches TypeSafe's. If any question
+is refused (`type: refusal`), the whole call fails with an error naming the
+refused questions, because `GaiseAnswer` has no refusal variant. Usage keeps the
+decision vocabulary and adds OpenAI's details:
+`usage.input.{input_tokens, cached_tokens, cache_write_tokens}`,
+`usage.output.{output_tokens, reasoning_tokens}`, and `usage.total.total_tokens`.
+
+`safety_identifier` is not sent. Correlation and connection metadata never
+leave GAISe.
+
+### Images
+
+`GaiseClient::decision_with_images(&request, &images)` adds images
+(`GaiseContent::Image`) that every question can see. Over HTTP, add an `images`
+array to the `POST /v1/decision` body:
+
+```json
+{
+  "model": "openai::gpt-6-luna",
+  "state": "Inspect the product in this photo.",
+  "images": [{ "type": "image", "data": [137, 80, 78, 71], "format": "png" }],
+  "questions": {
+    "visible_damage": { "type": "noul", "instructions": "Does the product have visible damage?" }
+  }
+}
+```
+
+| Provider | How images are sent | Limit |
+| --- | --- | --- |
+| OpenAI (`gpt-6-luna`) | One user message: the state as `input_text`, then each image as an `input_image` base64 data URL | 128 images |
+| Ollama (`clef`, `clef-flash`) | `images`: raw base64 strings | 32 MiB request body |
+| TypeSafe and every other client | Rejected: "Image input for decisions is not supported by this client" | — |
+
+An empty `images` array behaves exactly like `decision`. Only image content is
+accepted. OpenAI's guide says images must be inline base64 data URLs, while its
+API reference also allows public HTTPS URLs. `GaiseContent::Image` carries bytes,
+so GAISe always sends data URLs.
 
 ### Validation and errors
 
@@ -227,8 +283,8 @@ are returned without retrying. There is no Decision streaming endpoint.
 
 ```toml
 [dependencies]
-gaise-core = { package = "gaise", version = "4.2.0" }
-gaise-client = { version = "4.2.0", default-features = false, features = ["typesafe"] }
+gaise-core = { package = "gaise", version = "4.3.0" }
+gaise-client = { version = "4.3.0", default-features = false, features = ["typesafe"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```

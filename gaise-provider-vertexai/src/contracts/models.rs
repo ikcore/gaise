@@ -195,11 +195,18 @@ pub struct GoogleInlineData {
 /// `thinkingLevel`, 2.5 uses `thinkingBudget`; sampling parameters are
 /// deprecated (ignored or rejected) on every Gemini 3.x model.
 pub fn model_uses_thinking_level(model: &str) -> bool {
-    gemini_major_version(model).is_some_and(|major| major >= 3)
+    gemini_major_version(model).is_some_and(|major| major >= 3) || is_nano_banana(model)
 }
 
 pub fn model_uses_fixed_sampling(model: &str) -> bool {
-    gemini_major_version(model).is_some_and(|major| major >= 3)
+    gemini_major_version(model).is_some_and(|major| major >= 3) || is_nano_banana(model)
+}
+
+/// `gemini-nano-banana-2.1` (GA 2026-10-06) is a Gemini 3-generation image
+/// model whose id carries no version number: it takes `thinkingLevel`
+/// (minimal, medium, high) and rejects seed, temperature, topP, and topK.
+fn is_nano_banana(model: &str) -> bool {
+    model.to_ascii_lowercase().starts_with("gemini-nano-banana")
 }
 
 /// Major version of a `gemini-<major>[.<minor>]-...` id (`gemini-3.8-flash`
@@ -224,6 +231,7 @@ pub fn gemini_major_version(model: &str) -> Option<u32> {
 const LEVELS_ALL: &[&str] = &["MINIMAL", "LOW", "MEDIUM", "HIGH"];
 const LEVELS_NO_MINIMAL: &[&str] = &["LOW", "MEDIUM", "HIGH"];
 const LEVELS_IMAGE: &[&str] = &["MINIMAL", "HIGH"];
+const LEVELS_NO_LOW: &[&str] = &["MINIMAL", "MEDIUM", "HIGH"];
 const LEVELS_HIGH_ONLY: &[&str] = &["HIGH"];
 
 /// `thinkingLevel` values a Gemini 3.x family accepts.
@@ -247,6 +255,8 @@ pub fn thinking_levels_for(model: &str) -> &'static [&'static str] {
     let m = model.to_ascii_lowercase();
     if m.contains("pro-image") {
         LEVELS_HIGH_ONLY
+    } else if is_nano_banana(&m) {
+        LEVELS_NO_LOW
     } else if m.contains("-image") {
         LEVELS_IMAGE
     } else if gemini_3_minor_without_minimal(&m)

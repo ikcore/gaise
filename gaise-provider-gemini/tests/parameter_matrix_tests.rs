@@ -49,6 +49,7 @@ const GEMINI_3_TEXT: &[&str] = &[
     "gemini-3-flash-preview",
 ];
 const GEMINI_3_IMAGE: &[&str] = &[
+    "gemini-nano-banana-2.1",
     "gemini-3.1-flash-image",
     "gemini-3.1-flash-lite-image",
     "gemini-3-pro-image",
@@ -186,6 +187,11 @@ fn thinking_levels_are_clamped_per_family() {
     );
     assert_eq!(level("gemini-3.5-flash", "max"), "HIGH");
     assert_eq!(level("gemini-3.5-flash", "xhigh"), "HIGH");
+    // Nano Banana 2.1 (2026-10-06): minimal, medium (default), and high.
+    assert_eq!(level("gemini-nano-banana-2.1", "minimal"), "MINIMAL");
+    assert_eq!(level("gemini-nano-banana-2.1", "medium"), "MEDIUM");
+    assert_eq!(level("gemini-nano-banana-2.1", "max"), "HIGH");
+    assert!(["MINIMAL", "MEDIUM"].contains(&level("gemini-nano-banana-2.1", "low").as_str()));
     // Image models: minimal or high only.
     assert_eq!(level("gemini-3.1-flash-image", "low"), "MINIMAL");
     assert_eq!(level("gemini-3.1-flash-image", "medium"), "HIGH");
@@ -315,4 +321,89 @@ fn gemini_4_ids_get_the_gemini_3_controls_without_minimal() {
     ] {
         assert_eq!(gemini_major_version(model), major, "{model}");
     }
+}
+
+#[test]
+fn content_embeddings_send_inline_media_and_prefix_only_text_items() {
+    use gaise_core::contracts::{GaiseContentEmbeddingsRequest, GaiseEmbeddingTask};
+    use gaise_provider_gemini::contracts::models::gemini_content_embed_request;
+    let png = GaiseContent::Image {
+        data: vec![137, 80, 78, 71],
+        format: Some("png".into()),
+    };
+    let request = GaiseContentEmbeddingsRequest {
+        model: "gemini-embedding-2".into(),
+        input: vec![
+            GaiseContent::Text {
+                text: "a dog".into(),
+            },
+            png.clone(),
+            GaiseContent::Parts {
+                parts: vec![
+                    GaiseContent::Text {
+                        text: "An image of a dog".into(),
+                    },
+                    png,
+                ],
+            },
+            GaiseContent::Audio {
+                data: vec![1],
+                format: Some("wav".into()),
+            },
+            GaiseContent::File {
+                data: vec![2],
+                name: Some("clip.MOV".into()),
+            },
+            GaiseContent::File {
+                data: vec![3],
+                name: Some("deck.pdf".into()),
+            },
+        ],
+        task: Some(GaiseEmbeddingTask::Query),
+        dimensions: Some(768),
+        ..Default::default()
+    };
+    let (wire, resolved) = gemini_content_embed_request(&request).unwrap();
+    let json = serde_json::to_value(&wire).unwrap();
+    let requests = json["requests"].as_array().unwrap();
+    assert_eq!(requests.len(), 6, "one embedding per item");
+    assert_eq!(
+        requests[0]["content"]["parts"][0]["text"],
+        "task: search result | query: a dog"
+    );
+    assert_eq!(
+        requests[1]["content"]["parts"][0]["inlineData"],
+        serde_json::json!({"mimeType": "image/png", "data": "iVBORw=="})
+    );
+    let aggregated = requests[2]["content"]["parts"].as_array().unwrap();
+    assert_eq!(aggregated.len(), 2, "parts aggregate into one embedding");
+    assert_eq!(
+        aggregated[0]["text"], "An image of a dog",
+        "no task prefix on multimodal items"
+    );
+    assert_eq!(
+        requests[3]["content"]["parts"][0]["inlineData"]["mimeType"],
+        "audio/wav"
+    );
+    assert_eq!(
+        requests[4]["content"]["parts"][0]["inlineData"]["mimeType"],
+        "video/quicktime"
+    );
+    assert_eq!(
+        requests[5]["content"]["parts"][0]["inlineData"]["mimeType"],
+        "application/pdf"
+    );
+    assert!(requests.iter().all(|r| r.get("taskType").is_none()));
+    assert!(requests.iter().all(|r| r["outputDimensionality"] == 768));
+    assert!(!resolved.normalize_locally);
+
+    let reasoning = GaiseContentEmbeddingsRequest {
+        model: "gemini-embedding-2".into(),
+        input: vec![GaiseContent::Reasoning {
+            text: "x".into(),
+            signature: None,
+        }],
+        ..Default::default()
+    };
+    assert!(gemini_content_embed_request(&reasoning).is_err());
 }

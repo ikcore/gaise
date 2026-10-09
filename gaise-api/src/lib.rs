@@ -13,8 +13,8 @@ use gaise_client::GaiseClientService;
 use gaise_core::{
     GaiseClient,
     contracts::{
-        GaiseDecisionRequest, GaiseEmbeddingsRequest, GaiseInstructRequest, GaiseListModelsRequest,
-        GaiseOperation,
+        GaiseContent, GaiseContentEmbeddingsRequest, GaiseDecisionRequest, GaiseEmbeddingsRequest,
+        GaiseInstructRequest, GaiseListModelsRequest, GaiseOperation,
     },
     registry,
 };
@@ -46,6 +46,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .route("/v1/instruct", post(handle_instruct))
         .route("/v1/instruct/stream", post(handle_instruct_stream))
         .route("/v1/embeddings", post(handle_embeddings))
+        .route("/v1/embeddings/contents", post(handle_content_embeddings))
         .route("/v1/models", get(handle_list_models))
         .route("/v1/models/limits", get(handle_model_limits))
         .route("/v1/models/:model", get(handle_get_model));
@@ -62,14 +63,29 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     router.with_state(state)
 }
 
+/// `POST /v1/decision` body: a decision request plus optional `images`
+/// (`GaiseContent` image items) shared by every question.
+#[derive(serde::Deserialize)]
+struct DecisionBody {
+    #[serde(flatten)]
+    request: GaiseDecisionRequest,
+    #[serde(default)]
+    images: Vec<GaiseContent>,
+}
+
 async fn handle_decision(
     State(state): State<Arc<AppState>>,
-    Json(request): Json<GaiseDecisionRequest>,
+    Json(body): Json<DecisionBody>,
 ) -> impl IntoResponse {
+    let DecisionBody { request, images } = body;
     if let Err(error) = request.validate() {
         return (StatusCode::BAD_REQUEST, error).into_response();
     }
-    match state.client_service.decision(&request).await {
+    match state
+        .client_service
+        .decision_with_images(&request, &images)
+        .await
+    {
         Ok(response) => Json(response).into_response(),
         Err(e) => {
             error!("Decision error: {}", e);
@@ -115,6 +131,22 @@ async fn handle_embeddings(
     Json(request): Json<GaiseEmbeddingsRequest>,
 ) -> impl IntoResponse {
     match state.client_service.embeddings(&request).await {
+        Ok(response) => Json(response).into_response(),
+        Err(e) => {
+            error!("Embeddings error: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+    }
+}
+
+async fn handle_content_embeddings(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<GaiseContentEmbeddingsRequest>,
+) -> impl IntoResponse {
+    if let Err(error) = request.validate() {
+        return (StatusCode::BAD_REQUEST, error).into_response();
+    }
+    match state.client_service.embed_contents(&request).await {
         Ok(response) => Json(response).into_response(),
         Err(e) => {
             error!("Embeddings error: {}", e);

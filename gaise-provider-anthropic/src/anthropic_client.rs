@@ -236,6 +236,7 @@ pub fn claude_family_rules(model: &str) -> ClaudeFamilyRules {
         || has("claude-opus-4-8")
         || has("claude-opus-4-7")
         || has("claude-sonnet-5")
+        || has("claude-haiku-5")
     {
         return ClaudeFamilyRules {
             adaptive_only: true,

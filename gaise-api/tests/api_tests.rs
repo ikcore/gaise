@@ -59,3 +59,41 @@ async fn test_instruct_post_request() {
     let body_str = String::from_utf8(body.to_vec()).unwrap();
     assert!(body_str.contains("Unknown provider: nonexistent"));
 }
+
+#[tokio::test]
+async fn content_embeddings_route_validates_and_rejects_media_without_an_adapter() {
+    let app = create_app(Arc::new(AppState {
+        client_service: GaiseClientService::new(GaiseClientConfig {
+            ollama_url: Some("http://127.0.0.1:9".into()),
+            ..Default::default()
+        }),
+    }));
+    let post = |body: serde_json::Value| {
+        axum::http::Request::post("/v1/embeddings/contents")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(body.to_string()))
+            .unwrap()
+    };
+    let response = app
+        .clone()
+        .oneshot(post(
+            json!({"model": "ollama::embeddinggemma", "input": []}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::BAD_REQUEST);
+
+    let response = app
+        .oneshot(post(json!({"model": "ollama::embeddinggemma",
+            "input": [{"type": "image", "data": [1, 2, 3], "format": "png"}]})))
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::INTERNAL_SERVER_ERROR
+    );
+    let text = axum::body::to_bytes(response.into_body(), 10000)
+        .await
+        .unwrap();
+    assert!(String::from_utf8_lossy(&text).contains("Multimodal embeddings are not supported"));
+}

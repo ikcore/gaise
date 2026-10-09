@@ -125,7 +125,7 @@ Not mapped: `safetySettings`, `responseMimeType`/`responseSchema` (structured ou
 
 No other model-name rules exist; arbitrary IDs (including `publishers/anthropic` Claude models via the template) are passed through.
 
-### Parameter compatibility (audited 2026-10-01)
+### Parameter compatibility (audited 2026-10-09)
 
 [`model_uses_fixed_sampling`](../gaise-provider-vertexai/src/contracts/models.rs), [`thinking_levels_for`](../gaise-provider-vertexai/src/contracts/models.rs), [`normalize_thinking_level`](../gaise-provider-vertexai/src/contracts/models.rs), and [`thinking_budget_for`](../gaise-provider-vertexai/src/contracts/models.rs) enforce the table; [`tests/parameter_matrix_tests.rs`](../gaise-provider-vertexai/tests/parameter_matrix_tests.rs) pins it.
 
@@ -134,6 +134,7 @@ No other model-name rules exist; arbitrary IDs (including `publishers/anthropic`
 | Gemini 3.8 Flash (2026-09-02), 3.7 Flash, any later `gemini-3.<n>` Flash, 3.1 Pro | never sent (ignored on 3.6+/3.5-Lite/3.7/3.8; `frequency_penalty`, `presence_penalty`, and `candidate_count` raise errors there) | `thinkingLevel` | LOW, MEDIUM, HIGH (`minimal` → LOW) | → LOW (cannot disable) |
 | Gemini 4 and later (`gemini-<major>` with major ≥ 4; none published yet) | never sent | `thinkingLevel` | LOW, MEDIUM, HIGH (`minimal` → LOW) | → LOW |
 | Gemini 3.6, 3.5, 3.5-Lite, 3.1-Lite, 3 Flash preview (deprecated on Vertex, no date) | never sent | `thinkingLevel` | MINIMAL, LOW, MEDIUM, HIGH | → MINIMAL |
+| Nano Banana 2.1 (`gemini-nano-banana-*`, 2026-10-06) | never sent (Vertex: seed, temperature, topP, topK, and logprobs return an error) | `thinkingLevel` | MINIMAL, MEDIUM, HIGH (LOW → MEDIUM) | → MINIMAL |
 | 3.1 Flash Image, 3.1 Flash-Lite Image | never sent | `thinkingLevel` | MINIMAL, HIGH (LOW → MINIMAL, MEDIUM → HIGH) | → MINIMAL |
 | 3 Pro Image | never sent | `thinkingLevel` | HIGH only | → HIGH |
 | Gemini 2.5 Pro | accepted | `thinkingBudget` | 128–32,768 (cannot disable: 0 → 128) | → 128 |
@@ -234,20 +235,21 @@ Tests: [`catalog.rs#L150`](../gaise-provider-vertexai/src/contracts/catalog.rs#L
 
 ## Models
 
-From `model-registry.toml` (audited 2026-10-01), `provider = "vertexai"` entries. Dates are Google Cloud dates only; Gemini API (`gemini`) lifecycle dates must never be copied here or vice versa. "Short-term" models retire 45 days after a designated replacement ships.
+From `model-registry.toml` (audited 2026-10-09), `provider = "vertexai"` entries. Dates are Google Cloud dates only; Gemini API (`gemini`) lifecycle dates must never be copied here or vice versa. "Short-term" models retire 45 days after a designated replacement ships.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
 | `gemini-3.8-flash-cyber` | — | `limited_availability` | — | text, image, file | text | instruct, instruct_stream | supported | native generateContent for allowlisted projects; function calling not supported | GA behind an allowlist since 2026-09-16; no retirement date announced. Thinking and structured output supported; function calling not suppor… |
 | `gemini-3.8-live` | — | `active` | — | text, image, audio, video | text, audio | — | — | not reachable: the Vertex AI crate has no Live transport | GA on Vertex 2026-09-24 (the Gemini API date is 2026-09-15). Thinking not supported; Count Tokens not supported. |
 | `gemini-3.8-flash` | — | `short_term_active` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native | GA 2026-09-02; short-term availability table, no retirement date announced. thinking_level LOW, MEDIUM (default), HIGH; MINIMAL not supporte… |
-| `gemini-3.7-flash` | — | `short_term_active` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native | GA 2026-08-13; short-term availability table, no retirement date announced and no replacement named as of 2026-09-12 (gemini-3.8-flash has n… |
-| `gemini-3.6-flash` | — | `short_term_active` | — | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | Released 2026-07-21; short-term availability (retires 45 days after a designated replacement). Neither 3.7 nor 3.8 Flash is named as that re… |
+| `gemini-3.7-flash` | — | `short_term_active` | shutdown 2027-01-28 | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native | GA 2026-08-13; short-term availability table, no retirement date announced and no replacement named as of 2026-09-12 (gemini-3.8-flash has n… |
+| `gemini-3.6-flash` | — | `short_term_active` | shutdown 2026-11-19 | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | Released 2026-07-21; short-term availability (retires 45 days after a designated replacement). Neither 3.7 nor 3.8 Flash is named as that re… |
 | `gemini-3.5-flash` | — | `active` | not before 2027-05-19 | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | thinking_level MINIMAL..HIGH (default MEDIUM); sampling parameters still accepted on this model. |
 | `gemini-3.5-flash-lite` | — | `active` | not before 2027-07-21 | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | thinking_level MINIMAL (default)..HIGH; custom sampling values are ignored. Agentic video understanding (preview) supported; Vertex names it… |
 | `gemini-3.1-flash-lite` | — | `active` | not before 2027-05-07 | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | GA 2026-05-07. thinking_level MINIMAL (default)..HIGH. |
 | `gemini-3.1-pro-preview` | `gemini-3.1-pro-preview-customtools` | `preview` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native | Public preview since 2026-02-19 (customtools variant 2026-02-23); global endpoint only; not in the lifecycle table. thinking_level LOW, MEDI… |
 | `gemini-3-flash-preview` | — | `preview` | — | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | Public preview since 2025-12-17; not in the Vertex lifecycle table. The Vertex model page shows launch stage Public preview with no deprecat… |
+| `gemini-nano-banana-2.1` | — | `short_term_active` | — | text, image, video | text, image | instruct, instruct_stream | supported | native image output through generateContent | GA 2026-10-06, global endpoint only; short-term availability table, no retirement date announced. Text and image in and out, video input; up… |
 | `gemini-3.1-flash-image` | — | `active` | not before 2027-05-28 | text, image, video, file | text, image | instruct, instruct_stream | `minimal`, `high` | native image output through generateContent | Video input and 4K output are GA since 2026-08-31; us and eu multi-region endpoints added. Function calling is not supported. Resolutions 51… |
 | `gemini-3.1-flash-lite-image` | — | `active` | not before 2027-06-28 | text, image, video, file | text, image | instruct, instruct_stream | `minimal`, `high` | native image output through generateContent | GA 2026-06-23 on Vertex (the Gemini API date is 2026-06-30). Listed in the 12-month availability table with no retirement date announced (co… |
 | `gemini-3-pro-image` | — | `active` | not before 2027-05-28 | text, image, file | text, image | instruct, instruct_stream | `high` | native image output through generateContent | Function calling is not supported; video input is not supported; 4K output GA since 2026-08-31. thinking_level HIGH only. |

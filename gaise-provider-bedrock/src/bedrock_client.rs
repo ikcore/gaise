@@ -436,6 +436,7 @@ impl GaiseClientBedrock {
                 || has("claude-opus-4-8")
                 || has("claude-opus-4-7")
                 || has("claude-sonnet-5")
+                || has("claude-haiku-5")
             {
                 (true, true, false, FIVE, true)
             } else if has("claude-opus-4-6") || has("claude-sonnet-4-6") {
@@ -1603,6 +1604,7 @@ mod tests {
             "anthropic.claude-opus-4-8",
             "anthropic.claude-opus-4-7",
             "eu.anthropic.claude-sonnet-5",
+            "global.anthropic.claude-haiku-5-5",
         ] {
             let mut req = request(model, Some("high"), Some(4096));
             req.generation_config.as_mut().unwrap().temperature = Some(0.2);
@@ -1761,6 +1763,8 @@ mod tests {
             ("global.anthropic.claude-sonnet-5-5", true),
             ("us.anthropic.claude-opus-5", false),
             ("us.anthropic.claude-sonnet-5", false),
+            // Haiku 5.5 (2026-10-07) can turn thinking off, like Opus 5.
+            ("us.anthropic.claude-haiku-5-5", false),
         ] {
             assert_eq!(
                 GaiseClientBedrock::claude_rules(model).unwrap().2,

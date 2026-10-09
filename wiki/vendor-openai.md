@@ -103,7 +103,7 @@ Mapped by [`map_content_parts`](../gaise-provider-openai/src/openai_client.rs#L1
 | Reasoning families | none | No allowlist: `reasoning_effort` is sent whenever configured. The catalog heuristics in [`classify_openai_model_id`](../gaise-provider-openai/src/contracts/catalog.rs#L53) recognize `gpt-`, `chatgpt-`, `o1`/`o3`/`o4`, `codex` as Chat but do not gate request fields |
 | Fixed-sampling models | none | `temperature`/`top_p` are never suppressed per model |
 
-### Parameter compatibility (audited 2026-10-01)
+### Parameter compatibility (audited 2026-10-09)
 
 [`openai_chat_rules`](../gaise-provider-openai/src/openai_client.rs) drives per-family filtering before a Chat Completions request is serialized; [`tests/parameter_matrix_tests.rs`](../gaise-provider-openai/tests/parameter_matrix_tests.rs) pins every row.
 
@@ -127,7 +127,7 @@ Realtime: `gpt-live-*` ids are refused before any connection ([`realtime_model_u
 
 ### Responses path for GPT-6 tools
 
-OpenAI serves function calling for GPT-6 Astra and GPT-6.1 Sol through the Responses API only, so [`responses.rs`](../gaise-provider-openai/src/responses.rs) maps those tool conversations onto `POST /responses` (audited 2026-10-01 against the function-calling, reasoning, and latest-model guides and the openai-python `types/responses` definitions).
+OpenAI serves function calling for GPT-6 Astra and GPT-6.1 Sol through the Responses API only, so [`responses.rs`](../gaise-provider-openai/src/responses.rs) maps those tool conversations onto `POST /responses` (audited 2026-10-09 against the function-calling, reasoning, and latest-model guides and the openai-python `types/responses` definitions).
 
 | Aspect | Mapping |
 |---|---|
@@ -183,6 +183,16 @@ Realtime turn usage ([`map_realtime_usage`](../gaise-provider-openai/src/openai_
 - `normalize: true` is applied locally only for models without a profile; the 3-series and ada return unit-length vectors (including shortened ones), so nothing is recomputed.
 - `encoding_format` and `user` are not mapped. The response body is parsed from text so a shape mismatch reports the failing field and a 400-char snippet. Output is `Vec<Vec<f32>>` in response order; `external_id` is the response `object` field (`"list"`). Uses [`send_with_retry`](../gaise-provider-openai/src/openai_client.rs). [`OpenAIEmbedUsage`](../gaise-provider-openai/src/contracts/models.rs) defaults every field so OpenAI-compatible proxies that omit usage still parse.
 
+## Decisions
+
+[`decision`](../gaise-provider-openai/src/openai_client.rs) and `decision_with_images` post to `POST {api_url}/decisions`, OpenAI's Decisions API (public beta since 2026-10-06, `gpt-6-luna` only). [`decisions.rs`](../gaise-provider-openai/src/decisions.rs) translates the System One-shaped `GaiseDecisionRequest`:
+- `state` becomes `input` text.
+- `noul` / `choice` / `score` become `predicate` / `choice` / `score`, named after the question ids.
+- `true` / `false` criteria are folded into the predicate instructions.
+- Images are sent as base64 data URLs in a single user message, up to 128.
+
+Answers are matched back by name. A refusal fails the call. Usage keeps `input_tokens` / `output_tokens` and adds cache, reasoning, and total counters. `safety_identifier` is not sent. Requests go through [`send_with_retry`](../gaise-provider-openai/src/openai_client.rs). The full mapping table and HTTP examples are in [decision.md](decision.md#openai-decisions-gpt-6-luna).
+
 ## Live / realtime
 
 Available with `features = ["live"]`; implemented by [`GaiseClientOpenAILive::live_connect`](../gaise-provider-openai/src/openai_live_client.rs#L284) with wire types in [`realtime_models.rs`](../gaise-provider-openai/src/contracts/realtime_models.rs).
@@ -227,14 +237,14 @@ Tests: [`catalog.rs#L167-L283`](../gaise-provider-openai/src/contracts/catalog.r
 
 ## Models
 
-From `model-registry.toml` (audited 2026-10-01). Status is the registry string; dates are `shutdown_date` / `retirement_not_before`.
+From `model-registry.toml` (audited 2026-10-09). Status is the registry string; dates are `shutdown_date` / `retirement_not_before`.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
 | `gpt-6-astra` | — | `active` | — | text, image | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features; function tools through the Responses API | Released 2026-09-03 as a limited preview and generally available in the API since 2026-09-04 (the model page carries the standard rate-limit… |
 | `gpt-6.1-sol` | — | `active` | — | text, image | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features; function tools through the Responses API | Released 2026-09-29 for complex coding and professional work at a lower cost than GPT-6 Astra; the latest-model guide says it supersedes gpt… |
 | `gpt-6-sol` | — | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features | Released 2026-09-22; superseded by gpt-6.1-sol on 2026-09-29 but not deprecated. Follows the GPT-5.6 Chat Completions rules, not the GPT-6 A… |
-| `gpt-6-luna` | — | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features | Released 2026-09-22. Same Chat Completions rules as gpt-6-sol: function calling only with reasoning_effort='none' (applied automatically), s… |
+| `gpt-6-luna` | — | `active` | — | text, image | text | decision, instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features; typed decisions through the Decisions API | Released 2026-09-22. Same Chat Completions rules as gpt-6-sol: function calling only with reasoning_effort='none' (applied automatically), s… |
 | `gpt-5.6` | `gpt-5.6-sol` | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features | OpenAI documents gpt-5.6-sol as the snapshot ID and gpt-5.6 as the alias that routes to it. On Chat Completions, function tools require reas… |
 | `gpt-5.6-terra` | — | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features | On Chat Completions, function tools require reasoning_effort='none'; the adapter applies this automatically. Use Responses for reasoning wit… |
 | `gpt-5.6-luna` | — | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh`, `max` | chat-compatible features | On Chat Completions, function tools require reasoning_effort='none'; the adapter applies this automatically. Use Responses for reasoning wit… |
@@ -242,9 +252,9 @@ From `model-registry.toml` (audited 2026-10-01). Status is the registry string; 
 | `gpt-5.5-pro` | — | `active` | — | text, image | text | — | `medium`, `high`, `xhigh` | not reachable through the Chat Completions instruct client | OpenAI lists Chat Completions as not supported; Responses and Batch only. Streaming is not listed among supported features. |
 | `gpt-5.4` | — | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh` | chat-compatible features | — |
 | `gpt-5.4-mini` | — | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh` | chat-compatible features | — |
-| `gpt-5.4-nano` | — | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh` | chat-compatible features | — |
+| `gpt-5.4-nano` | — | `deprecated` | shutdown 2027-04-01 | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh` | chat-compatible features | Deprecated 2026-10-01; removal 2027-04-01. Replacement `gpt-6-luna`. |
 | `gpt-5.2` | `gpt-5.2-2025-12-11` | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh` | chat-compatible features | Previous flagship; OpenAI recommends GPT-6 Astra or GPT-5.6. Not on the deprecations page as of 2026-09-04 (only gpt-5.2-chat-latest retired… |
-| `gpt-5.1` | `gpt-5.1-2025-11-13` | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high` | chat-compatible features | Not on the deprecations page as of 2026-09-04 (only gpt-5.1-chat-latest and the 5.1 Codex family retired). |
+| `gpt-5.1` | `gpt-5.1-2025-11-13` | `deprecated` | shutdown 2027-04-01 | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high` | chat-compatible features | Deprecated 2026-10-01 together with gpt-5.3-codex and gpt-5.4-nano; removal 2027-04-01. gpt-5.1-chat-latest and the 5.1 Codex family retired… |
 | `gpt-4.1` | `gpt-4.1-2025-04-14` | `active` | — | text, image | text | instruct, instruct_stream | — | chat-compatible features | Non-reasoning; sampling accepted; image detail limited to low/high/auto. gpt-4.1-nano retires 2026-10-23 but gpt-4.1 and gpt-4.1-mini carry… |
 | `gpt-4.1-mini` | `gpt-4.1-mini-2025-04-14` | `active` | — | text, image | text | instruct, instruct_stream | — | chat-compatible features | — |
 | `gpt-4o` | `gpt-4o-2024-11-20`, `gpt-4o-2024-08-06` | `active` | — | text, image | text | instruct, instruct_stream | — | chat-compatible features | gpt-4o resolves to gpt-4o-2024-08-06. The gpt-4o-2024-05-13 snapshot alone retires 2026-10-23 and has its own entry. |
@@ -268,7 +278,7 @@ From `model-registry.toml` (audited 2026-10-01). Status is the registry string; 
 | `gpt-transcribe` | — | `active` | — | text, audio | text | — | — | not supported: speech-to-text has no GAISe surface | Released 2026-07-28; /v1/audio/transcriptions and realtime transcription sessions; streaming; billed per minute. |
 | `gpt-live-transcribe` | — | `active` | — | text, audio | text | — | — | not supported: realtime transcription sessions have no GAISe surface | Released 2026-07-28; /v1/realtime/transcription_sessions only; 'delay' accepts minimal, low, medium, high, xhigh. |
 | `gpt-realtime-whisper` | — | `active` | — | text, audio | text | — | — | not supported: realtime transcription sessions have no GAISe surface | turn_detection must be null for this model. |
-| `gpt-4o-mini-tts` | `gpt-4o-mini-tts-2025-12-15`, `gpt-4o-mini-tts-2025-03-20` | `active` | — | text | text, audio | — | — | not supported: OpenAI text-to-speech has no GAISe surface (use elevenlabs::) | /v1/audio/speech only; 2,000 input tokens; the 2025-12-15 snapshot is the default. |
+| `gpt-4o-mini-tts` | `gpt-4o-mini-tts-2025-12-15`, `gpt-4o-mini-tts-2025-03-20` | `active` | — | text | text, audio | — | — | not supported: OpenAI text-to-speech has no GAISe surface (use elevenlabs::) | /v1/audio/speech only; 2,000 input tokens; the 2025-12-15 snapshot is the default. Both dated snapshots (2025-03-20 and 2025-12-15), tts-1,… |
 | `gpt-5-chat-latest` | — | `retired` | shutdown 2026-07-23 | unknown | unknown | — | — | — | Replacement `gpt-5.6-sol`. |
 | `gpt-5.1-chat-latest` | — | `retired` | shutdown 2026-07-23 | unknown | unknown | — | — | — | Replacement `gpt-5.6-sol`. |
 | `gpt-5.2-chat-latest` | — | `retired` | shutdown 2026-08-10 | unknown | unknown | — | — | — | Replacement `gpt-5.6-sol`. |
@@ -287,8 +297,8 @@ From `model-registry.toml` (audited 2026-10-01). Status is the registry string; 
 | `gpt-4` | `gpt-4-0613`, `gpt-4-1106-preview` | `deprecated` | shutdown 2026-10-23 | unknown | unknown | — | — | — | gpt-4-1106-preview is 128K context. Replacement `gpt-5.6-sol`. |
 | `gpt-3.5-turbo` | `gpt-3.5-turbo-0125` | `deprecated` | shutdown 2026-10-23 | unknown | unknown | — | — | — | gpt-3.5-turbo-1106, gpt-3.5-turbo-instruct, babbage-002, and davinci-002 shut down earlier, on 2026-09-28. Replacement `gpt-5.6-terra`. |
 | `gpt-4.1-nano` | `gpt-4.1-nano-2025-04-14` | `deprecated` | shutdown 2026-10-23 | unknown | unknown | — | — | — | Replacement `gpt-5.6-luna`. |
-| `gpt-image-1` | — | `deprecated` | shutdown 2026-10-23 | unknown | unknown | — | — | — | Replacement `gpt-image-2`. |
-| `gpt-image-1.5` | `gpt-image-1-mini`, `chatgpt-image-latest` | `deprecated` | shutdown 2026-12-01 | unknown | unknown | — | — | — | Replacement `gpt-image-2`. |
+| `gpt-image-1` | — | `deprecated` | shutdown 2026-10-23 | unknown | unknown | — | — | — | Replacement `gpt-image-2.5-sunburst or gpt-image-2.5-flare`. |
+| `gpt-image-1.5` | `gpt-image-1-mini`, `chatgpt-image-latest` | `deprecated` | shutdown 2026-12-01 | unknown | unknown | — | — | — | Replacement `gpt-image-2.5-sunburst or gpt-image-2.5-flare`. |
 | `gpt-realtime` | `gpt-4o-realtime`, `gpt-realtime-mini`, `gpt-4o-mini-realtime` | `deprecated` | shutdown 2027-01-20 | unknown | unknown | — | — | — | Announced 2026-07-20. Context 32K for gpt-realtime, gpt-realtime-mini, and gpt-4o-realtime. The gpt-4o-*-realtime-preview family and the Ope… |
 | `gpt-audio` | `gpt-4o-audio`, `gpt-audio-mini`, `gpt-4o-mini-audio` | `deprecated` | shutdown 2027-01-20 | unknown | unknown | — | — | — | Replacement `gpt-audio-1.5`. |
 | `whisper-1` | `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`, `gpt-4o-transcribe-diarize` | `deprecated` | shutdown 2027-02-26 | text, audio | text | — | — | not supported: speech-to-text has no GAISe surface | Deprecation announced 2026-08-26 for the whole legacy transcription family. Replacement `gpt-transcribe or gpt-live-transcribe`. |
@@ -371,6 +381,7 @@ Hermetic (no network, no credentials):
 - [`tests/live_mapping_tests.rs`](../gaise-provider-openai/tests/live_mapping_tests.rs) (`#![cfg(feature = "live")]`): `session.update` serialization for basic, tools, VAD, and transcription configs (via a test-local replica of `build_session_update`), `input_audio_buffer.append`, text/image/tool-response `conversation.item.create`, and server-event parsing for function-call done, `response.done` usage, errors, and audio deltas.
 - [`src/openai_live_client.rs` tests](../gaise-provider-openai/src/openai_live_client.rs#L728): realtime turn usage and separately billed transcription usage.
 
+- [`tests/decision_tests.rs`](../gaise-provider-openai/tests/decision_tests.rs): Decisions request mapping (predicate / choice / score, criteria folding, levels), validation (null state, missing instructions, choice count, 128 images), image messages, usage, answer matching by name, refusals, upstream errors, and mismatched answer types against a local HTTP server. `live_decision` (`#[ignore]`, needs `OPENAI_API_KEY`) calls the real API.
 - [`tests/responses_tests.rs`](../gaise-provider-openai/tests/responses_tests.rs): Responses routing, request shape, tool round trip with reasoning replay, response and SSE event mapping, and `instruct` / `instruct_stream` against a local HTTP server.
 
 Nothing in the default suite contacts `api.openai.com`. `live_tool_round_trip` (`#[ignore]`, needs `OPENAI_API_KEY`) runs a real two-turn tool call.

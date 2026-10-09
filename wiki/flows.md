@@ -165,7 +165,7 @@ flowchart LR
     N --> R[GaiseEmbeddingsResponse + available usage]
 ```
 
-Anthropic has no embeddings branch. The common embedding input is currently text-only. Models and usage per provider: [capabilities.md#embeddings](capabilities.md#embeddings).
+Anthropic has no embeddings branch. `GaiseEmbeddingsRequest` is text only; `embed_contents` adds image, audio, video, and PDF input for `gemini::gemini-embedding-2`. Models and usage per provider: [capabilities.md#embeddings](capabilities.md#embeddings).
 
 ## Model discovery
 
