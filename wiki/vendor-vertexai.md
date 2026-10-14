@@ -125,14 +125,14 @@ Not mapped: `safetySettings`, `responseMimeType`/`responseSchema` (structured ou
 
 No other model-name rules exist; arbitrary IDs (including `publishers/anthropic` Claude models via the template) are passed through.
 
-### Parameter compatibility (audited 2026-10-09)
+### Parameter compatibility (audited 2026-10-14)
 
 [`model_uses_fixed_sampling`](../gaise-provider-vertexai/src/contracts/models.rs), [`thinking_levels_for`](../gaise-provider-vertexai/src/contracts/models.rs), [`normalize_thinking_level`](../gaise-provider-vertexai/src/contracts/models.rs), and [`thinking_budget_for`](../gaise-provider-vertexai/src/contracts/models.rs) enforce the table; [`tests/parameter_matrix_tests.rs`](../gaise-provider-vertexai/tests/parameter_matrix_tests.rs) pins it.
 
 | Family | `temperature` / `topP` / `topK` | Thinking control | Accepted levels / budget | `none` effort |
 |---|---|---|---|---|
 | Gemini 3.8 Flash (2026-09-02), 3.7 Flash, any later `gemini-3.<n>` Flash, 3.1 Pro | never sent (ignored on 3.6+/3.5-Lite/3.7/3.8; `frequency_penalty`, `presence_penalty`, and `candidate_count` raise errors there) | `thinkingLevel` | LOW, MEDIUM, HIGH (`minimal` → LOW) | → LOW (cannot disable) |
-| Gemini 4 and later (`gemini-<major>` with major ≥ 4; none published yet) | never sent | `thinkingLevel` | LOW, MEDIUM, HIGH (`minimal` → LOW) | → LOW |
+| Gemini 4 and later (`gemini-<major>` with major ≥ 4; Gemini 4 Argon GA 2026-10-13) | never sent | `thinkingLevel` | LOW, MEDIUM, HIGH (`minimal` → LOW) | → LOW |
 | Gemini 3.6, 3.5, 3.5-Lite, 3.1-Lite, 3 Flash preview (deprecated on Vertex, no date) | never sent | `thinkingLevel` | MINIMAL, LOW, MEDIUM, HIGH | → MINIMAL |
 | Nano Banana 2.1 (`gemini-nano-banana-*`, 2026-10-06) | never sent (Vertex: seed, temperature, topP, topK, and logprobs return an error) | `thinkingLevel` | MINIMAL, MEDIUM, HIGH (LOW → MEDIUM) | → MINIMAL |
 | 3.1 Flash Image, 3.1 Flash-Lite Image | never sent | `thinkingLevel` | MINIMAL, HIGH (LOW → MINIMAL, MEDIUM → HIGH) | → MINIMAL |
@@ -143,7 +143,7 @@ No other model-name rules exist; arbitrary IDs (including `publishers/anthropic`
 
 On 2.5, an effort without a budget is approximated (`low` 2,048, `medium` 8,192, `high` 24,576, `minimal` 512); `xhigh`/`max` map to HIGH on 3.x. `thinkingLevel` and `thinkingBudget` are never sent together. Sources: Vertex inference reference ("deprecated for all Gemini 3 models"), Vertex thinking page, model cards. The same helpers are duplicated in the Gemini crate.
 
-Gemini 4 Argon was announced on 2026-09-30 for restricted early access with no API model id or request contract. [`gemini_major_version`](../gaise-provider-vertexai/src/contracts/models.rs) makes `model_uses_thinking_level` and `model_uses_fixed_sampling` true for any `gemini-<major>` id with major ≥ 3, so a Gemini 4 id gets the Gemini 3 controls instead of the 2.5 `thinkingBudget` path. This is a forward guard, not documented behaviour; `gemini_4_ids_get_the_gemini_3_controls_without_minimal` pins it until Google publishes a Gemini 4 model page.
+Gemini 4 Argon (`gemini-4-argon`) went GA on 2026-10-13 and documents the controls GAISe already sent: `thinkingLevel` LOW, MEDIUM (default), or HIGH, with MINIMAL and `thinkingBudget` rejected, and `temperature` / `top_p` / `top_k` ignored. [`gemini_major_version`](../gaise-provider-vertexai/src/contracts/models.rs) makes `model_uses_thinking_level` and `model_uses_fixed_sampling` true for any `gemini-<major>` id with major ≥ 3, so a Gemini 4 id gets those controls and a manual token budget becomes a level; `gemini_4_ids_get_the_gemini_3_controls_without_minimal` and `gemini_4_argon_maps_a_token_budget_to_a_level` pin it. Argon caps a single non-streaming request at 32,768 output tokens (65,536 when streaming) and returns 400 above that without a continuation token; GAISe passes `max_tokens` through unchanged and does not implement long decode (`continuationToken`, `finish_reason` CONTINUATION), so stream or keep `max_tokens` at or below 32,768 for unary calls. On Vertex AI, Argon is served only from the `global`, `us`, and `eu` endpoints, and long decode needs `v1beta1`.
 
 ## Response mapping
 
@@ -235,10 +235,12 @@ Tests: [`catalog.rs#L150`](../gaise-provider-vertexai/src/contracts/catalog.rs#L
 
 ## Models
 
-From `model-registry.toml` (audited 2026-10-09), `provider = "vertexai"` entries. Dates are Google Cloud dates only; Gemini API (`gemini`) lifecycle dates must never be copied here or vice versa. "Short-term" models retire 45 days after a designated replacement ships.
+From `model-registry.toml` (audited 2026-10-14), `provider = "vertexai"` entries. Dates are Google Cloud dates only; Gemini API (`gemini`) lifecycle dates must never be copied here or vice versa. "Short-term" models retire 45 days after a designated replacement ships.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
+| `gemini-4-argon` | — | `active` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native on the global, us, or eu endpoints (long decode not implemented) | GA 2026-10-13; 12-month availability table, no retirement date announced. Unified 1,048,576-token input and output limit; one synchronous re… |
+| `gemini-4-argon-cyber-permissive` | — | `limited_availability` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native for projects on the Fairwind Program allowlist | GA behind the Fairwind Program allowlist since 2026-10-13; short-term availability table, no retirement date announced. Same contract as gem… |
 | `gemini-3.8-flash-cyber` | — | `limited_availability` | — | text, image, file | text | instruct, instruct_stream | supported | native generateContent for allowlisted projects; function calling not supported | GA behind an allowlist since 2026-09-16; no retirement date announced. Thinking and structured output supported; function calling not suppor… |
 | `gemini-3.8-live` | — | `active` | — | text, image, audio, video | text, audio | — | — | not reachable: the Vertex AI crate has no Live transport | GA on Vertex 2026-09-24 (the Gemini API date is 2026-09-15). Thinking not supported; Count Tokens not supported. |
 | `gemini-3.8-flash` | — | `short_term_active` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native | GA 2026-09-02; short-term availability table, no retirement date announced. thinking_level LOW, MEDIUM (default), HIGH; MINIMAL not supporte… |

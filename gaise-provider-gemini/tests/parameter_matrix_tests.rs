@@ -295,10 +295,10 @@ fn embedding_requests_map_task_type_and_dimensions_per_model() {
 
 #[test]
 fn gemini_4_ids_get_the_gemini_3_controls_without_minimal() {
-    // Gemini 4 Argon was announced 2026-09-30 with no API model id or request
-    // contract. Forward guard: any `gemini-<major>` id with major >= 3 uses
-    // thinkingLevel and never sampling, and MINIMAL clamps to LOW because the
-    // newest 3.x models reject it. Gemma and other ids are unaffected.
+    // Gemini 4 Argon (GA 2026-10-13) accepts thinkingLevel LOW / MEDIUM / HIGH,
+    // rejects MINIMAL and thinkingBudget, and ignores sampling. Any
+    // `gemini-<major>` id with major >= 3 uses thinkingLevel and never
+    // sampling, and MINIMAL clamps to LOW. Gemma and other ids are unaffected.
     for model in ["gemini-4-argon", "gemini-4.1-flash", "gemini-4"] {
         let cfg = build(model, sink(Some("minimal"), None));
         assert!(
@@ -321,6 +321,23 @@ fn gemini_4_ids_get_the_gemini_3_controls_without_minimal() {
     ] {
         assert_eq!(gemini_major_version(model), major, "{model}");
     }
+}
+
+#[test]
+fn gemini_4_argon_maps_a_token_budget_to_a_level() {
+    // Argon returns 400 for thinkingBudget, so a manual budget becomes a level.
+    let cfg = build("gemini-4-argon", sink(None, Some(4096)));
+    let thinking = cfg.thinking_config.expect("thinking config");
+    assert!(thinking.thinking_budget.is_none());
+    assert!(
+        matches!(
+            thinking.thinking_level.as_deref(),
+            Some("LOW" | "MEDIUM" | "HIGH")
+        ),
+        "{:?}",
+        thinking.thinking_level
+    );
+    assert!(cfg.temperature.is_none());
 }
 
 #[test]

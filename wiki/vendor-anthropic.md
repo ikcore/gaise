@@ -143,7 +143,7 @@ Worked examples (from [`mapping_tests.rs`](../gaise-provider-anthropic/tests/map
 | `claude-opus-5` | effort `xhigh`, temp/top_p/top_k set | `{"type":"adaptive"}` | `{"effort":"xhigh"}` | none |
 | `claude-sonnet-4-5-20250929` | temp 0.4, top_p 0.8 | none | none | `temperature: 0.4` |
 
-### Parameter compatibility (audited 2026-10-09)
+### Parameter compatibility (audited 2026-10-14)
 
 [`claude_family_rules`](../gaise-provider-anthropic/src/anthropic_client.rs), [`normalize_effort`](../gaise-provider-anthropic/src/anthropic_client.rs), and [`resolve_output_budget`](../gaise-provider-anthropic/src/anthropic_client.rs) enforce the table below; [`tests/parameter_matrix_tests.rs`](../gaise-provider-anthropic/tests/parameter_matrix_tests.rs) pins it.
 
@@ -253,14 +253,14 @@ There are no heuristics from the model name and no opt-in detail calls (`include
 
 ## Models
 
-From `gaise-core/model-registry.toml` (audited 2026-10-09), entries with `provider = "anthropic"`. The registry is advisory; arbitrary IDs are accepted. Dates are the direct Claude API lifecycle — Bedrock-hosted Claude is tracked separately.
+From `gaise-core/model-registry.toml` (audited 2026-10-14), entries with `provider = "anthropic"`. The registry is advisory; arbitrary IDs are accepted. Dates are the direct Claude API lifecycle — Bedrock-hosted Claude is tracked separately.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
 | `claude-fable-5-1` | — | `active` | not before 2027-09-01 | text, image, file | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh`, `max` | native | Released 2026-09-01; Anthropic's most capable widely released model (same tier, limits, tokenizer, and per-token price as Fable 5; cache rea… |
-| `claude-mythos-5-1` | — | `limited_availability` | not before 2027-09-01 | text, image, file | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh`, `max` | native when account access exists | Released 2026-09-01, invite only (Project Glasswing); shares Fable 5.1's specifications, contract, and pricing, including the forced-tool-ch… |
+| `claude-mythos-5-1` | — | `limited_availability` | not before 2027-09-01 | text, image, file | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh`, `max` | native when account access exists | Released 2026-09-01; access requires verification (model page status: Active (verification required); formerly invite only through Project G… |
 | `claude-fable-5` | — | `legacy` | not before 2027-06-09 | text, image, file | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh`, `max` | native | Released 2026-06-09; labelled Legacy since 2026-09-01 (still served; migrate to claude-fable-5-1, which keeps the same price and tokenizer).… |
-| `claude-mythos-5` | — | `limited_availability` | not before 2027-06-09 | text, image, file | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh`, `max` | native when account access exists | Adaptive thinking is always on and cannot be disabled. Superseded by claude-mythos-5-1 (2026-09-01); ran no safety classifiers, so stop_reas… |
+| `claude-mythos-5` | — | `limited_availability` | not before 2027-06-09 | text, image, file | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh`, `max` | native when account access exists | Access requires verification (model page status: Active (verification required), 2026-10-14). Adaptive thinking is always on and cannot be d… |
 | `claude-opus-5-5` | — | `active` | not before 2027-09-22 | text, image, file | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh`, `max` | native | Released 2026-09-22. Adaptive thinking is always on: thinking.type disabled and budget_tokens return 400 (the adapter never sends either); d… |
 | `claude-opus-5` | — | `legacy` | not before 2027-07-24 | text, image, file | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh`, `max` | native | Released 2026-07-24; listed under Legacy models since the 2026-09-22 Opus 5.5 release (still served). Adaptive-only thinking, on by default… |
 | `claude-opus-4-8` | — | `legacy` | not before 2027-05-28 | text, image, file | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh`, `max` | native | Labelled Legacy since 2026-09-01 (migrate to claude-opus-5). Adaptive-only thinking, off unless requested; budget_tokens and non-default tem… |
@@ -276,7 +276,7 @@ From `gaise-core/model-registry.toml` (audited 2026-10-09), entries with `provid
 | `claude-opus-4-1-20250805` | — | `retired` | shutdown 2026-08-05 | unknown | unknown | — | — | — | Replacement `claude-opus-4-8`. |
 | `claude-opus-4-20250514` | — | `retired` | shutdown 2026-06-15 | unknown | unknown | — | — | — | Replacement `claude-opus-4-8`. |
 | `claude-sonnet-4-20250514` | — | `retired` | shutdown 2026-06-15 | unknown | unknown | — | — | — | Replacement `claude-sonnet-4-6`. |
-| `claude-mythos-preview` | — | `deprecated` | — | text, image, file | text | instruct, instruct_stream | `low`, `medium`, `high`, `max` | — | Deprecated; migrate to claude-mythos-5-1 (Project Glasswing) or claude-fable-5-1. No retirement date is published and its model page is gone… |
+| `claude-mythos-preview` | — | `deprecated` | — | text, image, file | text | instruct, instruct_stream | `low`, `medium`, `high`, `max` | — | Deprecated 2026-06-09; migrate to claude-mythos-5-1 or claude-fable-5-1. No retirement date is published and its model page is gone. Thinkin… |
 
 Registry capability terms map as `adaptive_reasoning` / `manual_reasoning` → reasoning supported, `files` → file input, `streaming` → `instruct_stream`.
 

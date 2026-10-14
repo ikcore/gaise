@@ -212,10 +212,10 @@ fn is_nano_banana(model: &str) -> bool {
 /// Major version of a `gemini-<major>[.<minor>]-...` id (`gemini-3.8-flash`
 /// -> 3, `gemini-4-argon` -> 4); `None` for other ids such as Gemma.
 ///
-/// Gemini 4 (announced 2026-09-30, no API model id or request contract
-/// published yet) gets the Gemini 3 controls (`thinkingLevel`, no sampling)
-/// rather than the Gemini 2.5 `thinkingBudget` path. This is a forward guard,
-/// not documented behaviour; revisit when Google publishes a Gemini 4 page.
+/// Gemini 4 gets the Gemini 3 controls (`thinkingLevel`, no sampling) rather
+/// than the Gemini 2.5 `thinkingBudget` path. Gemini 4 Argon (GA 2026-10-13)
+/// documents exactly that: levels LOW / MEDIUM / HIGH (MINIMAL and
+/// `thinkingBudget` are rejected) and sampling parameters ignored.
 pub fn gemini_major_version(model: &str) -> Option<u32> {
     let m = model.to_ascii_lowercase();
     let rest = m.strip_prefix("gemini-")?;
