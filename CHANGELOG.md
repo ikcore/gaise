@@ -8,6 +8,38 @@ change, or an additive adapter feature is a minor release; a change to a public
 contract (removed or renamed items, new required fields, changed serialization)
 is a major release.
 
+## [4.4.0] - 2026-10-14
+
+Model audit of every provider: Gemini 4 Argon on both Google surfaces, three
+new Ollama decision families, and the GPT-4o / GPT-4.1 deprecations. Registry
+and documentation only; no request shape changes.
+
+### Added
+- Registry rows: `gemini::gemini-4-argon` (GA 2026-10-13), `vertexai::gemini-4-argon`
+  and `vertexai::gemini-4-argon-cyber-permissive` (allowlisted), and the Ollama
+  decision families `nimble-v3:*`, `kev:*`, and `strands-decider:*`.
+- Hermetic tests pinning Gemini 4 Argon's token-budget-to-`thinkingLevel`
+  mapping in the Gemini and Vertex AI crates, and lookup pins for every new row.
+
+### Changed
+- Gemini 4 Argon is now documented rather than a forward guard: it already
+  received `thinkingLevel` (LOW/MEDIUM/HIGH, MINIMAL clamped to LOW) and no
+  sampling. Non-streaming requests above 32,768 output tokens return 400
+  upstream; GAISe does not implement long decode.
+- Bedrock: Claude Sonnet 4.5 and Llama 4 Maverick Legacy dates, Pegasus 1.5
+  launch date, GPT-5.6 limits (1,050,000 / 128,000), GPT-6 Sol/Luna InvokeModel
+  support, and the removed Opus 5 access gate.
+- Ollama decision limits updated for v0.40.4 (2-10 score levels, empty state
+  rejected server-side) and the `think` string rules.
+- Anthropic Haiku 5.5 and Mythos 5 / 5.1 notes; ElevenLabs and TypeSafe audit notes.
+
+### Deprecated
+- OpenAI `gpt-4o`, `gpt-4o-mini`, `gpt-4.1`, and `gpt-4.1-mini` (removal
+  2027-01-14, replacement `gpt-6-luna`).
+- Gemini API `gemini-3.7-flash` and `gemini-3.5-flash` (no shutdown date;
+  requests are routed to `gemini-3.8-flash` and `gemini-3.6-flash`). Vertex AI
+  lifecycles are unchanged.
+
 ## [4.3.0] - 2026-10-09
 
 Model audit of every provider, plus OpenAI's Decisions API (public beta since

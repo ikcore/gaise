@@ -116,14 +116,14 @@ MIME inference for files uses the shared [`file_media_type`](../gaise-core/src/c
 
 No rule gates image input, audio input, tools, or `responseModalities` by model; the API returns its own error for unsupported combinations.
 
-### Parameter compatibility (audited 2026-10-09)
+### Parameter compatibility (audited 2026-10-14)
 
 [`model_uses_fixed_sampling`](../gaise-provider-gemini/src/gemini_client.rs), [`thinking_levels_for`](../gaise-provider-gemini/src/gemini_client.rs), [`normalize_thinking_level`](../gaise-provider-gemini/src/gemini_client.rs), and [`thinking_budget_for`](../gaise-provider-gemini/src/gemini_client.rs) enforce the table; [`tests/parameter_matrix_tests.rs`](../gaise-provider-gemini/tests/parameter_matrix_tests.rs) pins it.
 
 | Family | `temperature` / `topP` / `topK` | Thinking control | Accepted levels / budget | `none` effort |
 |---|---|---|---|---|
 | Gemini 3.8 Flash (2026-09-02), 3.7 Flash, any later `gemini-3.<n>` Flash, 3.1 Pro | never sent (deprecated on all 3.x; 3.6+ ignore or 400; `candidateCount` is rejected on 3.x) | `thinkingLevel` | LOW, MEDIUM, HIGH (`minimal` → LOW) | → LOW (cannot disable) |
-| Gemini 4 and later (`gemini-<major>` with major ≥ 4; none published yet) | never sent | `thinkingLevel` | LOW, MEDIUM, HIGH (`minimal` → LOW) | → LOW |
+| Gemini 4 and later (`gemini-<major>` with major ≥ 4; Gemini 4 Argon GA 2026-10-13) | never sent | `thinkingLevel` | LOW, MEDIUM, HIGH (`minimal` → LOW) | → LOW |
 | Gemini 3.6, 3.5, 3.5-Lite, 3.1-Lite, 3 Flash preview | never sent | `thinkingLevel` | MINIMAL, LOW, MEDIUM, HIGH | → MINIMAL |
 | Nano Banana 2.1 (`gemini-nano-banana-*`, 2026-10-06) | never sent (Vertex: seed, temperature, topP, topK, and logprobs return an error) | `thinkingLevel` | MINIMAL, MEDIUM, HIGH (LOW → MEDIUM) | → MINIMAL |
 | 3.1 Flash Image, 3.1 Flash-Lite Image | never sent | `thinkingLevel` | MINIMAL, HIGH (LOW → MINIMAL, MEDIUM → HIGH) | → MINIMAL |
@@ -134,7 +134,7 @@ No rule gates image input, audio input, tools, or `responseModalities` by model;
 
 On 2.5, an effort without a budget is approximated (`low` 2,048, `medium` 8,192, `high` 24,576, `minimal` 512); `xhigh`/`max` map to HIGH on 3.x. `thinkingLevel` and `thinkingBudget` are never sent together. The 2.5 numeric ranges are now published only on the Vertex thinking page; the Gemini API thinking guide is written against the Interactions API and lists 2.5 under `thinking_level`, while the REST reference states that `thinkingLevel` on earlier models results in an error (re-checked 2026-09-12), so the `thinkingBudget` path stays. Other contract notes from 2026-09-04: `embedContent`'s top-level `taskType` / `outputDimensionality` are deprecated in favour of `embedContentConfig` (still accepted; the adapter keeps the top-level form), `responseSchema` is deprecated in favour of `responseJsonSchema`, and `Part.mediaProcessing: AGENTIC` selects agentic video understanding on 3.5 Flash-Lite, 3.6, 3.7, and 3.8 (not mapped). Sources: changelog 2026-07-21 and 2026-09-02, thinking guide, Gemini 3.5 / 3.8 guides, generateContent reference, model pages.
 
-Gemini 4 Argon was announced on 2026-09-30 for restricted early access with no API model id or request contract. [`gemini_major_version`](../gaise-provider-gemini/src/gemini_client.rs) makes `model_uses_thinking_level` and `model_uses_fixed_sampling` true for any `gemini-<major>` id with major ≥ 3, so a Gemini 4 id gets the Gemini 3 controls instead of the 2.5 `thinkingBudget` path. This is a forward guard, not documented behaviour; `gemini_4_ids_get_the_gemini_3_controls_without_minimal` pins it until Google publishes a Gemini 4 model page.
+Gemini 4 Argon (`gemini-4-argon`) went GA on 2026-10-13 and documents the controls GAISe already sent: `thinkingLevel` LOW, MEDIUM (default), or HIGH, with MINIMAL and `thinkingBudget` rejected, and `temperature` / `top_p` / `top_k` ignored. [`gemini_major_version`](../gaise-provider-gemini/src/gemini_client.rs) makes `model_uses_thinking_level` and `model_uses_fixed_sampling` true for any `gemini-<major>` id with major ≥ 3, so a Gemini 4 id gets those controls and a manual token budget becomes a level; `gemini_4_ids_get_the_gemini_3_controls_without_minimal` and `gemini_4_argon_maps_a_token_budget_to_a_level` pin it. Argon caps a single non-streaming request at 32,768 output tokens (65,536 when streaming) and returns 400 above that without a continuation token; GAISe passes `max_tokens` through unchanged and does not implement long decode (`continuationToken`, `finish_reason` CONTINUATION), so stream or keep `max_tokens` at or below 32,768 for unary calls.
 
 ## Response mapping
 
@@ -268,14 +268,15 @@ The router clears the operation filter before calling the provider and re-applie
 
 ## Models
 
-From the bundled registry (audited 2026-10-09), entries with `provider = "gemini"`. Dates are Gemini API dates only; Vertex AI has a separate lifecycle. "—" means none recorded.
+From the bundled registry (audited 2026-10-14), entries with `provider = "gemini"`. Dates are Gemini API dates only; Vertex AI has a separate lifecycle. "—" means none recorded.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
+| `gemini-4-argon` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native (long decode not implemented) | GA 2026-10-13. Unified 1,048,576-token input and output window; 65,536 output tokens per synchronous request, up to 1,048,576 with long deco… |
 | `gemini-3.8-flash` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native | GA 2026-09-02; Google's most capable Flash model, aimed at long-horizon software engineering and agents. thinkingLevel minimal returns an er… |
-| `gemini-3.7-flash` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native | GA 2026-08-13. thinkingLevel minimal is not supported (default medium). Live API not supported; agentic video understanding supported since… |
+| `gemini-3.7-flash` | — | `deprecated` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native | GA 2026-08-13; deprecated 2026-10-08 with no shutdown date: requests to gemini-3.7-flash are routed automatically to gemini-3.8-flash and it… |
 | `gemini-3.6-flash` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | Released 2026-07-21. Fixed sampling: temperature, top_p, and top_k are deprecated (changelog 2026-07-21) and omitted by the mapper; the same… |
-| `gemini-3.5-flash` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | — |
+| `gemini-3.5-flash` | — | `deprecated` | — | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | Deprecated 2026-10-08 with no shutdown date: requests to gemini-3.5-flash are routed automatically to gemini-3.6-flash (Google suggests gemi… |
 | `gemini-3.5-flash-lite` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | thinkingLevel minimal (default), low, medium, high. Agentic video understanding supported since 2026-09-01. |
 | `gemini-3.1-flash-lite` | — | `stable` | shutdown 2027-05-07 | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | thinkingLevel minimal (default), low, medium, high per the Gemini 3.5 guide's comparison table; the thinking guide itself omits this model. Replacement `gemini-3.5-flash-lite`. |
 | `gemini-3.1-pro-preview` | — | `preview` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native | No shutdown date announced. A gemini-3.1-pro-preview-customtools variant endpoint exists. |
@@ -304,8 +305,8 @@ From the bundled registry (audited 2026-10-09), entries with `provider = "gemini
 | `embedding-2-preview` | — | `retired` | shutdown 2026-08-10 | unknown | unknown | — | — | — | Replacement `gemini-embedding-2`. |
 | `gemini-2.0-flash` | — | `retired` | shutdown 2026-06-01 | unknown | unknown | — | — | — | Replacement `gemini-3.6-flash`. |
 | `gemini-2.0-flash-lite` | — | `retired` | shutdown 2026-06-01 | unknown | unknown | — | — | — | Replacement `gemini-3.1-flash-lite`. |
-| `gemini-2.0-flash-live-001` | — | `retired` | shutdown 2025-12-09 | unknown | unknown | — | — | — | Replacement `gemini-3.1-flash-live-preview`. |
-| `gemini-live-2.5-flash-preview` | — | `retired` | shutdown 2025-12-09 | unknown | unknown | — | — | — | Replacement `gemini-3.1-flash-live-preview`. |
+| `gemini-2.0-flash-live-001` | — | `retired` | shutdown 2025-12-09 | unknown | unknown | — | — | — | Replacement `gemini-3.8-live`. |
+| `gemini-live-2.5-flash-preview` | — | `retired` | shutdown 2025-12-09 | unknown | unknown | — | — | — | Replacement `gemini-3.8-live`. |
 
 The registry is advisory: the adapter accepts any model ID and applies the family rules above by prefix, so a new `gemini-3.x` release gets `thinkingLevel` without a code change. See [models-and-lifecycle.md](models.md#gemini) for the narrative lifecycle notes.
 

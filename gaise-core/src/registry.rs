@@ -1021,6 +1021,25 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
             assert_eq!(find("ollama", tag), "nimble:*");
         }
         assert_eq!(find("ollama", "tev1:0.8b"), "tev1:*");
+        assert_eq!(find("ollama", "nimble-v3:9b"), "nimble-v3:*");
+        assert_eq!(
+            find("ollama", "nimble-v3"),
+            "nimble-v3:*",
+            "nimble-v3 must not fall into the nimble:* family"
+        );
+        assert_eq!(find("ollama", "kev:9b-nvfp4"), "kev:*");
+        assert_eq!(find("ollama", "strands-decider:2b"), "strands-decider:*");
+        assert_eq!(find("gemini", "gemini-4-argon"), "gemini-4-argon");
+        assert_eq!(find("vertexai", "gemini-4-argon"), "gemini-4-argon");
+        assert_eq!(
+            find("vertexai", "gemini-4-argon-cyber-permissive"),
+            "gemini-4-argon-cyber-permissive"
+        );
+        for id in ["gpt-4o", "gpt-4o-2024-08-06", "gpt-4.1-mini", "gpt-4o-mini"] {
+            let entry = registry.find("openai", id).unwrap();
+            assert_eq!(entry.shutdown_date.as_deref(), Some("2027-01-14"), "{id}");
+            assert_eq!(entry.replacement.as_deref(), Some("gpt-6-luna"), "{id}");
+        }
         assert_eq!(
             registry
                 .find("ollama", "nimble")

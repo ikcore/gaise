@@ -103,7 +103,7 @@ Mapped by [`map_content_parts`](../gaise-provider-openai/src/openai_client.rs#L1
 | Reasoning families | none | No allowlist: `reasoning_effort` is sent whenever configured. The catalog heuristics in [`classify_openai_model_id`](../gaise-provider-openai/src/contracts/catalog.rs#L53) recognize `gpt-`, `chatgpt-`, `o1`/`o3`/`o4`, `codex` as Chat but do not gate request fields |
 | Fixed-sampling models | none | `temperature`/`top_p` are never suppressed per model |
 
-### Parameter compatibility (audited 2026-10-09)
+### Parameter compatibility (audited 2026-10-14)
 
 [`openai_chat_rules`](../gaise-provider-openai/src/openai_client.rs) drives per-family filtering before a Chat Completions request is serialized; [`tests/parameter_matrix_tests.rs`](../gaise-provider-openai/tests/parameter_matrix_tests.rs) pins every row.
 
@@ -127,7 +127,7 @@ Realtime: `gpt-live-*` ids are refused before any connection ([`realtime_model_u
 
 ### Responses path for GPT-6 tools
 
-OpenAI serves function calling for GPT-6 Astra and GPT-6.1 Sol through the Responses API only, so [`responses.rs`](../gaise-provider-openai/src/responses.rs) maps those tool conversations onto `POST /responses` (audited 2026-10-09 against the function-calling, reasoning, and latest-model guides and the openai-python `types/responses` definitions).
+OpenAI serves function calling for GPT-6 Astra and GPT-6.1 Sol through the Responses API only, so [`responses.rs`](../gaise-provider-openai/src/responses.rs) maps those tool conversations onto `POST /responses` (audited 2026-10-14 against the function-calling, reasoning, and latest-model guides and the openai-python `types/responses` definitions).
 
 | Aspect | Mapping |
 |---|---|
@@ -237,7 +237,7 @@ Tests: [`catalog.rs#L167-L283`](../gaise-provider-openai/src/contracts/catalog.r
 
 ## Models
 
-From `model-registry.toml` (audited 2026-10-09). Status is the registry string; dates are `shutdown_date` / `retirement_not_before`.
+From `model-registry.toml` (audited 2026-10-14). Status is the registry string; dates are `shutdown_date` / `retirement_not_before`.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
@@ -255,10 +255,10 @@ From `model-registry.toml` (audited 2026-10-09). Status is the registry string; 
 | `gpt-5.4-nano` | — | `deprecated` | shutdown 2027-04-01 | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh` | chat-compatible features | Deprecated 2026-10-01; removal 2027-04-01. Replacement `gpt-6-luna`. |
 | `gpt-5.2` | `gpt-5.2-2025-12-11` | `active` | — | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high`, `xhigh` | chat-compatible features | Previous flagship; OpenAI recommends GPT-6 Astra or GPT-5.6. Not on the deprecations page as of 2026-09-04 (only gpt-5.2-chat-latest retired… |
 | `gpt-5.1` | `gpt-5.1-2025-11-13` | `deprecated` | shutdown 2027-04-01 | text, image | text | instruct, instruct_stream | `none`, `low`, `medium`, `high` | chat-compatible features | Deprecated 2026-10-01 together with gpt-5.3-codex and gpt-5.4-nano; removal 2027-04-01. gpt-5.1-chat-latest and the 5.1 Codex family retired… |
-| `gpt-4.1` | `gpt-4.1-2025-04-14` | `active` | — | text, image | text | instruct, instruct_stream | — | chat-compatible features | Non-reasoning; sampling accepted; image detail limited to low/high/auto. gpt-4.1-nano retires 2026-10-23 but gpt-4.1 and gpt-4.1-mini carry… |
-| `gpt-4.1-mini` | `gpt-4.1-mini-2025-04-14` | `active` | — | text, image | text | instruct, instruct_stream | — | chat-compatible features | — |
-| `gpt-4o` | `gpt-4o-2024-11-20`, `gpt-4o-2024-08-06` | `active` | — | text, image | text | instruct, instruct_stream | — | chat-compatible features | gpt-4o resolves to gpt-4o-2024-08-06. The gpt-4o-2024-05-13 snapshot alone retires 2026-10-23 and has its own entry. |
-| `gpt-4o-mini` | `gpt-4o-mini-2024-07-18` | `active` | — | text, image | text | instruct, instruct_stream | — | chat-compatible features | — |
+| `gpt-4.1` | `gpt-4.1-2025-04-14` | `deprecated` | shutdown 2027-01-14 | text, image | text | instruct, instruct_stream | — | chat-compatible features | Non-reasoning; sampling accepted; image detail limited to low/high/auto. Deprecated 2026-10-14 together with gpt-4.1-mini, gpt-4o, and gpt-4… |
+| `gpt-4.1-mini` | `gpt-4.1-mini-2025-04-14` | `deprecated` | shutdown 2027-01-14 | text, image | text | instruct, instruct_stream | — | chat-compatible features | Replacement `gpt-6-luna`. |
+| `gpt-4o` | `gpt-4o-2024-11-20`, `gpt-4o-2024-08-06` | `deprecated` | shutdown 2027-01-14 | text, image | text | instruct, instruct_stream | — | chat-compatible features | gpt-4o resolves to gpt-4o-2024-08-06. Deprecated 2026-10-14 (both listed snapshots); removal 2027-01-14. The gpt-4o-2024-05-13 snapshot reti… |
+| `gpt-4o-mini` | `gpt-4o-mini-2024-07-18` | `deprecated` | shutdown 2027-01-14 | text, image | text | instruct, instruct_stream | — | chat-compatible features | Replacement `gpt-6-luna`. |
 | `text-embedding-3-large` | — | `active` | — | text | embedding | embeddings | — | native | — |
 | `text-embedding-3-small` | — | `active` | — | text | embedding | embeddings | — | native | — |
 | `text-embedding-ada-002` | — | `active` | — | text | embedding | embeddings | — | native | Previous generation; fixed 1536 dimensions, no retirement date published. |

@@ -229,8 +229,9 @@ pub fn ollama_embed_request(
 }
 
 /// Families whose `think` takes an effort string instead of a boolean, with
-/// the levels each one documents (Ollama itself accepts only `low`, `medium`,
-/// `high`, and `max` as strings). Every other family gets `true` / `false`.
+/// the levels each one documents (Ollama's string values are model-defined
+/// and must match `/api/show`; unsupported names fall back to the model
+/// default). Every other family gets `true` / `false`.
 ///
 /// - GPT-OSS requires a level (`low`, `medium`, `high`; library page).
 /// - GLM 5.3 and GLM 5.3 Flash (cloud tags, 2026-08-28) document

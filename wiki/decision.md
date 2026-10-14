@@ -189,9 +189,13 @@ curl http://localhost:3000/v1/decision \
 | `tev1`, `tev1:0.8b` | Together AI, 4B and 0.8B (experimental) |
 | `clef`, `clef-flash` | Cloudflare, 27B and 9B; accept images (Ollama 0.35.1+) |
 | `laya` | Convai Innovations, 421M ModernBERT-large; MLX only (Ollama 0.40+) |
+| `nimble-v3` | Bespoke Labs, 9B; noncommercial licence (CC BY-NC 4.0); 32K context (Ollama 0.40.4+) |
+| `kev` | Jared Palmer, 0.8B to 27B; MLX on Apple silicon (Ollama 0.40.4+) |
+| `strands-decider` | Strands Agents, 2B; MLX only, 4K context (Ollama 0.40+) |
 
 Ollama's limits differ from TypeSafe's: at most 64 questions and a 64 KiB body per
-request, 2 to 26 choice options or score levels, `instructions` required on every
+request, 2 to 26 choice options and (since Ollama 0.40.4) 2 to 10 score levels (Kev
+accepts 1 to 255 of either), `instructions` required on every
 question, and each rendered prompt must fit the loaded context. It accepts local
 models only and has no streaming or tool support on this endpoint. Only Clef and
 Clef Flash accept images: GAISe sends them as raw base64 strings in `images` (no
@@ -283,8 +287,8 @@ are returned without retrying. There is no Decision streaming endpoint.
 
 ```toml
 [dependencies]
-gaise-core = { package = "gaise", version = "4.3.0" }
-gaise-client = { version = "4.3.0", default-features = false, features = ["typesafe"] }
+gaise-core = { package = "gaise", version = "4.4.0" }
+gaise-client = { version = "4.4.0", default-features = false, features = ["typesafe"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
