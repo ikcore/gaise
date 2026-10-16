@@ -117,7 +117,7 @@ All rules are substring matches on the lower-cased model ID, so inference-profil
 
 Any other model (Titan text, Llama, Mistral, OpenAI GPT-5.6 / gpt-oss, xAI Grok, DeepSeek, Qwen, …) receives no `additionalModelRequestFields` and full sampling, so their provider-specific reasoning controls (Grok's always-on effort, GPT-5.6's `reasoning_effort`) are not mapped on Converse. The Nova 2 user guide now documents `reasoningConfig` (`type: enabled`, `maxReasoningEffort: low|medium|high`, off by default) for Nova 2 Lite as the registry records, so the adapter's emission is verified rather than forward-compatible; it also warns that `temperature`/`topP`/`topK` cannot accompany `maxReasoningEffort: high`, which the "Nova high effort" rule already covers.
 
-### Parameter compatibility (audited 2026-10-14)
+### Parameter compatibility (audited 2026-10-16)
 
 [`claude_rules`](../gaise-provider-bedrock/src/bedrock_client.rs), [`sampling_plan`](../gaise-provider-bedrock/src/bedrock_client.rs), [`resolved_max_tokens`](../gaise-provider-bedrock/src/bedrock_client.rs), and [`additional_request_fields`](../gaise-provider-bedrock/src/bedrock_client.rs) enforce the table; the `claude_family_parameter_matrix_without_aws_client` and `nova_and_claude_sampling_rules_without_aws_client` unit tests pin it.
 
@@ -298,7 +298,7 @@ From the 2026-09-12 registry audit; advisory only. Dates are AWS Bedrock lifecyc
 | `twelvelabs.pegasus-1-5-v1:0` | — | `active` | — | text, video | text | — | — | not supported: InvokeModel only (no Converse) | Launched 2026-10-08 per the model card (45-day Legacy period). us. and global. profiles only. Video and text in, text out; analysis_mode gen… |
 | `twelvelabs.marengo-embed-3-0-v1:0` | — | `active` | — | text, image, audio, video | embedding | — | — | not supported: the InvokeModel embedding builder covers Titan, Cohere, and Nova schemas only | Launched 2025-10-29; text, image, audio, and video input; us. and eu. profiles; sync InvokeModel and StartAsyncInvoke. |
 | `anthropic.claude-opus-4-1-20250805-v1:0` | — | `legacy` | shutdown 2027-01-08 | unknown | unknown | — | — | — | Legacy since 2026-07-08; public extended access (higher pricing) from 2026-10-08. us. profile only. Replacement `anthropic.claude-opus-4-8`. |
-| `anthropic.claude-sonnet-4-20250514-v1:0` | — | `legacy` | shutdown 2026-10-14 | unknown | unknown | — | — | — | Legacy since 2026-04-14; extended-access pricing applies since 2026-07-14. AWS EOL date 2026-10-14; the card still read Legacy (certain regi… |
+| `anthropic.claude-sonnet-4-20250514-v1:0` | — | `legacy` | shutdown 2026-10-14 | unknown | unknown | — | — | — | Legacy since 2026-04-14; extended-access pricing applies since 2026-07-14. AWS EOL date 2026-10-14; the card and the legacy table still read… |
 | `anthropic.claude-3-haiku-20240307-v1:0` | — | `retired` | shutdown 2026-09-10 | unknown | unknown | — | — | — | Legacy since 2026-03-10; extended access from 2026-06-10; the AWS EOL date 2026-09-10 (commercial and GovCloud) has passed. The card still r… |
 | `anthropic.claude-3-5-haiku-20241022-v1:0` | — | `retired` | shutdown 2026-06-19 | unknown | unknown | — | — | — | AWS EOL date 2026-06-19 has passed; the card still reads Legacy and the id still appears in the API-compatibility matrix, so invocability is… |
 | `ai21.jamba-1-5-*` | — | `legacy` | shutdown 2026-11-26 | unknown | unknown | — | — | — | ai21.jamba-1-5-large-v1:0 and ai21.jamba-1-5-mini-v1:0. Legacy since 2026-05-26; extended access from 2026-08-26. |

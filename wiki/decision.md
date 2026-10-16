@@ -192,14 +192,21 @@ curl http://localhost:3000/v1/decision \
 | `nimble-v3` | Bespoke Labs, 9B; noncommercial licence (CC BY-NC 4.0); 32K context (Ollama 0.40.4+) |
 | `kev` | Jared Palmer, 0.8B to 27B; MLX on Apple silicon (Ollama 0.40.4+) |
 | `strands-decider` | Strands Agents, 2B; MLX only, 4K context (Ollama 0.40+) |
+| `d1` | Liquid AI, 3B on LFM2.5-VL; 32K context; accepts images |
+| `pplx-decider` | Perplexity, 27B; 256K context; accepts images |
 
 Ollama's limits differ from TypeSafe's: at most 64 questions and a 64 KiB body per
 request, 2 to 26 choice options and (since Ollama 0.40.4) 2 to 10 score levels (Kev
 accepts 1 to 255 of either), `instructions` required on every
-question, and each rendered prompt must fit the loaded context. It accepts local
-models only and has no streaming or tool support on this endpoint. Only Clef and
-Clef Flash accept images: GAISe sends them as raw base64 strings in `images` (no
-data-URL prefix), and a request with images may be up to 32 MiB. GAISe
+question, and each rendered prompt must fit the loaded context. Since Ollama
+v0.40.5 the 64 KiB limit covers text and schema only, excluding images, and
+`clef:cloud` runs Clef on ollama.com through a signed-in local server (GAISe sends
+no Authorization header, so it cannot call `https://ollama.com` directly; cloud
+requests allow up to 4 images and question names of ASCII letters, digits, `_`,
+`.`, and `-`). There is no streaming or tool support on this endpoint. Clef, Clef
+Flash, d1, and pplx-decider accept images: GAISe sends them as raw base64 strings
+in `images` (no data-URL prefix), and a local request with images may be up to
+32 MiB. GAISe
 applies its own validation and leaves these limits to Ollama, whose error text is
 returned with the status code. The model tag is sent unchanged (no `jev` mapping)
 and `usage.output_tokens` can be non-zero. `GET /v1/models?provider=ollama&operation=decision`
@@ -256,11 +263,26 @@ array to the `POST /v1/decision` body:
 | Provider | How images are sent | Limit |
 | --- | --- | --- |
 | OpenAI (`gpt-6-luna`) | One user message: the state as `input_text`, then each image as an `input_image` base64 data URL | 128 images |
-| Ollama (`clef`, `clef-flash`) | `images`: raw base64 strings | 32 MiB request body |
-| TypeSafe and every other client | Rejected: "Image input for decisions is not supported by this client" | — |
+| Ollama (`clef`, `clef-flash`, `d1`, `pplx-decider`) | `images`: raw base64 strings | 32 MiB request body |
+| TypeSafe (`jev`, `jev-1.14.0`) | Top-level `assets` map of base64 PNG/JPEG keyed by fresh references, listed under `images` in the state; header `TypeSafe-Danger-Zone-Images: true` | 16 MiB per image, 280 to 1568 px per side, 32 MiB per request |
+| Every other client | Rejected: "Image input for decisions is not supported by this client" | — |
 
 An empty `images` array behaves exactly like `decision`. Only image content is
-accepted. OpenAI's guide says images must be inline base64 data URLs, while its
+accepted.
+
+TypeSafe (since 2026-10-14, labelled Dreamer-ready, so the format can change)
+replaces a reference string with its image wherever the reference appears. For
+`decision_with_images`, GAISe adds the references to the state as `images`: an
+object (or `null`) state gains an `images` array, and any other state is wrapped
+as `{"state": ..., "images": [...]}`, so questions can refer to `` `images[0]` ``.
+To put an image somewhere else, such as inside one question's instructions or
+a Choice description, call `GaiseClientTypeSafe::decision_with_assets` with a
+map from your own reference strings to images; every reference must appear in
+the request. TypeSafe accepts PNG and JPEG only; GAISe takes the format from
+`format` or the file signature and rejects anything else before sending. Box
+questions (Jev 1.14) are not mapped yet. `GaiseClientTypeSafe::with_long_context(true)`
+sends `TypeSafe-Danger-Zone-Long-Context: true` (262k tokens, slower and less
+accurate). OpenAI's guide says images must be inline base64 data URLs, while its
 API reference also allows public HTTPS URLs. `GaiseContent::Image` carries bytes,
 so GAISe always sends data URLs.
 
@@ -287,8 +309,8 @@ are returned without retrying. There is no Decision streaming endpoint.
 
 ```toml
 [dependencies]
-gaise-core = { package = "gaise", version = "4.4.0" }
-gaise-client = { version = "4.4.0", default-features = false, features = ["typesafe"] }
+gaise-core = { package = "gaise", version = "4.5.0" }
+gaise-client = { version = "4.5.0", default-features = false, features = ["typesafe"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```

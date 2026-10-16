@@ -243,10 +243,18 @@ async fn ollama_decisions_are_served_on_both_paths() {
 }
 
 #[tokio::test]
-async fn decision_route_forwards_images_and_rejects_them_where_unsupported() {
+async fn decision_route_forwards_images_and_rejects_unsupported_formats() {
     let upstream = Router::new().route(
         "/v1/systemone",
         post(|Json(body): Json<Value>| async move {
+            if body["model"] == "jev-latest" {
+                // TypeSafe: images go in `assets`, referenced from the state.
+                assert_eq!(body["state"]["state"], "Product photo");
+                let reference = body["state"]["images"][0].as_str().unwrap().to_string();
+                assert_eq!(body["assets"][&reference]["data_base64"], "AQID");
+                return Json(json!({"model": "jev-1.13.0", "answers": {"damaged": {"type": "noul", "noul": 0.8}},
+                    "usage": {"input_tokens": 300, "output_tokens": 0}}));
+            }
             assert_eq!(body["images"], json!(["AQID"]));
             Json(json!({"model": "clef", "answers": {"damaged": {"type": "noul", "noul": 0.9}}}))
         }),
@@ -258,8 +266,9 @@ async fn decision_route_forwards_images_and_rejects_them_where_unsupported() {
     });
     let app = create_app(Arc::new(AppState {
         client_service: GaiseClientService::new(GaiseClientConfig {
-            ollama_url: Some(url),
+            ollama_url: Some(url.clone()),
             typesafe_api_key: Some("ts-key".into()),
+            typesafe_api_url: Some(url),
             ..Default::default()
         }),
     }));
@@ -280,8 +289,9 @@ async fn decision_route_forwards_images_and_rejects_them_where_unsupported() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    // TypeSafe Jev is text only: the router never calls it with images.
+    // TypeSafe Jev takes images since 2026-10-14.
     let response = app
+        .clone()
         .oneshot(
             Request::post("/v1/decision")
                 .header("content-type", "application/json")
@@ -290,10 +300,23 @@ async fn decision_route_forwards_images_and_rejects_them_where_unsupported() {
         )
         .await
         .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // TypeSafe accepts PNG and JPEG only; others fail before any request.
+    let gif = body("typesafe::jev").replace("\"png\"", "\"gif\"");
+    let response = app
+        .oneshot(
+            Request::post("/v1/decision")
+                .header("content-type", "application/json")
+                .body(Body::from(gif))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     let text = axum::body::to_bytes(response.into_body(), 10000)
         .await
         .unwrap();
-    assert!(String::from_utf8_lossy(&text).contains("not supported"));
+    assert!(String::from_utf8_lossy(&text).contains("PNG or JPEG"));
     task.abort();
 }
