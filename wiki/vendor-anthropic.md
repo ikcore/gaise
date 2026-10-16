@@ -143,7 +143,7 @@ Worked examples (from [`mapping_tests.rs`](../gaise-provider-anthropic/tests/map
 | `claude-opus-5` | effort `xhigh`, temp/top_p/top_k set | `{"type":"adaptive"}` | `{"effort":"xhigh"}` | none |
 | `claude-sonnet-4-5-20250929` | temp 0.4, top_p 0.8 | none | none | `temperature: 0.4` |
 
-### Parameter compatibility (audited 2026-10-14)
+### Parameter compatibility (audited 2026-10-16)
 
 [`claude_family_rules`](../gaise-provider-anthropic/src/anthropic_client.rs), [`normalize_effort`](../gaise-provider-anthropic/src/anthropic_client.rs), and [`resolve_output_budget`](../gaise-provider-anthropic/src/anthropic_client.rs) enforce the table below; [`tests/parameter_matrix_tests.rs`](../gaise-provider-anthropic/tests/parameter_matrix_tests.rs) pins it.
 
@@ -253,7 +253,7 @@ There are no heuristics from the model name and no opt-in detail calls (`include
 
 ## Models
 
-From `gaise-core/model-registry.toml` (audited 2026-10-14), entries with `provider = "anthropic"`. The registry is advisory; arbitrary IDs are accepted. Dates are the direct Claude API lifecycle — Bedrock-hosted Claude is tracked separately.
+From `gaise-core/model-registry.toml` (audited 2026-10-16), entries with `provider = "anthropic"`. The registry is advisory; arbitrary IDs are accepted. Dates are the direct Claude API lifecycle — Bedrock-hosted Claude is tracked separately.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|

@@ -116,7 +116,7 @@ MIME inference for files uses the shared [`file_media_type`](../gaise-core/src/c
 
 No rule gates image input, audio input, tools, or `responseModalities` by model; the API returns its own error for unsupported combinations.
 
-### Parameter compatibility (audited 2026-10-14)
+### Parameter compatibility (audited 2026-10-16)
 
 [`model_uses_fixed_sampling`](../gaise-provider-gemini/src/gemini_client.rs), [`thinking_levels_for`](../gaise-provider-gemini/src/gemini_client.rs), [`normalize_thinking_level`](../gaise-provider-gemini/src/gemini_client.rs), and [`thinking_budget_for`](../gaise-provider-gemini/src/gemini_client.rs) enforce the table; [`tests/parameter_matrix_tests.rs`](../gaise-provider-gemini/tests/parameter_matrix_tests.rs) pins it.
 
@@ -268,7 +268,7 @@ The router clears the operation filter before calling the provider and re-applie
 
 ## Models
 
-From the bundled registry (audited 2026-10-14), entries with `provider = "gemini"`. Dates are Gemini API dates only; Vertex AI has a separate lifecycle. "—" means none recorded.
+From the bundled registry (audited 2026-10-16), entries with `provider = "gemini"`. Dates are Gemini API dates only; Vertex AI has a separate lifecycle. "—" means none recorded.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|

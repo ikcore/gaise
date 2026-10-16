@@ -167,7 +167,42 @@ the operation as `decision`.
 
 Jev uses this typed decision operation. Text generation (`instruct`), SSE
 streaming, embeddings, tool calling, and live audio are not implemented for this
-provider. Give it text or structured context instead of image/audio attachments.
+provider. Give it text, structured context, or PNG/JPEG images; audio and video
+are not accepted.
+
+`typesafe::jev` is TypeSafe's stable `jev-latest` (Jev 1.13). Jev 1.14, released
+2026-10-14, is reachable as `typesafe::jev-1.14.0` or `typesafe::jev-preview`;
+any other id is sent upstream unchanged.
+
+### Images
+
+Since 2026-10-14 TypeSafe accepts images on both Jev versions. It labels them
+Dreamer-ready: the request format, answers, and limits can change between
+releases. GAISe sends them as JSON (base64) with the
+`TypeSafe-Danger-Zone-Images: true` header, in a top-level `assets` map keyed by
+reference strings; TypeSafe replaces each reference with its image wherever it
+appears in the state, instructions, or criteria.
+
+- `GaiseClient::decision_with_images(&request, &images)` (and the `images` array
+  of `POST /v1/decision`) gives each image a fresh reference and lists them under
+  `images` in the state. An object or `null` state gains an `images` array; any
+  other state is wrapped as `{"state": ..., "images": [...]}`. Questions can name
+  `` `images` `` or `` `images[0]` ``.
+- `GaiseClientTypeSafe::decision_with_assets(&request, &assets)` sends a map from
+  your own reference strings to images, so you can place an image inside one
+  question's instructions or a Choice description. Every reference must appear
+  somewhere in the request, or TypeSafe returns `400`.
+
+Images must be PNG or JPEG (taken from `format`, such as `png`, `jpg`, or
+`image/jpeg`, or from the file signature when `format` is absent); anything else
+is rejected before sending. TypeSafe's limits: 16 MiB per image, 280 to 1568
+pixels per side, and 32 MiB per request. Images count as input tokens.
+Box questions (Jev 1.14) are not mapped yet, because adding a question or answer
+variant would break exhaustive matches on `GaiseQuestion` and `GaiseAnswer`.
+
+`GaiseClientTypeSafe::with_long_context(true)` sends
+`TypeSafe-Danger-Zone-Long-Context: true`, which raises the limits to 262k tokens
+per request and per question; TypeSafe documents it as slower and less accurate.
 
 ### Validation and errors
 
@@ -192,8 +227,8 @@ are returned without retrying. There is no Decision streaming endpoint.
 
 ```toml
 [dependencies]
-gaise-core = { package = "gaise", version = "4.4.0" }
-gaise-client = { version = "4.4.0", default-features = false, features = ["typesafe"] }
+gaise-core = { package = "gaise", version = "4.5.0" }
+gaise-client = { version = "4.5.0", default-features = false, features = ["typesafe"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```

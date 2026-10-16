@@ -1,5 +1,6 @@
 //! HTTP mapping audited against https://docs.typesafe.ai/api and the official
 //! TypeScript SDK on 2026-09-19. Routing metadata never leaves GAISe.
+use base64::Engine;
 use gaise_core::contracts::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
@@ -22,6 +23,49 @@ impl<'a> From<&'a GaiseDecisionRequest> for SystemOneRequest<'a> {
             state: &request.state,
             questions: &request.questions,
         }
+    }
+}
+
+/// One entry of System One's top-level `assets` map (TypeSafe, 2026-10-14):
+/// a PNG or JPEG image sent as standard base64, which replaces every
+/// occurrence of its reference string in the state, instructions, or criteria.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ImageAsset {
+    #[serde(rename = "type")]
+    pub kind: &'static str,
+    pub format: &'static str,
+    pub data_base64: String,
+}
+
+impl ImageAsset {
+    /// Encodes `GaiseContent::Image` for TypeSafe. The format comes from the
+    /// caller (`png`, `jpg`, `jpeg`, or the matching MIME type) or, when
+    /// absent, from the file signature; anything but PNG or JPEG is rejected.
+    pub fn from_content(content: &GaiseContent) -> Result<Self, String> {
+        let GaiseContent::Image { data, format } = content else {
+            return Err("TypeSafe assets accept only image content".into());
+        };
+        let declared = format
+            .as_deref()
+            .map(|f| f.trim().to_ascii_lowercase())
+            .filter(|f| !f.is_empty());
+        let format = match declared.as_deref() {
+            Some("png" | "image/png") => "png",
+            Some("jpg" | "jpeg" | "image/jpg" | "image/jpeg") => "jpg",
+            Some(other) => {
+                return Err(format!(
+                    "TypeSafe accepts PNG or JPEG images only, not {other}"
+                ));
+            }
+            None if data.starts_with(&[0x89, b'P', b'N', b'G']) => "png",
+            None if data.starts_with(&[0xFF, 0xD8, 0xFF]) => "jpg",
+            None => return Err("TypeSafe accepts PNG or JPEG images only".into()),
+        };
+        Ok(Self {
+            kind: "image",
+            format,
+            data_base64: base64::prelude::BASE64_STANDARD.encode(data),
+        })
     }
 }
 

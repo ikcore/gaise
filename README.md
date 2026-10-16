@@ -99,7 +99,8 @@ Local Ollama decision models use the same request with `ollama::nimble` or
 uses `openai::gpt-6-luna`. GAISe maps `jev` to TypeSafe's `jev-latest` and
 preserves typed `choice`, `score`, and `noul` answers. Add an `images` array, or
 call `GaiseClient::decision_with_images`, to share images with every question on
-`openai::gpt-6-luna` or `ollama::clef` / `ollama::clef-flash`.
+`typesafe::jev`, `openai::gpt-6-luna`, or an Ollama vision decision model
+(`clef`, `clef-flash`, `d1`, `pplx-decider`).
 
 Library callers use `GaiseClient::decision` with `GaiseDecisionRequest` and
 `GaiseClientConfig.typesafe_api_key` / `typesafe_api_url`. The `typesafe` feature

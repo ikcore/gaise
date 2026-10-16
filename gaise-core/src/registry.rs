@@ -1007,6 +1007,40 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
             "embeddinggemma-2:*"
         );
         assert_eq!(find("ollama", "embeddinggemma:300m"), "embeddinggemma:*");
+        // Audit 2026-10-16.
+        assert_eq!(find("typesafe", "jev"), "jev");
+        assert_eq!(find("typesafe", "jev-latest"), "jev");
+        assert_eq!(find("typesafe", "jev-1.13.0"), "jev");
+        assert_eq!(
+            find("typesafe", "jev-preview"),
+            "jev-1.14.0",
+            "jev-preview moved to Jev 1.14 on 2026-10-14"
+        );
+        assert_eq!(find("typesafe", "jev-1.14.0"), "jev-1.14.0");
+        for id in ["jev", "jev-1.14.0"] {
+            let jev = registry.find("typesafe", id).unwrap();
+            assert!(jev.capabilities.iter().any(|c| c == "image_input"), "{id}");
+        }
+        assert_eq!(find("ollama", "d1:3b"), "d1:*");
+        assert_eq!(find("ollama", "pplx-decider:27b"), "pplx-decider:*");
+        assert_eq!(find("ollama", "clef:cloud"), "clef:*");
+        assert_eq!(
+            find("ollama", "nemotron-3.5-super:120b"),
+            "nemotron-3.5-super:*"
+        );
+        assert_eq!(find("ollama", "nemotron-3.5-bolt"), "nemotron-3.5-bolt:*");
+        assert_eq!(find("ollama", "muse-spark-open:cloud"), "muse-spark-open:*");
+        let flash = registry.find("vertexai", "gemini-3.8-flash").unwrap();
+        assert_eq!(flash.status, "active");
+        assert_eq!(flash.retirement_not_before.as_deref(), Some("2027-09-02"));
+        assert_eq!(
+            registry
+                .find("vertexai", "gemini-4-argon")
+                .unwrap()
+                .retirement_not_before
+                .as_deref(),
+            Some("2027-10-13")
+        );
         let luna = registry.find("openai", "gpt-6-luna").unwrap();
         assert!(luna.capabilities.iter().any(|c| c == "decision"));
         assert_eq!(

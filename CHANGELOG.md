@@ -8,6 +8,47 @@ change, or an additive adapter feature is a minor release; a change to a public
 contract (removed or renamed items, new required fields, changed serialization)
 is a major release.
 
+## [4.5.0] - 2026-10-16
+
+Model audit of every provider. TypeSafe now takes images (Jev 1.13 and 1.14);
+Vertex AI 12-month dates for Gemini 4 Argon and 3.8 Flash/Live; new Ollama
+decision and Nemotron families. Plain `decision` requests are unchanged for
+every existing model id.
+
+### Added
+- TypeSafe image input: `GaiseClientTypeSafe` implements
+  `GaiseClient::decision_with_images` (so `POST /v1/decision` with `images` now
+  works for `typesafe::*`). Images go in TypeSafe's top-level `assets` map as
+  base64 PNG/JPEG under fresh references, with the
+  `TypeSafe-Danger-Zone-Images: true` header; the references are listed under
+  `images` in the state (an object or `null` state gains the field; any other
+  state is wrapped as `{"state": ..., "images": [...]}`). TypeSafe labels images
+  Dreamer-ready.
+- `GaiseClientTypeSafe::decision_with_assets` for caller-placed image
+  references, `GaiseClientTypeSafe::with_long_context` (sends
+  `TypeSafe-Danger-Zone-Long-Context: true`, 262k tokens), the `IMAGES_HEADER`
+  and `LONG_CONTEXT_HEADER` constants, and `contracts::ImageAsset`.
+- Registry rows: `typesafe::jev-1.14.0` (preview, released 2026-10-14), Ollama
+  decision families `d1:*` and `pplx-decider:*` (both take images), and Ollama
+  chat families `nemotron-3.5-super:*`, `nemotron-3.5-bolt:*`, and
+  `muse-spark-open:*` (cloud tag only).
+- Hermetic TypeSafe image tests and lookup pins for every new or changed row.
+
+### Changed
+- `typesafe::jev` gains the `image_input` capability. The `jev-preview` alias
+  now resolves to the `jev-1.14.0` row, following TypeSafe, which moved it to
+  Jev 1.14 on 2026-10-14; `jev`, `jev-latest`, and `jev-1.13.0` are unchanged.
+- Vertex AI: `gemini-4-argon` (not before 2027-10-13), `gemini-3.8-live`
+  (2027-09-25), and `gemini-3.8-flash` (2027-09-02) now carry the published
+  12-month retirement floors; `gemini-3.8-flash` moves from `short_term_active`
+  to `active`.
+- Ollama: Clef runs in Ollama's cloud since v0.40.5 (`clef:cloud` through a
+  signed-in local server); the local 64 KiB limit now excludes images.
+- Anthropic: fast mode for Opus 5.5 left research preview (GAISe never sends
+  `speed`). OpenAI: GPT-Live's native Decisions delegation noted. Bedrock:
+  Claude Sonnet 4 is past its EOL date but still labelled Legacy; Claude 3 Haiku
+  regional EOL on 2026-10-17. Gemini API and ElevenLabs: audit notes only.
+
 ## [4.4.0] - 2026-10-14
 
 Model audit of every provider: Gemini 4 Argon on both Google surfaces, three

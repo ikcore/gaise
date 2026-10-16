@@ -589,6 +589,6 @@ Per-vendor configuration details are on each [vendor page](README.md#vendors).
 
 ## POST /v1/decision
 
-Also served at `POST /v1/systemone`. Evaluate typed questions against shared state using `typesafe::jev`, `openai::gpt-6-luna` (OpenAI Decisions API, beta), or an Ollama decision model such as `ollama::nimble`. Add an optional `images` array of image [content objects](#content-objects) to share images with every question. Images work with `openai::gpt-6-luna` and `ollama::clef` / `ollama::clef-flash`; other models return `500`. See the
+Also served at `POST /v1/systemone`. Evaluate typed questions against shared state using `typesafe::jev`, `openai::gpt-6-luna` (OpenAI Decisions API, beta), or an Ollama decision model such as `ollama::nimble`. Add an optional `images` array of image [content objects](#content-objects) to share images with every question. Images work with `typesafe::jev` (and `typesafe::jev-1.14.0`), `openai::gpt-6-luna`, and `ollama::clef` / `ollama::clef-flash` / `ollama::d1` / `ollama::pplx-decider`; other models return `500`. See the
 [Decision endpoint guide](decision.md) for complete JSON requests and responses,
 configuration precedence, status codes, retries, and Rust examples.

@@ -125,7 +125,7 @@ Not mapped: `safetySettings`, `responseMimeType`/`responseSchema` (structured ou
 
 No other model-name rules exist; arbitrary IDs (including `publishers/anthropic` Claude models via the template) are passed through.
 
-### Parameter compatibility (audited 2026-10-14)
+### Parameter compatibility (audited 2026-10-16)
 
 [`model_uses_fixed_sampling`](../gaise-provider-vertexai/src/contracts/models.rs), [`thinking_levels_for`](../gaise-provider-vertexai/src/contracts/models.rs), [`normalize_thinking_level`](../gaise-provider-vertexai/src/contracts/models.rs), and [`thinking_budget_for`](../gaise-provider-vertexai/src/contracts/models.rs) enforce the table; [`tests/parameter_matrix_tests.rs`](../gaise-provider-vertexai/tests/parameter_matrix_tests.rs) pins it.
 
@@ -235,15 +235,15 @@ Tests: [`catalog.rs#L150`](../gaise-provider-vertexai/src/contracts/catalog.rs#L
 
 ## Models
 
-From `model-registry.toml` (audited 2026-10-14), `provider = "vertexai"` entries. Dates are Google Cloud dates only; Gemini API (`gemini`) lifecycle dates must never be copied here or vice versa. "Short-term" models retire 45 days after a designated replacement ships.
+From `model-registry.toml` (audited 2026-10-16), `provider = "vertexai"` entries. Dates are Google Cloud dates only; Gemini API (`gemini`) lifecycle dates must never be copied here or vice versa. "Short-term" models retire 45 days after a designated replacement ships.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
-| `gemini-4-argon` | — | `active` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native on the global, us, or eu endpoints (long decode not implemented) | GA 2026-10-13; 12-month availability table, no retirement date announced. Unified 1,048,576-token input and output limit; one synchronous re… |
+| `gemini-4-argon` | — | `active` | not before 2027-10-13 | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native on the global, us, or eu endpoints (long decode not implemented) | GA 2026-10-13; 12-month availability table, retirement October 13, 2027 or later (recorded 2026-10-16). Unified 1,048,576-token input and ou… |
 | `gemini-4-argon-cyber-permissive` | — | `limited_availability` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native for projects on the Fairwind Program allowlist | GA behind the Fairwind Program allowlist since 2026-10-13; short-term availability table, no retirement date announced. Same contract as gem… |
 | `gemini-3.8-flash-cyber` | — | `limited_availability` | — | text, image, file | text | instruct, instruct_stream | supported | native generateContent for allowlisted projects; function calling not supported | GA behind an allowlist since 2026-09-16; no retirement date announced. Thinking and structured output supported; function calling not suppor… |
-| `gemini-3.8-live` | — | `active` | — | text, image, audio, video | text, audio | — | — | not reachable: the Vertex AI crate has no Live transport | GA on Vertex 2026-09-24 (the Gemini API date is 2026-09-15). Thinking not supported; Count Tokens not supported. |
-| `gemini-3.8-flash` | — | `short_term_active` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native | GA 2026-09-02; short-term availability table, no retirement date announced. thinking_level LOW, MEDIUM (default), HIGH; MINIMAL not supporte… |
+| `gemini-3.8-live` | — | `active` | not before 2027-09-25 | text, image, audio, video | text, audio | — | — | not reachable: the Vertex AI crate has no Live transport | GA on Vertex 2026-09-24 (the Gemini API date is 2026-09-15); 12-month availability table, retirement September 25, 2027 or later as publishe… |
+| `gemini-3.8-flash` | — | `active` | not before 2027-09-02 | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native | GA 2026-09-02; in the 12-month availability table (retirement September 2, 2027 or later) as of 2026-10-16, previously recorded as short-ter… |
 | `gemini-3.7-flash` | — | `short_term_active` | shutdown 2027-01-28 | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native | GA 2026-08-13; short-term availability table, no retirement date announced and no replacement named as of 2026-09-12 (gemini-3.8-flash has n… |
 | `gemini-3.6-flash` | — | `short_term_active` | shutdown 2026-11-19 | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | Released 2026-07-21; short-term availability (retires 45 days after a designated replacement). Neither 3.7 nor 3.8 Flash is named as that re… |
 | `gemini-3.5-flash` | — | `active` | not before 2027-05-19 | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | thinking_level MINIMAL..HIGH (default MEDIUM); sampling parameters still accepted on this model. |
