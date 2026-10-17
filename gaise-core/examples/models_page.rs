@@ -40,7 +40,7 @@ This page is the human-readable view of [`gaise-core/model-registry.toml`](../ga
 This page is generated from the registry by [`cargo run -p gaise --example models_page`](../gaise-core/examples/models_page.rs); edit the registry (or that example's introductions), not this file. Columns:
 
 - **Input / Output** — modalities classified from the entry's `capabilities` list by [`classify_capabilities`](../gaise-core/src/registry.rs).
-- **Ops** — GAISe operations the entry maps to: `I` instruct, `S` instruct_stream, `E` embeddings, `V` speech (voice), `L` live, `D` decision. Empty means no GAISe surface drives the model (image generation, TTS, bidirectional audio).
+- **Ops** — GAISe operations the entry maps to: `I` instruct, `S` instruct_stream, `E` embeddings, `V` speech (voice), `L` live, `D` decision, `T` transcription, `W` streaming transcription, `P` image generation (picture), `M` video generation (movie). Empty means no GAISe surface drives the model.
 - **Tools / Reasoning** — ✓ supported, ✗ not listed, and the `reasoning_values` the provider documents.
 - **Dates** — `shutdown` is a published retirement date; `not before` is an availability guarantee. Gemini API and Vertex AI dates are **never** interchangeable.
 - **Limits** — context windows, output ceilings, per-input token limits, and character budgets are not repeated here; see [limits.md](limits.md) for the generated model × limits matrix and `GET /v1/models/limits`.
@@ -114,16 +114,25 @@ fn dates(m: &RegistryModel) -> String {
     join_or_dash(parts, " · ")
 }
 
-fn ops_letters(ops: &[gaise_core::contracts::GaiseOperation]) -> String {
+fn ops_letters(
+    ops: &[gaise_core::contracts::GaiseOperation],
+    media: &[gaise_core::contracts::GaiseMediaOperation],
+) -> String {
     let letters: String = ops
         .iter()
-        .map(|op| match wire_name(op).as_str() {
+        .map(wire_name)
+        .chain(media.iter().map(|m| m.as_str().to_string()))
+        .map(|op| match op.as_str() {
             "instruct" => "I",
             "instruct_stream" => "S",
             "embeddings" => "E",
             "speech" => "V",
             "live" => "L",
             "decision" => "D",
+            "transcription" => "T",
+            "live_transcription" => "W",
+            "image_generation" => "P",
+            "video_generation" => "M",
             _ => "?",
         })
         .collect();
@@ -182,7 +191,7 @@ fn row(m: &RegistryModel) -> String {
         dates(m),
         modalities(&classified.input),
         modalities(&classified.output),
-        ops_letters(&classified.operations),
+        ops_letters(&classified.operations, &m.media_operations()),
         support_mark(&wire_name(&classified.tools)),
         reasoning(m, &wire_name(&classified.reasoning), &classified.features),
         notes(m),

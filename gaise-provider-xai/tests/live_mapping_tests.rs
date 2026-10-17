@@ -122,3 +122,281 @@ fn server_events_map_to_live_events() {
     let err = map_xai_live_event(&json!({"type": "error", "error": {"message": "bad"}}));
     assert!(matches!(&err[0], GaiseLiveEvent::Error { message } if message == "bad"));
 }
+
+// ── Streaming speech-to-text ──────────────────────────────────────────
+
+#[test]
+fn stt_url_defaults_to_16k_pcm() {
+    let config = GaiseTranscriptionSessionConfig {
+        model: "grok-voice-transcribe-2.0".into(),
+        ..Default::default()
+    };
+    assert_eq!(
+        build_xai_stt_url("https://api.x.ai/v1", &config).unwrap(),
+        "wss://api.x.ai/v1/stt?model=grok-voice-transcribe-2.0&encoding=pcm&sample_rate=16000&interim_results=false"
+    );
+}
+
+#[test]
+fn stt_url_maps_options_and_encodes_keyterms() {
+    let config = GaiseTranscriptionSessionConfig {
+        model: "grok-voice-transcribe-2.0".into(),
+        audio_format: Some(GaiseAudioFormat {
+            codec: "mulaw".into(),
+            sample_rate: Some(8000),
+            channels: Some(2),
+        }),
+        languages: vec!["en".into()],
+        keyterms: vec!["Understand The Universe".into(), "Grok".into()],
+        diarize: true,
+        interim_results: true,
+        silence_duration_ms: Some(700),
+        commit_strategy: Some(GaiseCommitStrategy::TurnPrediction),
+        provider_options: Some(json!({"format": true, "smart_turn": 0.7})),
+        ..Default::default()
+    };
+    let url = build_xai_stt_url("https://api.x.ai", &config).unwrap();
+    assert!(url.starts_with("wss://api.x.ai/v1/stt?"), "{url}");
+    for part in [
+        "encoding=mulaw",
+        "sample_rate=8000",
+        "multichannel=true",
+        "channels=2",
+        "interim_results=true",
+        "language=en",
+        "diarize=true",
+        "keyterm=Understand+The+Universe",
+        "keyterm=Grok",
+        "endpointing=700",
+        "format=true",
+        "smart_turn=0.7",
+    ] {
+        assert!(url.contains(part), "{part} missing from {url}");
+    }
+    assert!(
+        !url.contains("smart_turn=0.5"),
+        "provider_options replace mapped params"
+    );
+
+    let opus = GaiseTranscriptionSessionConfig {
+        audio_format: Some(GaiseAudioFormat {
+            codec: "opus".into(),
+            sample_rate: Some(48_000),
+            channels: None,
+        }),
+        commit_strategy: Some(GaiseCommitStrategy::TurnPrediction),
+        ..Default::default()
+    };
+    let url = build_xai_stt_url("https://api.x.ai/v1", &opus).unwrap();
+    assert!(url.contains("encoding=opus"));
+    assert!(!url.contains("sample_rate"), "{url}");
+    assert!(url.contains("smart_turn=0.5"));
+    assert!(!url.contains("model="), "empty model is omitted: {url}");
+}
+
+#[test]
+fn stt_url_rejects_unsupported_settings() {
+    let manual = GaiseTranscriptionSessionConfig {
+        commit_strategy: Some(GaiseCommitStrategy::Manual),
+        ..Default::default()
+    };
+    assert!(build_xai_stt_url("https://api.x.ai/v1", &manual).is_err());
+    let mp3 = GaiseTranscriptionSessionConfig {
+        audio_format: Some(GaiseAudioFormat {
+            codec: "mp3".into(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    assert!(
+        build_xai_stt_url("https://api.x.ai/v1", &mp3)
+            .unwrap_err()
+            .contains("mp3")
+    );
+}
+
+#[test]
+fn stt_control_frames() {
+    assert_eq!(
+        xai_stt_control_frame(&GaiseTranscriptionInput::Commit).unwrap(),
+        json!({"type": "finalize"})
+    );
+    assert_eq!(
+        xai_stt_control_frame(&GaiseTranscriptionInput::Close).unwrap(),
+        json!({"type": "audio.done"})
+    );
+    assert!(xai_stt_control_frame(&GaiseTranscriptionInput::Audio { data: vec![1] }).is_none());
+}
+
+#[test]
+fn stt_events_map_to_transcription_events() {
+    let partial = map_xai_stt_event(&json!({
+        "type": "transcript.partial",
+        "text": "hello world",
+        "is_final": true,
+        "speech_final": true,
+        "start": 1.5,
+        "duration": 0.75,
+        "channel_index": 1,
+        "words": [
+            {"text": "hello", "start": 1.5, "end": 1.9, "confidence": 0.8, "speaker": 2},
+            {"text": "world", "start": 1.9, "end": 2.25, "speaker": 2}
+        ]
+    }));
+    let GaiseTranscriptionEvent::Transcript(t) = &partial[0] else {
+        panic!("expected a transcript");
+    };
+    assert_eq!(t.text, "hello world");
+    assert!(t.is_final && t.utterance_end);
+    assert_eq!(t.start, Some(1.5));
+    assert_eq!(t.end, Some(2.25));
+    assert_eq!(t.channel, Some(1));
+    assert_eq!(t.speaker.as_deref(), Some("2"));
+    assert_eq!(t.words.len(), 2);
+    assert_eq!(t.words[0].channel, Some(1));
+
+    let interim = map_xai_stt_event(&json!({
+        "type": "transcript.partial", "text": "hel", "is_final": false, "speech_final": false,
+        "words": [{"text": "hel", "speaker": 0}, {"text": "lo", "speaker": 1}]
+    }));
+    let GaiseTranscriptionEvent::Transcript(t) = &interim[0] else {
+        panic!("expected a transcript");
+    };
+    assert!(!t.is_final && !t.utterance_end);
+    assert_eq!(
+        t.speaker, None,
+        "mixed speakers leave the segment unlabeled"
+    );
+
+    let done = map_xai_stt_event(
+        &json!({"type": "transcript.done", "text": "hello world", "duration": 3.2}),
+    );
+    assert!(
+        matches!(&done[0], GaiseTranscriptionEvent::Usage(u) if u.input.as_ref().unwrap()["audio_milliseconds"] == 3200)
+    );
+    let err = map_xai_stt_event(&json!({"type": "error", "message": "undecodable frame"}));
+    assert!(
+        matches!(&err[0], GaiseTranscriptionEvent::Error { message } if message == "undecodable frame")
+    );
+    assert!(map_xai_stt_event(&json!({"type": "transcript.created"})).is_empty());
+}
+
+#[tokio::test]
+#[allow(clippy::result_large_err)] // the tungstenite handshake callback signature
+async fn transcribe_connect_streams_binary_audio_and_ends_after_done() {
+    use futures_util::{SinkExt, StreamExt};
+    use gaise_core::GaiseLiveClient;
+    use tokio_tungstenite::tungstenite::Message;
+    use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move {
+        let (tcp, _) = listener.accept().await.unwrap();
+        let mut ws = tokio_tungstenite::accept_hdr_async(tcp, |req: &Request, resp: Response| {
+            assert_eq!(req.headers()["authorization"], "Bearer k");
+            let query = req.uri().query().unwrap_or_default().to_string();
+            assert!(query.contains("encoding=pcm"), "{query}");
+            assert!(query.contains("sample_rate=16000"), "{query}");
+            assert!(query.contains("interim_results=true"), "{query}");
+            Ok(resp)
+        })
+        .await
+        .unwrap();
+        ws.send(Message::Text(
+            json!({"type": "transcript.created"}).to_string().into(),
+        ))
+        .await
+        .unwrap();
+        let mut frames = Vec::new();
+        while let Some(Ok(msg)) = ws.next().await {
+            match msg {
+                Message::Binary(data) => {
+                    frames.push(format!("audio:{}", data.len()));
+                    ws.send(Message::Text(
+                        json!({"type": "transcript.partial", "text": "hi", "is_final": false, "speech_final": false, "start": 0.0, "duration": 0.1})
+                            .to_string()
+                            .into(),
+                    ))
+                    .await
+                    .unwrap();
+                }
+                Message::Text(text) => {
+                    let event: serde_json::Value = serde_json::from_str(&text).unwrap();
+                    let kind = event["type"].as_str().unwrap().to_string();
+                    frames.push(kind.clone());
+                    if kind == "audio.done" {
+                        ws.send(Message::Text(
+                            json!({"type": "transcript.done", "text": "hi", "duration": 0.5})
+                                .to_string()
+                                .into(),
+                        ))
+                        .await
+                        .unwrap();
+                        ws.close(None).await.unwrap();
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        frames
+    });
+
+    let client = GaiseClientXaiLive::new(format!("http://{addr}/v1"), "k".into());
+    let mut session = client
+        .transcribe_connect(&GaiseTranscriptionSessionConfig {
+            model: "grok-voice-transcribe-2.0".into(),
+            interim_results: true,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    session
+        .tx
+        .send(GaiseTranscriptionInput::Audio {
+            data: vec![0; 3200],
+        })
+        .await
+        .unwrap();
+    session
+        .tx
+        .send(GaiseTranscriptionInput::Commit)
+        .await
+        .unwrap();
+    session
+        .tx
+        .send(GaiseTranscriptionInput::Close)
+        .await
+        .unwrap();
+
+    let mut events = Vec::new();
+    while let Some(event) = session.rx.next().await {
+        let event = event.unwrap();
+        let ended = matches!(event, GaiseTranscriptionEvent::Ended { .. });
+        events.push(event);
+        if ended {
+            break;
+        }
+    }
+    assert!(
+        matches!(&events[0], GaiseTranscriptionEvent::Started { model, .. } if model == "grok-voice-transcribe-2.0")
+    );
+    assert!(events.iter().any(
+        |e| matches!(e, GaiseTranscriptionEvent::Transcript(t) if t.text == "hi" && !t.is_final)
+    ));
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, GaiseTranscriptionEvent::Usage(u)
+        if u.input.as_ref().unwrap()["audio_milliseconds"] == 500))
+    );
+    assert!(matches!(
+        events.last(),
+        Some(GaiseTranscriptionEvent::Ended { .. })
+    ));
+    assert_eq!(
+        server.await.unwrap(),
+        ["audio:3200", "finalize", "audio.done"]
+    );
+}

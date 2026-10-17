@@ -85,7 +85,7 @@ def row(m):
         ", ".join(dates) or "—",
         ", ".join(c["input"]) or "unknown",
         ", ".join(c["output"]) or "unknown",
-        ", ".join(c["operations"]) or "—",
+        ", ".join(c["operations"] + c.get("media_operations", [])) or "—",
         reasoning,
         m.get("gaise_support") or "—",
         notes or "—",

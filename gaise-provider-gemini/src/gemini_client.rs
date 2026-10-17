@@ -5,10 +5,12 @@ use futures_util::{Stream, StreamExt};
 use gaise_core::GaiseClient;
 use gaise_core::contracts::{
     GaiseContent, GaiseContentEmbeddingsRequest, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse,
-    GaiseFunctionCall, GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
-    GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseReasoningEffort,
-    GaiseStreamChunk, GaiseTool, GaiseToolCall, GaiseToolParameter, GaiseUsage, OneOrMany,
-    ResolvedEmbedding, audio_media_type, file_media_type, image_media_type, normalize_l2,
+    GaiseFunctionCall, GaiseImageRequest, GaiseImageResponse, GaiseInstructRequest,
+    GaiseInstructResponse, GaiseInstructStreamResponse, GaiseListModelsRequest,
+    GaiseListModelsResponse, GaiseMessage, GaiseReasoningEffort, GaiseStreamChunk, GaiseTool,
+    GaiseToolCall, GaiseToolParameter, GaiseTranscriptionRequest, GaiseTranscriptionResponse,
+    GaiseUsage, OneOrMany, ResolvedEmbedding, audio_media_type, file_media_type, image_media_type,
+    normalize_l2,
 };
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -35,7 +37,7 @@ fn insert_modality_usage(
     }
 }
 
-fn map_usage(usage: &GeminiUsageMetadata) -> GaiseUsage {
+pub(crate) fn map_usage(usage: &GeminiUsageMetadata) -> GaiseUsage {
     let mut input = HashMap::new();
     if let Some(value) = usage.prompt_token_count {
         input.insert("prompt_tokens".to_string(), value);
@@ -1034,6 +1036,51 @@ impl GaiseClient for GaiseClientGemini {
         );
         let (batch_request, resolved) = gemini_content_embed_request(request)?;
         self.batch_embed(url, &batch_request, &resolved).await
+    }
+
+    /// `gemini-3.5-transcribe` through `generateContent` with
+    /// `audioTranscriptionConfig`; see [`crate::gemini_media`].
+    async fn transcribe(
+        &self,
+        request: &GaiseTranscriptionRequest,
+    ) -> Result<GaiseTranscriptionResponse, Box<dyn std::error::Error + Send + Sync>> {
+        let body = crate::gemini_media::gemini_transcription_request(request)?;
+        let response = self.media_generate_content(&request.model, &body).await?;
+        Ok(crate::gemini_media::map_gemini_transcription_response(
+            response,
+        )?)
+    }
+
+    /// Nano Banana image generation and editing through `generateContent`;
+    /// see [`crate::gemini_media`].
+    async fn generate_images(
+        &self,
+        request: &GaiseImageRequest,
+    ) -> Result<GaiseImageResponse, Box<dyn std::error::Error + Send + Sync>> {
+        let body = crate::gemini_media::gemini_image_request(request)?;
+        let response = self.media_generate_content(&request.model, &body).await?;
+        Ok(crate::gemini_media::map_gemini_image_response(response)?)
+    }
+}
+
+impl GaiseClientGemini {
+    async fn media_generate_content(
+        &self,
+        model: &str,
+        body: &serde_json::Value,
+    ) -> Result<crate::gemini_media::GeminiMediaResponse, Box<dyn std::error::Error + Send + Sync>>
+    {
+        let url = format!(
+            "{}/models/{}:generateContent?key={}",
+            self.api_url, model, self.api_key
+        );
+        let response = self.client.post(&url).json(body).send().await?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let err_text = response.text().await?;
+            return Err(format!("Gemini API error ({status}): {err_text}").into());
+        }
+        Ok(response.json().await?)
     }
 }
 

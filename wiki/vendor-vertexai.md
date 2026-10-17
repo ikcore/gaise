@@ -2,7 +2,7 @@
 
 > Part of the [GAISe wiki](README.md) · [Models](models.md#vertexai) · [Capabilities](capabilities.md) · [HTTP API](api.md) · [Rust SDK](sdk.md) · [Flows](flows.md) · [Examples](examples.md)
 
-The `vertexai` adapter drives Google Cloud Vertex AI with a service-account credential: `instruct` posts to `{{MODEL}}:generateContent`, `instruct_stream` to `{{MODEL}}:streamGenerateContent?alt=sse`, `embeddings` to `{{MODEL}}:predict`, and `list_models` to the Model Garden `v1beta1/publishers/{publisher}/models` endpoint derived from the same URL template. It deliberately has no Live/realtime transport, no Imagen/Veo prediction wrappers, and no Vertex-specific caching or RAG surfaces. The crate is `gaise-provider-vertexai`, enabled in `gaise-client` by the default `vertexai` feature (`vertexai = ["dep:gaise-provider-vertexai"]`). Only `src/lib.rs` modules are compiled: `contracts` and `vertexai_client`. The files `src/mod.rs` and `src/vertexai_client_threaded.rs` are stale, uncompiled leftovers and are not described here.
+The `vertexai` adapter drives Google Cloud Vertex AI with a service-account credential: `instruct` posts to `{{MODEL}}:generateContent`, `instruct_stream` to `{{MODEL}}:streamGenerateContent?alt=sse`, `embeddings` to `{{MODEL}}:predict`, `transcribe` and `generate_images` to `{{MODEL}}:generateContent`, `start_video` / `get_video` to `{{MODEL}}:predictLongRunning` / `{{MODEL}}:fetchPredictOperation` (Veo 3.1), and `list_models` to the Model Garden `v1beta1/publishers/{publisher}/models` endpoint derived from the same URL template. It deliberately has no Live/realtime transport, no Imagen wrapper (Imagen is discontinued on Vertex), and no Vertex-specific caching or RAG surfaces. The crate is `gaise-provider-vertexai`, enabled in `gaise-client` by the default `vertexai` feature (`vertexai = ["dep:gaise-provider-vertexai"]`). Only `src/lib.rs` modules are compiled: `contracts`, `vertexai_client`, and `vertexai_media`. The files `src/mod.rs` and `src/vertexai_client_threaded.rs` are stale, uncompiled leftovers and are not described here.
 
 ## At a glance
 
@@ -212,6 +212,48 @@ Embeddings ([`GoogleEmbeddingsResponse::to_view`](../gaise-provider-vertexai/src
 - Vertex defaults an omitted `task_type` to `RETRIEVAL_QUERY`; set `task: document` when indexing.
 - `title` and multimodal instances are not mapped; `autoTruncate` is always `true`. The response `predictions[].embeddings.values` becomes `output: Vec<Vec<f32>>` in order (predictions without `embeddings` are skipped); `metadata` maps to usage as above. `external_id` is `None`. Tier headers are not applied to embeddings.
 
+## Transcription
+
+[`transcribe`](../gaise-provider-vertexai/src/vertexai_client.rs) posts the body from [`vertex_transcription_request`](../gaise-provider-vertexai/src/vertexai_media.rs) to `{{MODEL}}:generateContent`, with the service-account token and the tier headers, and maps the reply with [`map_vertex_transcription_response`](../gaise-provider-vertexai/src/vertexai_media.rs). The model is `gemini-3.5-transcribe` (Gemini Enterprise Agent Platform model card; `global`, `us` and `eu` locations). Request and response mapping match the Gemini API adapter ([vendor-gemini.md](vendor-gemini.md#transcription)): `languages` → `languageCodes`, `keyterms` → `customVocabulary`, `timestamps: word` → `wordTimestamp`, `diarize` → `diarization`, `mode` → `VERBATIM`/`SMART`. Each `audioTranscription` part becomes a segment with its `speakerLabel` and word offsets. Audio goes inline (`inlineData`) or by URI (`fileData{fileUri}`, typically `gs://`).
+
+Client-side errors: `SMART` with diarization or word timestamps; `keyterms` with word timestamps; `prompt`, `max_speakers`, `multichannel`, `temperature`, and `character` timestamps. Unlike on the Gemini API, `keyterms` with `diarize` is allowed, because the Vertex model card's own example combines `diarization=True` with `custom_vocabulary`.
+
+Limits (model card, 2026-10-17): files up to 15 minutes when diarization or timestamps are enabled. Inline files are capped by the request size, so put long audio in Cloud Storage. The client's 120-second HTTP timeout also applies, so long files may need a shorter clip.
+
+## Image generation
+
+[`generate_images`](../gaise-provider-vertexai/src/vertexai_client.rs) posts the body from [`vertex_image_request`](../gaise-provider-vertexai/src/vertexai_media.rs) to `{{MODEL}}:generateContent`. **Imagen is discontinued on Vertex** (`imagegeneration@*`, `imagen-3.0-*`, and `imagen-4.0-*` endpoints were discontinued on 2026-06-30), so only the Nano Banana models are used: `gemini-nano-banana-2.1` (GA, `global` only), `gemini-3-pro-image`, `gemini-3.1-flash-image`, `gemini-3.1-flash-lite-image`, and `gemini-2.5-flash-image`. The mapping is the Gemini API one ([vendor-gemini.md](vendor-gemini.md#image-generation)): the prompt then up to 14 input images (`inlineData`, or `fileData{fileUri}` for `gs://`), `responseModalities: ["TEXT", "IMAGE"]`, and `imageConfig{aspectRatio, imageSize}`. Vertex also accepts the `9:21` aspect ratio listed on the Nano Banana 2.1 card. The same options are errors (`n > 1`, `size`, `mask`, `negative_prompt`, `quality` other than `auto`, `output_format`, a seed on Gemini 3-generation models). Responses map the same way: non-thought `inlineData` parts become images, text parts become `text`, and a safety stop with no images gives `filtered: 1`.
+
+## Video generation
+
+Veo 3.1 runs as a long-running job (Gemini Enterprise Agent Platform video reference, 2026-10-17):
+
+| Step | Call | Builder / mapper |
+|---|---|---|
+| Start | `POST {{MODEL}}:predictLongRunning` → `{name}` | [`vertex_video_request`](../gaise-provider-vertexai/src/vertexai_media.rs), [`map_vertex_video_start`](../gaise-provider-vertexai/src/vertexai_media.rs) |
+| Poll | `POST {{MODEL}}:fetchPredictOperation` with `{operationName}` | [`vertex_video_poll_request`](../gaise-provider-vertexai/src/vertexai_media.rs), [`map_vertex_video_operation`](../gaise-provider-vertexai/src/vertexai_media.rs) |
+
+The job id is the operation name, kept verbatim (`projects/…/locations/…/publishers/google/models/{model}/operations/{id}`). `get_video` uses the request's `model` for the URL and falls back to the model named in the operation. Tier headers are not sent on Veo calls. Models: `veo-3.1-generate-001` and `veo-3.1-fast-generate-001` (GA, `us-central1`), and `veo-3.1-lite-generate-001` (preview).
+
+| `GaiseVideoRequest` | Wire |
+|---|---|
+| `prompt` | `instances[0].prompt` |
+| `image` | `instances[0].image{bytesBase64Encoded \| gcsUri, mimeType}` (first frame) |
+| `last_frame` | `instances[0].lastFrame{…}` (requires `image`) |
+| `reference_images` (≤ 3) | `instances[0].referenceImages[{image{…}, referenceType: "asset"}]` (require a prompt; exclude `image`, `last_frame`, `video`) |
+| `video` | `instances[0].video{…}` (extend; excludes `image`) |
+| `n` (1–4) | `parameters.sampleCount` |
+| `duration_seconds` | `parameters.durationSeconds` (4, 6, or 8; references need 8) |
+| `aspect_ratio` | `parameters.aspectRatio` (`16:9`, `9:16`) |
+| `resolution` | `parameters.resolution`, lower-cased (`720p`, `1080p`) |
+| `negative_prompt`, `generate_audio`, `seed` | `parameters.negativePrompt`, `generateAudio`, `seed` |
+| `output_uri` (`gs://` only) | `parameters.storageUri`; without it the videos come back inline as base64 |
+| `provider_options` | top-level keys are merged into `parameters` (`personGeneration`, `enhancePrompt`, `compressionQuality`, `resizeMode`, `fps`, …); keys under `instance` are merged into `instances[0]` (`cameraControl`, `mask`, …) |
+
+Media inputs are inline bytes, base64 `data:` URLs, or `gs://` URIs. Other URLs are an error because Veo does not fetch them.
+
+Job mapping: `predictLongRunning` returns `queued` with the operation name. A poll that is not `done` maps to `running`. An operation `error` maps to `failed`, with `"{code}: {message}"`. A `done` operation maps to `completed`, with `progress: 100` and one `GaiseGeneratedMedia` per `response.videos[]` entry: `gcsUri` → `url`, `bytesBase64Encoded` → `data`, and `mimeType` (default `video/mp4`). `raiMediaFilteredCount` > 0 becomes `filtered`. A done operation with no videos is `failed`, and the error includes `raiMediaFilteredReasons` when present.
+
 ## Live / realtime
 
 Not supported. The crate implements only `GaiseClient`; there is no `GaiseLiveClient` or WebSocket transport. Model discovery deliberately reports no operations for `-live`, `-tts`, and `-omni` IDs ([`map_vertex_model`](../gaise-provider-vertexai/src/contracts/catalog.rs#L133)). Use the `gemini` provider for Gemini Live.
@@ -251,23 +293,29 @@ From `model-registry.toml` (audited 2026-10-16), `provider = "vertexai"` entries
 | `gemini-3.1-flash-lite` | — | `active` | not before 2027-05-07 | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | GA 2026-05-07. thinking_level MINIMAL (default)..HIGH. |
 | `gemini-3.1-pro-preview` | `gemini-3.1-pro-preview-customtools` | `preview` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native | Public preview since 2026-02-19 (customtools variant 2026-02-23); global endpoint only; not in the lifecycle table. thinking_level LOW, MEDI… |
 | `gemini-3-flash-preview` | — | `preview` | — | text, image, audio, video, file | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native | Public preview since 2025-12-17; not in the Vertex lifecycle table. The Vertex model page shows launch stage Public preview with no deprecat… |
-| `gemini-nano-banana-2.1` | — | `short_term_active` | — | text, image, video | text, image | instruct, instruct_stream | supported | native image output through generateContent | GA 2026-10-06, global endpoint only; short-term availability table, no retirement date announced. Text and image in and out, video input; up… |
-| `gemini-3.1-flash-image` | — | `active` | not before 2027-05-28 | text, image, video, file | text, image | instruct, instruct_stream | `minimal`, `high` | native image output through generateContent | Video input and 4K output are GA since 2026-08-31; us and eu multi-region endpoints added. Function calling is not supported. Resolutions 51… |
-| `gemini-3.1-flash-lite-image` | — | `active` | not before 2027-06-28 | text, image, video, file | text, image | instruct, instruct_stream | `minimal`, `high` | native image output through generateContent | GA 2026-06-23 on Vertex (the Gemini API date is 2026-06-30). Listed in the 12-month availability table with no retirement date announced (co… |
-| `gemini-3-pro-image` | — | `active` | not before 2027-05-28 | text, image, file | text, image | instruct, instruct_stream | `high` | native image output through generateContent | Function calling is not supported; video input is not supported; 4K output GA since 2026-08-31. thinking_level HIGH only. |
+| `gemini-nano-banana-2.1` | — | `short_term_active` | — | text, image, video | text, image | instruct, instruct_stream, image_generation | supported | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output | GA 2026-10-06, global endpoint only; short-term availability table, no retirement date announced. Text and image in and out, video input; up… |
+| `gemini-3.1-flash-image` | — | `active` | not before 2027-05-28 | text, image, video, file | text, image | instruct, instruct_stream, image_generation | `minimal`, `high` | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output | Video input and 4K output are GA since 2026-08-31; us and eu multi-region endpoints added. Function calling is not supported. Resolutions 51… |
+| `gemini-3.1-flash-lite-image` | — | `active` | not before 2027-06-28 | text, image, video, file | text, image | instruct, instruct_stream, image_generation | `minimal`, `high` | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output | GA 2026-06-23 on Vertex (the Gemini API date is 2026-06-30). Listed in the 12-month availability table with no retirement date announced (co… |
+| `gemini-3-pro-image` | — | `active` | not before 2027-05-28 | text, image, file | text, image | instruct, instruct_stream, image_generation | `high` | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output | Function calling is not supported; video input is not supported; 4K output GA since 2026-08-31. thinking_level HIGH only. |
 | `gemini-embedding-2` | `gemini-embedding-2-preview` | `active` | — | text, image, audio, video | embedding | — | — | not yet: Vertex serves it via :embedContent on the aiplatform.{location}.rep.googleapis.com host, which the adapter does not call; use gemini::gemini-embedding-2 | GA 2026-04-22 (preview alias since 2026-03-10). Text, image, audio, video, and PDF input; 8,192 input tokens; up to 3,072 dimensions with MR… |
 | `gemini-embedding-001` | — | `active` | not before 2028-05-20 | text | embedding | embeddings | — | native | Previous-generation text embedding model; gemini-embedding-2 is current. Accepts one input text per :predict call; GAISe loops. |
 | `text-embedding-005` | `text-embedding-004`, `text-multilingual-embedding-002` | `active` | not before 2027-04-01 | text | embedding | embeddings | — | native | Legacy text embedding family; all retire 2027-04-01. 768 dimensions, 2,048 tokens, 250 texts per call. |
 | `multimodalembedding@001` | — | `active` | not before 2027-04-01 | text, image, audio, video | embedding | — | — | not yet: uses the image/video embedding request schema | 1408 dimensions (128/256/512 for text+image); 32 text tokens. Retires 2027-04-01. |
 | `gemini-live-2.5-flash-native-audio` | — | `active` | shutdown 2026-12-13 | text, image, audio, video | text, audio | — | — | not supported: the Vertex AI adapter has no Live transport | GA 2025-12-12. Documented as a 128K context window and 64K output. Still the only GA Live model on Vertex; gemini-3.1-flash-live-preview is… |
-| `gemini-3.5-transcribe-preview` | `gemini-3.5-transcribe-live-preview` | `preview` | — | text, audio | text | — | — | not supported: speech-to-text has no GAISe surface | Preview since August 2026, global region only; ids differ from the Gemini API GA ids (gemini-3.5-transcribe, gemini-3.5-transcribe-live). Au… |
+| `gemini-3.5-transcribe-preview` | `gemini-3.5-transcribe-live-preview` | `preview` | — | text, audio | text | transcription | — | transcribe: generateContent with audioTranscriptionConfig | Preview since August 2026, global region only; ids differ from the Gemini API GA ids (gemini-3.5-transcribe, gemini-3.5-transcribe-live). Au… |
+| `gemini-3.5-transcribe` | `gemini-3.5-transcribe-live` | `active` | — | text, audio | text | transcription | — | transcribe: generateContent with audioTranscriptionConfig (languageCodes, customVocabulary, wordTimestamp, diarization, VERBATIM or SMART); the -live variant is not driven | Dedicated speech-to-text model, supported in the global, us, and eu locations per the Agent Platform model card (checked 2026-10-17). Files… |
+| `veo-3.1-generate-001` | — | `active` | not before 2026-11-17 | image, video | video | video_generation | — | start_video / get_video: predictLongRunning and fetchPredictOperation (first and last frame, up to 3 asset references, extension, sampleCount 1-4, storageUri gs:// optional) | Veo 3.1, GA 2025-11-17 in us-central1; retirement November 17, 2026 or later. Without storageUri the video bytes come back in the operation… |
+| `veo-3.1-fast-generate-001` | — | `active` | not before 2026-11-17 | image, video | video | video_generation | — | start_video / get_video: predictLongRunning and fetchPredictOperation | Veo 3.1 Fast, GA 2025-11-17 in us-central1; retirement November 17, 2026 or later. |
+| `veo-3.1-lite-generate-001` | — | `preview` | — | image | video | video_generation | — | start_video / get_video: predictLongRunning and fetchPredictOperation | Veo 3.1 Lite, preview since 2026-04-02; no extension or reference images. |
+| `veo-3.0-*` | — | `retired` | shutdown 2026-06-30 | unknown | video | — | — | — | Veo 3.0 endpoints were retired on 2026-06-30. Replacement `veo-3.1-generate-001`. |
+| `imagen-*` | `imagegeneration@*` | `retired` | shutdown 2026-06-30 | unknown | image | — | — | — | Every imagegeneration@00x, imagen-3.0-*, and imagen-4.0-* endpoint is listed as discontinued (migrate before 2026-06-30); the Agent Platform… |
 | `gemini-omni-1.1-flash-preview` | — | `preview` | — | text, image, video | text | — | — | not supported: video generation has no GAISe surface | Preview since 2026-08-27 (the Gemini API serves gemini-omni-1.1-flash as GA); fixed quota only. |
 | `gemini-omni-flash-preview` | — | `preview` | shutdown 2027-06-30 | text, image, video | text | — | — | not supported: video generation has no GAISe surface | Preview on Vertex since 2026-06-30 with a Vertex retirement date of 2027-06-30 (the Gemini API shuts the same id down on 2026-09-30; the dat… |
 | `gemini-3.5-live-translate-preview` | — | `preview` | — | audio | audio | — | — | not supported: speech-to-speech translation uses translationConfig on the Live API, and the Vertex AI adapter has no Live transport | Preview since 2026-08, global region only. Text transcript output; no thinking, tools, or system instructions. No retirement date announced. |
 | `gemini-2.5-pro` | — | `deprecated` | shutdown 2026-10-20 | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | Replacement `gemini-3.8-flash or gemini-3.5-flash`. |
 | `gemini-2.5-flash` | — | `deprecated` | shutdown 2026-10-20 | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | Replacement `gemini-3.8-flash or gemini-3.5-flash-lite or gemini-3.1-flash-lite`. |
 | `gemini-2.5-flash-lite` | — | `deprecated` | shutdown 2026-10-20 | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | Replacement `gemini-3.8-flash or gemini-3.1-flash-lite or Gemma 4`. |
-| `gemini-2.5-flash-image` | — | `deprecated` | shutdown 2027-03-15 | text, image | text, image | instruct, instruct_stream | — | — | Vertex documents a 32,768-token context window for this model; the Gemini API documents 65,536. Vertex retirement extended from 2026-10-02 t… |
+| `gemini-2.5-flash-image` | — | `deprecated` | shutdown 2027-03-15 | text, image | text, image | instruct, instruct_stream, image_generation | — | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output | Vertex documents a 32,768-token context window for this model; the Gemini API documents 65,536. Vertex retirement extended from 2026-10-02 t… |
 | `gemini-2.0-flash` | `gemini-2.0-flash-lite` | `retired` | shutdown 2026-06-01 | unknown | unknown | — | — | — | Replacement `gemini-3.1-flash-lite`. |
 
 The registry is advisory: any model ID the template endpoint accepts can be used. Note that the adapter's own rules key off name prefixes (`gemini-3*`, `gemini-3.5-flash*`, `gemini-3.6-flash*`), not registry entries.
@@ -281,10 +329,11 @@ The registry is advisory: any model ID the template endpoint accepts can be used
 - Non-text content in `system` messages is dropped (only text is collected into `system_instruction`).
 - `thinking_effort` is ignored on non-Gemini-3 models; `include_thoughts` alone (without effort/tokens) produces no `thinkingConfig`.
 - Temperature/top-p/top-k are silently omitted for `gemini-3.5-flash*` and `gemini-3.6-flash*`.
-- `cache_key`, `input_image_detail`, stop sequences, structured output (`responseSchema`), safety settings, `fileData` URIs, embedding task types, and output dimensionality are not mapped.
-- `finishReason`, `responseId`, safety ratings, and citations are not surfaced; `external_id` is always `None`.
+- `cache_key`, `input_image_detail`, stop sequences, structured output (`responseSchema`), safety settings, `fileData` URIs (instruct; the media operations send them), embedding task types, and output dimensionality are not mapped.
+- Instruct: `finishReason`, `responseId`, safety ratings, and citations are not surfaced, and `external_id` is always `None` (the image and transcription responses do set `external_id` from `responseId`).
 - No retry/backoff; HTTP errors carry a 1000-character body preview.
 - Token refresh logs go to stdout via `println!`.
+- Media: the 120-second HTTP timeout applies to `generateContent` image and transcription calls. Veo inputs must be inline or `gs://`. Image and transcription option limits are as on the Gemini API (see the sections above).
 - Gemini API (`gemini` provider) retirement dates are a separate lifecycle and must not be applied to Vertex models.
 
 ## Flow
@@ -343,9 +392,10 @@ All tests are hermetic; the crate has no `#[ignore]` live tests.
 | [`tests/mapping_tests.rs`](../gaise-provider-vertexai/tests/mapping_tests.rs) | Tool declarations and nested schema; text request with `temperature`/`max_output_tokens`; multimodal and multipart `inlineData` ordering; recursive `Parts` flattening; single and multiple/nested system messages into `system_instruction`; `thinkingBudget` on `gemini-2.5-flash` (serialized JSON asserts no `thinkingLevel`); `thinkingLevel` LOW/MEDIUM/HIGH on `gemini-3-pro-preview`; PDF file → `inlineData` `application/pdf`; `gemini-3.6-flash` fixed sampling, `responseModalities`, `responseFormat.image`, `mediaResolution`; response mapping of thought text + signature, generated image, tool-call signature for both `to_view` and `to_stream_view`; tool-call/tool-result round trip preserving `id`, `name`, and `thoughtSignature`; multimodal tool result → `functionResponse.parts[].inlineData` |
 | [`src/contracts/models.rs#L876`](../gaise-provider-vertexai/src/contracts/models.rs#L876) | Unit tests: usage modality/cache/tool/reasoning counters and neutral total; embeddings metadata → `input_tokens`/`total_tokens` |
 | [`src/contracts/catalog.rs#L150`](../gaise-provider-vertexai/src/contracts/catalog.rs#L150) | Endpoint derivation from the template (host, publisher, page token, error cases); publisher-model mapping (status, version description, heuristics, raw record, no Live operations) |
+| [`tests/media_tests.rs`](../gaise-provider-vertexai/tests/media_tests.rs) | Image request shape (`gs://` input, `9:21`, `4K`, root-level `labels`), rejected options, seed on 2.5; image response mapping and safety filtering; transcription with diarization plus vocabulary, inline audio with word timestamps, rejected combinations; diarized response mapping; Veo text-to-video body with `provider_options` routing, first/last frame, references, extension, rejected combinations; start/poll mapping (queued, running, completed with `gcsUri` and inline bytes, `filtered`), operation errors, all-filtered failure, operation-name parsing |
 | [`src/vertexai_client.rs#L434`](../gaise-provider-vertexai/src/vertexai_client.rs#L434) | `resolve_tier` trims and treats blank as unset |
 
-Not covered by tests: the SSE split-frame buffer in `instruct_stream` (no local fixture), the OAuth exchange, and HTTP error formatting.
+Not covered by tests: the SSE split-frame buffer in `instruct_stream` (no local fixture), the OAuth exchange, HTTP error formatting, and the media HTTP calls (the token endpoint is fixed, so there is no local mock; the pure builders and mappers are tested instead).
 
 ## Sources
 
@@ -355,17 +405,25 @@ Official documentation:
 - Vertex AI model lifecycle (Google Cloud dates only): https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/model-versions
 - Model Garden `publishers.models.list`: https://docs.cloud.google.com/vertex-ai/docs/reference/rest/v1beta1/publishers.models/list
 - Gemini API lifecycle (separate; do not copy to Vertex): https://ai.google.dev/gemini-api/docs/deprecations
+- Image generation with Gemini (Nano Banana): https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/image-generation
+- Gemini 3.5 Transcribe: https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-5-transcribe
+- Veo 3.1 models and text-to-video (`predictLongRunning` / `fetchPredictOperation`): https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/veo/3-1-generate, https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/video/generate-videos-from-text
+- Veo request types: https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/rest/Shared.Types/VideoGenerationModelInstance, https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/rest/Shared.Types/VideoGenerationModelParams
+- Imagen discontinuation: https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/imagen/4-0-generate
 
 Source files:
 
 - [`../gaise-provider-vertexai/Cargo.toml`](../gaise-provider-vertexai/Cargo.toml)
 - [`../gaise-provider-vertexai/src/lib.rs`](../gaise-provider-vertexai/src/lib.rs)
 - [`../gaise-provider-vertexai/src/vertexai_client.rs`](../gaise-provider-vertexai/src/vertexai_client.rs)
+- [`../gaise-provider-vertexai/src/vertexai_media.rs`](../gaise-provider-vertexai/src/vertexai_media.rs)
 - [`../gaise-provider-vertexai/src/contracts/models.rs`](../gaise-provider-vertexai/src/contracts/models.rs)
 - [`../gaise-provider-vertexai/src/contracts/catalog.rs`](../gaise-provider-vertexai/src/contracts/catalog.rs)
 - [`../gaise-provider-vertexai/src/contracts/service_account.rs`](../gaise-provider-vertexai/src/contracts/service_account.rs)
 - [`../gaise-provider-vertexai/src/contracts/google_claims.rs`](../gaise-provider-vertexai/src/contracts/google_claims.rs)
 - [`../gaise-provider-vertexai/tests/mapping_tests.rs`](../gaise-provider-vertexai/tests/mapping_tests.rs)
+- [`../gaise-provider-vertexai/tests/media_tests.rs`](../gaise-provider-vertexai/tests/media_tests.rs)
+- [`../gaise-core/src/contracts/gaise_media.rs`](../gaise-core/src/contracts/gaise_media.rs)
 - [`../gaise-client/src/lib.rs`](../gaise-client/src/lib.rs)
 - [`../gaise-client/Cargo.toml`](../gaise-client/Cargo.toml)
 - [`../gaise-api/src/main.rs`](../gaise-api/src/main.rs)

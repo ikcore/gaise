@@ -457,24 +457,24 @@ notes = "Chat Completions supported; Responses not supported."
 provider = "openai"
 model = "gpt-image-2"
 status = "active"
-capabilities = ["image_input", "image_output", "image_editing"]
-gaise_support = "not yet native"
+capabilities = ["image_input", "image_output", "image_editing", "image_generation"]
+gaise_support = "generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given (up to 16, optional mask)"
 notes = "Requires OpenAI Images or Responses image-generation tooling; the GAISe OpenAI instruct client currently uses Chat Completions. Default snapshot gpt-image-2-2026-04-21; transparent backgrounds (preview) since 2026-08-20; input_fidelity is fixed at high. Not deprecated by the 2026-09-08 GPT Image 2.5 models."
 
 [[models]]
 provider = "openai"
 model = "gpt-image-2.5-sunburst"
 status = "active"
-capabilities = ["image_input", "image_output", "image_editing"]
-gaise_support = "not yet native"
+capabilities = ["image_input", "image_output", "image_editing", "image_generation"]
+gaise_support = "generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given (up to 16, optional mask)"
 notes = "Released 2026-09-08 (default snapshot gpt-image-2.5-sunburst-2026-09-08); the editing-precision GPT Image 2.5 model. Images API generations and edits and the Responses image_generation tool only; Chat Completions is not supported. Quality low, medium, high, xhigh, max, auto; inpainting. Token rates match GPT Image 2 ($5 text in, $8 image in, $30 image out per 1M)."
 
 [[models]]
 provider = "openai"
 model = "gpt-image-2.5-flare"
 status = "active"
-capabilities = ["image_input", "image_output", "image_editing"]
-gaise_support = "not yet native"
+capabilities = ["image_input", "image_output", "image_editing", "image_generation"]
+gaise_support = "generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given (up to 16, optional mask)"
 notes = "Released 2026-09-08 (default snapshot gpt-image-2.5-flare-2026-09-08); the fast everyday GPT Image 2.5 model. Images API generations and edits and the Responses image_generation tool only; Chat Completions is not supported. Quality low, medium, high, xhigh, max, auto; inpainting. Token rates match GPT Image 2."
 
 [[models]]
@@ -524,9 +524,9 @@ notes = "GPT-Rosalind life-sciences reasoning model. Changelog 2026-09-08: gener
 provider = "openai"
 model = "gpt-transcribe"
 status = "active"
-capabilities = ["audio_input", "text"]
+capabilities = ["audio_input", "text", "transcription"]
 operations = []
-gaise_support = "not supported: speech-to-text has no GAISe surface"
+gaise_support = "transcribe: POST /v1/audio/transcriptions (languages[], keywords[], prompt; json); realtime transcription sessions are not mapped"
 notes = "Released 2026-07-28; /v1/audio/transcriptions and realtime transcription sessions; streaming; billed per minute."
 
 [[models]]
@@ -748,6 +748,8 @@ max_output_tokens = 32768
 provider = "openai"
 model = "gpt-image-1"
 status = "deprecated"
+gaise_support = "generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given (up to 16, optional mask)"
+capabilities = ["image_input", "image_output", "image_editing", "image_generation"]
 shutdown_date = "2026-10-23"
 replacement = "gpt-image-2.5-sunburst or gpt-image-2.5-flare"
 
@@ -756,6 +758,8 @@ provider = "openai"
 model = "gpt-image-1.5"
 aliases = ["gpt-image-1-mini", "chatgpt-image-latest"]
 status = "deprecated"
+gaise_support = "generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given (up to 16, optional mask)"
+capabilities = ["image_input", "image_output", "image_editing", "image_generation"]
 shutdown_date = "2026-12-01"
 replacement = "gpt-image-2.5-sunburst or gpt-image-2.5-flare"
 
@@ -787,9 +791,9 @@ aliases = ["gpt-4o-transcribe", "gpt-4o-mini-transcribe", "gpt-4o-transcribe-dia
 status = "deprecated"
 shutdown_date = "2027-02-26"
 replacement = "gpt-transcribe or gpt-live-transcribe"
-capabilities = ["audio_input", "text"]
+capabilities = ["audio_input", "text", "transcription"]
 operations = []
-gaise_support = "not supported: speech-to-text has no GAISe surface"
+gaise_support = "transcribe: POST /v1/audio/transcriptions (whisper-1 verbose_json with word/segment timestamps; gpt-4o-transcribe-diarize diarized_json with chunking_strategy auto; gpt-4o(-mini)-transcribe json only)"
 notes = "Deprecation announced 2026-08-26 for the whole legacy transcription family."
 
 # Anthropic Claude API
@@ -1190,11 +1194,11 @@ notes = "Live guide still documents thinkingBudget (0 disables) for this model. 
 provider = "gemini"
 model = "gemini-nano-banana-2.1"
 status = "stable"
-capabilities = ["text", "image_input", "video_input", "files", "image_output", "image_editing", "reasoning", "streaming"]
+capabilities = ["text", "image_input", "video_input", "files", "image_output", "image_editing", "reasoning", "streaming", "image_generation"]
 reasoning_values = ["minimal", "medium", "high"]
 context_window = 131072
 max_output_tokens = 32768
-gaise_support = "native image output through generateContent"
+gaise_support = "generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output"
 notes = "Nano Banana 2.1, GA 2026-10-06; replaces gemini-3.1-flash-image. Text, image, video, and PDF input; image and text output; 1K (default), 2K, 4K; up to 14 reference images. thinking levels minimal, medium (default), high. No function calling, structured outputs, caching, code execution, URL context, or Live API; Search and Image Search grounding and Batch supported. The adapter omits sampling (Vertex documents seed/temperature/topP/topK as errors; the Gemini API page is silent)."
 
 [[models]]
@@ -1202,32 +1206,32 @@ provider = "gemini"
 model = "gemini-3.1-flash-image"
 status = "deprecated"
 replacement = "gemini-nano-banana-2.1"
-capabilities = ["text", "image_input", "video_input", "files", "image_output", "image_editing", "reasoning", "streaming"]
+capabilities = ["text", "image_input", "video_input", "files", "image_output", "image_editing", "reasoning", "streaming", "image_generation"]
 reasoning_values = ["minimal", "high"]
 context_window = 131072
 max_output_tokens = 32768
-gaise_support = "native image output through generateContent"
+gaise_support = "generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output"
 notes = "Released 2026-05-28. Function calling and structured outputs are not supported. Video-to-image input is exclusive to this model; output sizes 512, 1K (default), 2K, 4K via imageConfig.imageSize. Deprecated 2026-10-06 (no shutdown date announced); migrate to gemini-nano-banana-2.1."
 
 [[models]]
 provider = "gemini"
 model = "gemini-3.1-flash-lite-image"
 status = "stable"
-capabilities = ["text", "image_input", "image_output", "image_editing", "reasoning", "streaming"]
+capabilities = ["text", "image_input", "image_output", "image_editing", "reasoning", "streaming", "image_generation"]
 reasoning_values = ["minimal", "high"]
 context_window = 65536
 max_output_tokens = 4096
-gaise_support = "native image output through generateContent"
+gaise_support = "generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output"
 notes = "GA 2026-06-30 (Nano Banana 2 Lite); 1K output only. The model page now lists function calling, structured outputs, caching, and search grounding as not supported (corrected 2026-09-04: the previous audit recorded tool support)."
 
 [[models]]
 provider = "gemini"
 model = "gemini-3-pro-image"
 status = "stable"
-capabilities = ["text", "image_input", "image_output", "image_editing", "reasoning", "streaming"]
+capabilities = ["text", "image_input", "image_output", "image_editing", "reasoning", "streaming", "image_generation"]
 context_window = 65536
 max_output_tokens = 32768
-gaise_support = "native image output through generateContent"
+gaise_support = "generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output"
 notes = "Released 2026-05-28. Function calling is not supported."
 
 [[models]]
@@ -1286,10 +1290,40 @@ provider = "gemini"
 model = "gemini-3.5-transcribe"
 aliases = ["gemini-3.5-transcribe-live"]
 status = "stable"
-capabilities = ["audio_input", "text"]
+capabilities = ["audio_input", "text", "transcription"]
 operations = []
-gaise_support = "not supported: speech-to-text has no GAISe surface"
+gaise_support = "transcribe: generateContent with audioTranscriptionConfig (languageCodes, customVocabulary, wordTimestamp, diarization, VERBATIM or SMART); the -live variant is not driven"
 notes = "GA 2026-08-26. gemini-3.5-transcribe is unary generateContent (audio up to 1 hour, word annotations); gemini-3.5-transcribe-live is the Live API variant (10 minutes per session). No thinking or function calling."
+
+[[models]]
+provider = "gemini"
+model = "veo-3.1-generate-preview"
+aliases = ["veo-3.1-fast-generate-preview", "veo-3.1-lite-generate-preview"]
+status = "deprecated"
+shutdown_date = "2026-10-22"
+replacement = "gemini-omni-1.1-flash"
+capabilities = ["image_input", "video_output"]
+gaise_support = "not supported: the Veo previews shut down on 2026-10-22 and the replacement, gemini-omni-1.1-flash, is served by the Interactions API, which GAISe does not use (use vertexai::veo-3.1-generate-001)"
+notes = "predictLongRunning with polling; videos are kept for 2 days and downloads need the API key."
+
+[[models]]
+provider = "gemini"
+model = "veo-3.0-*"
+aliases = ["veo-2.0-generate-001"]
+status = "retired"
+shutdown_date = "2026-06-30"
+replacement = "gemini-omni-1.1-flash"
+capabilities = ["video_output"]
+notes = "Veo 3.0 and Veo 2 were shut down on the Gemini API on 2026-06-30."
+
+[[models]]
+provider = "gemini"
+model = "imagen-*"
+status = "retired"
+shutdown_date = "2026-08-17"
+replacement = "gemini-nano-banana-2.1"
+capabilities = ["image_output"]
+notes = "imagen-4.0-generate-001, -ultra-generate-001, and -fast-generate-001 shut down on 2026-08-17; earlier Imagen 3 and Imagen 4 previews before that. The Gemini API docs say Imagen models are shut down; use Nano Banana."
 
 [[models]]
 provider = "gemini"
@@ -1354,6 +1388,8 @@ notes = "Released 2025-07-22; thinking is off by default. No shutdown date annou
 provider = "gemini"
 model = "gemini-2.5-flash-image"
 status = "deprecated"
+gaise_support = "generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output"
+capabilities = ["image_generation"]
 shutdown_date = "2027-03-15"
 replacement = "gemini-3.1-flash-lite-image"
 context_window = 65536
@@ -1567,10 +1603,10 @@ notes = "Public preview since 2025-12-17; not in the Vertex lifecycle table. The
 provider = "vertexai"
 model = "gemini-nano-banana-2.1"
 status = "short_term_active"
-capabilities = ["text", "image_input", "video_input", "image_output", "image_editing", "reasoning", "streaming"]
+capabilities = ["text", "image_input", "video_input", "image_output", "image_editing", "reasoning", "streaming", "image_generation"]
 context_window = 131072
 max_output_tokens = 32768
-gaise_support = "native image output through generateContent"
+gaise_support = "generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output"
 notes = "GA 2026-10-06, global endpoint only; short-term availability table, no retirement date announced. Text and image in and out, video input; up to 14 images; 1K, 2K, 4K. seed, topK, logprobs, temperature, and topP return an API error (the adapter omits sampling). Thinking is supported but the page lists no levels; the adapter uses the Gemini API levels (minimal, medium, high). No function calling, structured output, Live API, or Interactions API."
 
 [[models]]
@@ -1578,11 +1614,11 @@ provider = "vertexai"
 model = "gemini-3.1-flash-image"
 status = "active"
 retirement_not_before = "2027-05-28"
-capabilities = ["text", "image_input", "video_input", "files", "image_output", "image_editing", "reasoning", "streaming"]
+capabilities = ["text", "image_input", "video_input", "files", "image_output", "image_editing", "reasoning", "streaming", "image_generation"]
 reasoning_values = ["minimal", "high"]
 context_window = 131072
 max_output_tokens = 32768
-gaise_support = "native image output through generateContent"
+gaise_support = "generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output"
 notes = "Video input and 4K output are GA since 2026-08-31; us and eu multi-region endpoints added. Function calling is not supported. Resolutions 512, 1K, 2K, 4K; up to 14 input images."
 
 [[models]]
@@ -1590,11 +1626,11 @@ provider = "vertexai"
 model = "gemini-3.1-flash-lite-image"
 status = "active"
 retirement_not_before = "2027-06-28"
-capabilities = ["text", "image_input", "video_input", "files", "image_output", "image_editing", "reasoning", "streaming"]
+capabilities = ["text", "image_input", "video_input", "files", "image_output", "image_editing", "reasoning", "streaming", "image_generation"]
 reasoning_values = ["minimal", "high"]
 context_window = 65536
 max_output_tokens = 4096
-gaise_support = "native image output through generateContent"
+gaise_support = "generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output"
 notes = "GA 2026-06-23 on Vertex (the Gemini API date is 2026-06-30). Listed in the 12-month availability table with no retirement date announced (corrected 2026-09-12: previously recorded as short-term availability). Function calling and grounding are not supported. 1K output only; max output 4,096 tokens. Retirement scheduled for 2027-06-28 or later (model-versions page, 2026-10-01)."
 
 [[models]]
@@ -1602,11 +1638,11 @@ provider = "vertexai"
 model = "gemini-3-pro-image"
 status = "active"
 retirement_not_before = "2027-05-28"
-capabilities = ["text", "image_input", "files", "image_output", "image_editing", "reasoning", "streaming"]
+capabilities = ["text", "image_input", "files", "image_output", "image_editing", "reasoning", "streaming", "image_generation"]
 reasoning_values = ["high"]
 context_window = 65536
 max_output_tokens = 32768
-gaise_support = "native image output through generateContent"
+gaise_support = "generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output"
 notes = "Function calling is not supported; video input is not supported; 4K output GA since 2026-08-31. thinking_level HIGH only."
 
 [[models]]
@@ -1694,10 +1730,65 @@ provider = "vertexai"
 model = "gemini-3.5-transcribe-preview"
 aliases = ["gemini-3.5-transcribe-live-preview"]
 status = "preview"
-capabilities = ["audio_input", "text"]
+capabilities = ["audio_input", "text", "transcription"]
 operations = []
-gaise_support = "not supported: speech-to-text has no GAISe surface"
-notes = "Preview since August 2026, global region only; ids differ from the Gemini API GA ids (gemini-3.5-transcribe, gemini-3.5-transcribe-live). Audio up to 15 minutes per file, 10 minutes live."
+gaise_support = "transcribe: generateContent with audioTranscriptionConfig"
+notes = "Preview since August 2026, global region only; ids differ from the Gemini API GA ids (gemini-3.5-transcribe, gemini-3.5-transcribe-live). Audio up to 15 minutes per file, 10 minutes live. On 2026-10-17 the Agent Platform model card lists the GA id gemini-3.5-transcribe (global, us, eu); see that row."
+
+[[models]]
+provider = "vertexai"
+model = "gemini-3.5-transcribe"
+aliases = ["gemini-3.5-transcribe-live"]
+status = "active"
+capabilities = ["audio_input", "text", "transcription"]
+operations = []
+gaise_support = "transcribe: generateContent with audioTranscriptionConfig (languageCodes, customVocabulary, wordTimestamp, diarization, VERBATIM or SMART); the -live variant is not driven"
+notes = "Dedicated speech-to-text model, supported in the global, us, and eu locations per the Agent Platform model card (checked 2026-10-17). Files up to 15 minutes; live sessions up to 10 minutes."
+
+[[models]]
+provider = "vertexai"
+model = "veo-3.1-generate-001"
+status = "active"
+retirement_not_before = "2026-11-17"
+capabilities = ["image_input", "video_input", "video_output", "video_generation"]
+gaise_support = "start_video / get_video: predictLongRunning and fetchPredictOperation (first and last frame, up to 3 asset references, extension, sampleCount 1-4, storageUri gs:// optional)"
+notes = "Veo 3.1, GA 2025-11-17 in us-central1; retirement November 17, 2026 or later. Without storageUri the video bytes come back in the operation response. generateAudio defaults to true."
+
+[[models]]
+provider = "vertexai"
+model = "veo-3.1-fast-generate-001"
+status = "active"
+retirement_not_before = "2026-11-17"
+capabilities = ["image_input", "video_input", "video_output", "video_generation"]
+gaise_support = "start_video / get_video: predictLongRunning and fetchPredictOperation"
+notes = "Veo 3.1 Fast, GA 2025-11-17 in us-central1; retirement November 17, 2026 or later."
+
+[[models]]
+provider = "vertexai"
+model = "veo-3.1-lite-generate-001"
+status = "preview"
+capabilities = ["image_input", "video_output", "video_generation"]
+gaise_support = "start_video / get_video: predictLongRunning and fetchPredictOperation"
+notes = "Veo 3.1 Lite, preview since 2026-04-02; no extension or reference images."
+
+[[models]]
+provider = "vertexai"
+model = "veo-3.0-*"
+status = "retired"
+shutdown_date = "2026-06-30"
+replacement = "veo-3.1-generate-001"
+capabilities = ["video_output"]
+notes = "Veo 3.0 endpoints were retired on 2026-06-30."
+
+[[models]]
+provider = "vertexai"
+model = "imagen-*"
+aliases = ["imagegeneration@*"]
+status = "retired"
+shutdown_date = "2026-06-30"
+replacement = "gemini-nano-banana-2.1"
+capabilities = ["image_output"]
+notes = "Every imagegeneration@00x, imagen-3.0-*, and imagen-4.0-* endpoint is listed as discontinued (migrate before 2026-06-30); the Agent Platform model-versions page lists no Imagen model."
 
 [[models]]
 provider = "vertexai"
@@ -1769,9 +1860,10 @@ gaise_support = "native (thinkingBudget mapper path)"
 provider = "vertexai"
 model = "gemini-2.5-flash-image"
 status = "deprecated"
+gaise_support = "generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output"
 shutdown_date = "2027-03-15"
 replacement = "gemini-3.1-flash-lite-image"
-capabilities = ["text", "image_input", "image_output", "image_editing", "streaming"]
+capabilities = ["text", "image_input", "image_output", "image_editing", "streaming", "image_generation"]
 context_window = 32768
 max_output_tokens = 32768
 notes = "Vertex documents a 32,768-token context window for this model; the Gemini API documents 65,536. Vertex retirement extended from 2026-10-02 to 2027-03-15 (release note 2026-09-14); the Gemini API date is unchanged."
@@ -2526,6 +2618,38 @@ notes = "EOL date passed; AWS's legacy table still listed it on 2026-10-01."
 
 [[models]]
 provider = "bedrock"
+model = "stability.sd3-5-large-v1:0"
+status = "active"
+capabilities = ["image_input", "image_output", "image_editing", "image_generation"]
+gaise_support = "generate_images: InvokeModel (text-to-image, or image-to-image with one input image and strength); n loops sequential calls"
+notes = "Stability AI Stable Diffusion 3.5 Large, us-west-2. Aspect ratios 16:9, 1:1, 21:9, 2:3, 3:2, 4:5, 5:4, 9:16, 9:21; png, jpeg, or webp; prompts up to 10,000 characters; seed 0-4294967294. Filtered outputs are reported through finish_reasons."
+
+[[models]]
+provider = "bedrock"
+model = "stability.stable-image-ultra-v1:1"
+status = "active"
+capabilities = ["image_input", "image_output", "image_editing", "image_generation"]
+gaise_support = "generate_images: InvokeModel (text-to-image, or image-to-image with strength)"
+notes = "Stability AI Stable Image Ultra 1.0, us-west-2; png or jpeg output."
+
+[[models]]
+provider = "bedrock"
+model = "stability.stable-image-core-v1:1"
+status = "active"
+capabilities = ["image_output", "image_generation"]
+gaise_support = "generate_images: InvokeModel (text-to-image only)"
+notes = "Stability AI Stable Image Core 1.0, us-west-2; png or jpeg output. The model id was not confirmed on its model card (assumed to follow Ultra)."
+
+[[models]]
+provider = "bedrock"
+model = "luma.ray-v2:0"
+status = "active"
+capabilities = ["image_input", "video_output", "video_generation"]
+gaise_support = "start_video / get_video: StartAsyncInvoke and GetAsyncInvoke; output_uri (s3://) is required; first and last frame keyframes as base64"
+notes = "Luma Ray 2, us-west-2, async invoke only; 5 s or 9 s at 540p or 720p; 2-8 minutes per job. The output object path ({s3Uri}/output.mp4) is inferred from the Nova Reel docs, not confirmed for Luma."
+
+[[models]]
+provider = "bedrock"
 model = "cohere.command-r-*"
 status = "retired"
 shutdown_date = "2026-08-19"
@@ -2634,21 +2758,29 @@ gaise_support = "not supported: speech-to-speech has no GAISe surface"
 [[models]]
 provider = "elevenlabs"
 model = "scribe_v2"
-aliases = ["scribe_v2_realtime"]
 status = "active"
-capabilities = ["audio_input", "text"]
+capabilities = ["audio_input", "text", "transcription"]
 operations = []
-gaise_support = "not supported: speech-to-text has no GAISe surface yet"
-notes = "scribe_v2_realtime is listed as its own model (~150 ms, 90+ languages); scribe_v1 is deprecated with no shutdown date."
+gaise_support = "transcribe: POST /v1/speech-to-text (diarization up to 32 speakers, word or character timestamps, audio events, keyterms, multichannel, no_verbatim for smart mode)"
+notes = "scribe_v2_realtime is listed as its own model (~150 ms, 90+ languages); scribe_v1 is deprecated with no shutdown date. scribe_v2_realtime moved to its own row on 2026-10-17 (streaming transcription)."
 
 [[models]]
 provider = "elevenlabs"
 model = "scribe_v2_medical"
 status = "active"
-capabilities = ["audio_input", "text"]
+capabilities = ["audio_input", "text", "transcription"]
 operations = []
-gaise_support = "not supported: speech-to-text has no GAISe surface yet"
+gaise_support = "transcribe: POST /v1/speech-to-text, same request shape as scribe_v2 (smart mode is rejected)"
 notes = "Speech recognition fine-tuned for clinical audio, 90+ languages; same Speech to Text API and price as Scribe v2. Listed on the models page by 2026-10-09 with no release date."
+
+[[models]]
+provider = "elevenlabs"
+model = "scribe_v2_realtime"
+status = "active"
+capabilities = ["audio_input", "text", "live_transcription"]
+operations = []
+gaise_support = "transcribe_connect: wss://api.elevenlabs.io/v1/speech-to-text/realtime (feature live); partial and committed transcripts, manual, VAD, or turn-prediction commits, word timestamps; no diarization"
+notes = "Realtime Scribe (~150 ms partials), WebSocket only; PCM 8-48 kHz or u-law 8 kHz input. Was an alias of scribe_v2 until 2026-10-17."
 
 [[models]]
 provider = "elevenlabs"
@@ -3404,9 +3536,9 @@ notes = "xAI text-to-speech has no model id: POST /v1/tts takes text, language (
 provider = "xai"
 model = "grok-voice-transcribe-2.0"
 status = "active"
-capabilities = ["audio_input", "text"]
+capabilities = ["audio_input", "text", "transcription", "live_transcription"]
 operations = []
-gaise_support = "not supported: speech-to-text has no GAISe surface"
+gaise_support = "transcribe: POST /v1/stt (diarization, word timestamps, keyterms, multichannel); transcribe_connect: wss://api.x.ai/v1/stt (feature live)"
 notes = "Default speech-to-text model since September 2026 (POST /v1/stt and wss://api.x.ai/v1/stt); diarization, keyterms, multichannel. $0.10 per hour (REST), $0.20 per hour (streaming)."
 
 [[models]]
@@ -3415,25 +3547,25 @@ model = "grok-voice-transcribe-1.0"
 status = "retired"
 shutdown_date = "2026-10-02"
 replacement = "grok-voice-transcribe-2.0"
-capabilities = ["audio_input", "text"]
+capabilities = ["audio_input", "text", "transcription", "live_transcription"]
 operations = []
-gaise_support = "not supported: speech-to-text has no GAISe surface"
+gaise_support = "redirected upstream to grok-voice-transcribe-2.0"
 notes = "End of life 2026-10-02; requests to the slug are routed to grok-voice-transcribe-2.0."
 
 [[models]]
 provider = "xai"
 model = "grok-imagine-image-2.0"
 status = "active"
-capabilities = ["image_input", "image_output", "image_editing"]
-gaise_support = "not yet native: Images API (/v1/images/generations and /edits)"
+capabilities = ["image_input", "image_output", "image_editing", "image_generation"]
+gaise_support = "generate_images: /v1/images/generations or /edits (multi-image references); quality low, medium, auto; resolution 1k, 1.5k, 2k"
 notes = "Recommended image model; quality low, medium, or auto; resolutions 1k, 1.5k, 2k; up to 5 source images for edits. $0.04 per image."
 
 [[models]]
 provider = "xai"
 model = "grok-imagine-image"
 status = "active"
-capabilities = ["image_input", "image_output", "image_editing"]
-gaise_support = "not yet native: Images API"
+capabilities = ["image_input", "image_output", "image_editing", "image_generation"]
+gaise_support = "generate_images: /v1/images/generations or /edits; quality is not accepted"
 notes = "Grok Imagine Image 1.0 (snapshot grok-imagine-image-2026-03-02). $0.02 per image."
 
 [[models]]
@@ -3443,8 +3575,8 @@ aliases = ["grok-imagine-image-quality-20260403", "grok-imagine-image-quality-la
 status = "deprecated"
 shutdown_date = "2026-11-02"
 replacement = "grok-imagine-image-2.0"
-capabilities = ["image_input", "image_output", "image_editing"]
-gaise_support = "not yet native: Images API"
+capabilities = ["image_input", "image_output", "image_editing", "image_generation"]
+gaise_support = "generate_images: /v1/images/generations or /edits; served by grok-imagine-image-2.0 at low quality after 2026-11-02"
 notes = "Retires 2026-11-02; requests to the slug will then be served by grok-imagine-image-2.0 with quality low. grok-imagine-image-pro was retired on 2026-05-15 and redirects here."
 
 [[models]]
@@ -3452,22 +3584,22 @@ provider = "xai"
 model = "grok-imagine-video-1.5"
 aliases = ["grok-imagine-video-1.5-preview"]
 status = "active"
-capabilities = ["image_input", "video_output"]
-gaise_support = "not yet native: asynchronous Videos API (/v1/videos/generations)"
+capabilities = ["image_input", "video_output", "video_generation"]
+gaise_support = "start_video / get_video: /v1/videos/generations (first and last frame, references, 1-15 s, 480p-1080p)"
 notes = "Text or image to video (snapshot grok-imagine-video-1.5-2026-05-30); 1-15 s, 480p/720p/1080p. $0.080 per second."
 
 [[models]]
 provider = "xai"
 model = "grok-imagine-video-1.5-lite"
 status = "active"
-capabilities = ["image_input", "video_output"]
-gaise_support = "not yet native: asynchronous Videos API"
+capabilities = ["image_input", "video_output", "video_generation"]
+gaise_support = "start_video / get_video: /v1/videos/generations"
 notes = "Lower-cost Grok Imagine Video 1.5. $0.020 per second."
 
 [[models]]
 provider = "xai"
 model = "grok-imagine-video"
 status = "active"
-capabilities = ["image_input", "video_input", "video_output"]
-gaise_support = "not yet native: asynchronous Videos API (generations, edits, extensions)"
+capabilities = ["image_input", "video_input", "video_output", "video_generation"]
+gaise_support = "start_video / get_video: generations, edits (source video), and extensions (source video plus duration)"
 notes = "Grok Imagine Video 1.0; also edits and extends videos. $0.050 per second."

@@ -1473,6 +1473,98 @@ impl GaiseClient for GaiseClientBedrock {
             ..Default::default()
         })
     }
+    async fn generate_images(
+        &self,
+        request: &gaise_core::contracts::GaiseImageRequest,
+    ) -> Result<gaise_core::contracts::GaiseImageResponse, Box<dyn Error + Send + Sync>> {
+        let body = crate::media::stability_image_body(request)?;
+        let mime = crate::media::stability_output_mime(&body);
+        let n = request.n.unwrap_or(1);
+        if n > crate::media::MAX_IMAGES_PER_REQUEST {
+            return Err(format!(
+                "Bedrock Stability models return one image per call; n is capped at {}",
+                crate::media::MAX_IMAGES_PER_REQUEST
+            )
+            .into());
+        }
+        let mut parts = Vec::with_capacity(n as usize);
+        for index in 0..n {
+            let call_body = crate::media::stability_body_for_index(&body, index);
+            let response = self
+                .client
+                .invoke_model()
+                .model_id(&request.model)
+                .content_type("application/json")
+                .accept("application/json")
+                .body(aws_smithy_types::Blob::new(serde_json::to_vec(&call_body)?))
+                .send()
+                .await
+                .map_err(|e| format!("InvokeModel failed: {}", e.into_service_error()))?;
+            let response_body: serde_json::Value = serde_json::from_slice(response.body.as_ref())?;
+            parts.push(crate::media::map_stability_image_response(
+                &response_body,
+                mime,
+            )?);
+        }
+        Ok(crate::media::merge_image_responses(parts))
+    }
+
+    async fn start_video(
+        &self,
+        request: &gaise_core::contracts::GaiseVideoRequest,
+    ) -> Result<gaise_core::contracts::GaiseVideoJob, Box<dyn Error + Send + Sync>> {
+        let model_input = crate::media::luma_model_input(request)?;
+        let output_uri = crate::media::video_output_uri(request)?;
+        let s3 = aws_sdk_bedrockruntime::types::AsyncInvokeS3OutputDataConfig::builder()
+            .s3_uri(output_uri)
+            .build()?;
+        let output = self
+            .client
+            .start_async_invoke()
+            .model_id(&request.model)
+            .model_input(Self::to_document(&model_input))
+            .output_data_config(
+                aws_sdk_bedrockruntime::types::AsyncInvokeOutputDataConfig::S3OutputDataConfig(s3),
+            )
+            .send()
+            .await
+            .map_err(|e| format!("StartAsyncInvoke failed: {}", e.into_service_error()))?;
+        Ok(gaise_core::contracts::GaiseVideoJob {
+            id: output.invocation_arn().to_string(),
+            model: request.model.clone(),
+            status: gaise_core::contracts::GaiseJobStatus::Queued,
+            ..Default::default()
+        })
+    }
+
+    async fn get_video(
+        &self,
+        request: &gaise_core::contracts::GaiseVideoJobRequest,
+    ) -> Result<gaise_core::contracts::GaiseVideoJob, Box<dyn Error + Send + Sync>> {
+        if request.id.trim().is_empty() {
+            return Err(
+                "video job request needs the invocation ARN returned by start_video".into(),
+            );
+        }
+        let output = self
+            .client
+            .get_async_invoke()
+            .invocation_arn(&request.id)
+            .send()
+            .await
+            .map_err(|e| format!("GetAsyncInvoke failed: {}", e.into_service_error()))?;
+        let s3_uri = output
+            .output_data_config()
+            .and_then(|config| config.as_s3_output_data_config().ok())
+            .map(|s3| s3.s3_uri());
+        Ok(crate::media::map_async_invoke(
+            output.invocation_arn(),
+            &request.model,
+            output.status().as_str(),
+            output.failure_message(),
+            s3_uri,
+        ))
+    }
 }
 
 #[cfg(test)]

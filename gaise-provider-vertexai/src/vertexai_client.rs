@@ -51,12 +51,19 @@ use gaise_core::{
     contracts::{
         GaiseEmbeddingsRequest,
         GaiseEmbeddingsResponse,
+        GaiseImageRequest,
+        GaiseImageResponse,
         //GaiseRepository,
         GaiseInstructRequest,
         GaiseInstructResponse,
         GaiseInstructStreamResponse,
         GaiseListModelsRequest,
         GaiseListModelsResponse,
+        GaiseTranscriptionRequest,
+        GaiseTranscriptionResponse,
+        GaiseVideoJob,
+        GaiseVideoJobRequest,
+        GaiseVideoRequest,
         normalize_l2,
     },
 };
@@ -442,6 +449,133 @@ impl GaiseClient for GaiseClientVertexAI {
         }
 
         Ok(response_view)
+    }
+
+    /// `gemini-3.5-transcribe` through `{{MODEL}}:generateContent` with
+    /// `audioTranscriptionConfig`; see [`crate::vertexai_media`].
+    async fn transcribe(
+        &self,
+        request: &GaiseTranscriptionRequest,
+    ) -> Result<GaiseTranscriptionResponse, Box<dyn std::error::Error + Send + Sync>> {
+        let body = crate::vertexai_media::vertex_transcription_request(request)?;
+        let text = self
+            .post_model_json(
+                &request.model,
+                ":generateContent",
+                &body,
+                true,
+                "Vertex AI transcription request",
+            )
+            .await?;
+        let response = serde_json::from_str(&text)?;
+        Ok(crate::vertexai_media::map_vertex_transcription_response(
+            response,
+        )?)
+    }
+
+    /// Nano Banana image generation and editing through
+    /// `{{MODEL}}:generateContent`; see [`crate::vertexai_media`].
+    async fn generate_images(
+        &self,
+        request: &GaiseImageRequest,
+    ) -> Result<GaiseImageResponse, Box<dyn std::error::Error + Send + Sync>> {
+        let body = crate::vertexai_media::vertex_image_request(request)?;
+        let text = self
+            .post_model_json(
+                &request.model,
+                ":generateContent",
+                &body,
+                true,
+                "Vertex AI image request",
+            )
+            .await?;
+        let response = serde_json::from_str(&text)?;
+        Ok(crate::vertexai_media::map_vertex_image_response(response)?)
+    }
+
+    /// Start a Veo job with `{{MODEL}}:predictLongRunning`. The job id is the
+    /// operation name.
+    async fn start_video(
+        &self,
+        request: &GaiseVideoRequest,
+    ) -> Result<GaiseVideoJob, Box<dyn std::error::Error + Send + Sync>> {
+        let body = crate::vertexai_media::vertex_video_request(request)?;
+        let text = self
+            .post_model_json(
+                &request.model,
+                ":predictLongRunning",
+                &body,
+                false,
+                "Vertex AI Veo request",
+            )
+            .await?;
+        let operation = serde_json::from_str(&text)?;
+        Ok(crate::vertexai_media::map_vertex_video_start(
+            &request.model,
+            operation,
+        )?)
+    }
+
+    /// Poll a Veo job with `{{MODEL}}:fetchPredictOperation`. The model comes
+    /// from the request, or from the operation name when the request has none.
+    async fn get_video(
+        &self,
+        request: &GaiseVideoJobRequest,
+    ) -> Result<GaiseVideoJob, Box<dyn std::error::Error + Send + Sync>> {
+        let model = if request.model.trim().is_empty() {
+            crate::vertexai_media::model_from_operation_name(&request.id)
+                .ok_or("video job request needs a model or a Veo operation name")?
+                .to_string()
+        } else {
+            request.model.clone()
+        };
+        let body = crate::vertexai_media::vertex_video_poll_request(&request.id);
+        let text = self
+            .post_model_json(
+                &model,
+                ":fetchPredictOperation",
+                &body,
+                false,
+                "Vertex AI Veo poll",
+            )
+            .await?;
+        let operation = serde_json::from_str(&text)?;
+        Ok(crate::vertexai_media::map_vertex_video_operation(
+            &model, operation,
+        )?)
+    }
+}
+
+impl GaiseClientVertexAI {
+    /// POST a JSON body to `{{MODEL}}{method}` with the service-account token
+    /// (and the tier headers for generative calls); returns the body text.
+    async fn post_model_json(
+        &self,
+        model: &str,
+        method: &str,
+        body: &serde_json::Value,
+        tiered: bool,
+        operation: &str,
+    ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+        let url = self.api_url.replace("{{MODEL}}", model) + method;
+        let token = self
+            .get_token()
+            .await
+            .map_err(|e| format!("no google access token: {e}"))?;
+        let mut req = self
+            .http
+            .post(&url)
+            .header("Authorization", "Bearer ".to_owned() + &token)
+            .header("Content-type", "application/json")
+            .body(serde_json::to_string(body)?);
+        if tiered {
+            req = self.apply_tier_headers(req);
+        }
+        let res = req
+            .send()
+            .await
+            .map_err(|e| format!("{operation} failed: {e}"))?;
+        checked_text(res, operation).await
     }
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "gaise-provider-elevenlabs"
-description = "ElevenLabs provider for GAISe — text-to-speech, streaming speech, and realtime voice"
+description = "ElevenLabs provider for GAISe — text-to-speech, streaming speech, realtime voice, and speech-to-text"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -2,7 +2,7 @@
 
 > Part of the [GAISe wiki](README.md) · [Models](models.md#openai) · [Capabilities](capabilities.md) · [HTTP API](api.md) · [Rust SDK](sdk.md) · [Flows](flows.md) · [Examples](examples.md)
 
-The `gaise-provider-openai` crate drives three OpenAI surfaces: **Chat Completions** (`POST /chat/completions`) for `instruct` and `instruct_stream`, **Embeddings** (`POST /embeddings`) for `embeddings`, and **`GET /models`** for `list_models`. Behind the optional `live` Cargo feature it also drives the GA **Realtime** WebSocket (`wss://…/v1/realtime?model=…`) through `GaiseLiveClient`. The **Responses API** (`POST /responses`) is used for one case only: tool conversations on models whose Chat Completions surface cannot call functions (GPT-6 Astra, GPT-6.1 Sol); see [Responses path for GPT-6 tools](#responses-path-for-gpt-6-tools). It does **not** target the Images API or Batch, and hosted image generation, server-side conversation state, pro mode, hosted tools, and native Chat audio output are out of scope for this adapter. In `gaise-client` the router enables it with the `openai` feature (on by default) and adds the Realtime client with `live`.
+The `gaise-provider-openai` crate drives three OpenAI surfaces: **Chat Completions** (`POST /chat/completions`) for `instruct` and `instruct_stream`, **Embeddings** (`POST /embeddings`) for `embeddings`, and **`GET /models`** for `list_models`. Behind the optional `live` Cargo feature it also drives the GA **Realtime** WebSocket (`wss://…/v1/realtime?model=…`) through `GaiseLiveClient`. The **Responses API** (`POST /responses`) is used for one case only: tool conversations on models whose Chat Completions surface cannot call functions (GPT-6 Astra, GPT-6.1 Sol); see [Responses path for GPT-6 tools](#responses-path-for-gpt-6-tools). It also drives **Transcriptions** (`POST /audio/transcriptions`) for `transcribe` and the **Images API** (`POST /images/generations`, JSON `POST /images/edits`) for `generate_images`; see [Transcription](#transcription) and [Image generation](#image-generation). OpenAI has no video API (the Videos API shut down 2026-09-24). It does **not** target Batch, and hosted (Responses) image generation, server-side conversation state, pro mode, hosted tools, and native Chat audio output are out of scope for this adapter. In `gaise-client` the router enables it with the `openai` feature (on by default) and adds the Realtime client with `live`.
 
 ## At a glance
 
@@ -193,6 +193,54 @@ Realtime turn usage ([`map_realtime_usage`](../gaise-provider-openai/src/openai_
 
 Answers are matched back by name. A refusal fails the call. Usage keeps `input_tokens` / `output_tokens` and adds cache, reasoning, and total counters. `safety_identifier` is not sent. Requests go through [`send_with_retry`](../gaise-provider-openai/src/openai_client.rs). The full mapping table and HTTP examples are in [decision.md](decision.md#openai-decisions-gpt-6-luna).
 
+## Transcription
+
+[`transcribe`](../gaise-provider-openai/src/openai_client.rs) posts `multipart/form-data` to `POST {api_url}/audio/transcriptions`. The form is built by [`transcription_form`](../gaise-provider-openai/src/media.rs) and the body is parsed by [`map_transcription_response`](../gaise-provider-openai/src/media.rs); both are public and pure. Requests go through [`send_with_retry`](../gaise-provider-openai/src/openai_client.rs) (the body is buffered, so retries resend it). Audited 2026-10-17 against the OpenAPI spec (`CreateTranscriptionRequest`, `CreateTranscriptionResponseJson` / `VerboseJson` / `DiarizedJson`) and the speech-to-text guide.
+
+**Audio.** OpenAI needs an uploaded file: `GaiseMediaSource::Bytes`, or a `data:` URL, which is decoded. Any other URL is rejected, because OpenAI cannot fetch it. The file must be 25 MB or smaller. It is named `audio.<ext>`, and the extension comes from the MIME type, then `format.codec`, then the leading bytes (RIFF/WAVE, `fLaC`, `OggS`, EBML, `ftyp`, ID3 / MPEG frame sync). If none of these identifies one of flac, mp3, mp4, mpeg, mpga, m4a, ogg, wav, or webm, the request is rejected. Headerless `pcm`, `mulaw`, `alaw`, and `opus` audio is rejected too, so wrap it in WAV first.
+
+**Model families** ([`openai_transcription_family`](../gaise-provider-openai/src/media.rs)):
+
+| Family | Model ids | Languages | `prompt` | `keyterms` | `diarize` | `timestamps` | `response_format` sent |
+|---|---|---|---|---|---|---|---|
+| GPT-Transcribe | `gpt-transcribe*` (recommended) | `languages[]` (ISO-639-1, ISO-639-3, and `zh-cn` / `zh-tw` / `zh-hk`), never `language` | yes | `keywords[]`. A term containing `<`, `>`, CR, or LF is rejected | error | error | `json` |
+| Diarize | `*transcribe-diarize*` | one `language` | error | error | `diarized_json` + `chunking_strategy=auto` | `Segment` only (speaker segments) | `diarized_json` when diarizing, else `json` |
+| Whisper | `whisper*` | one `language` | yes | error | error | `Word` → `timestamp_granularities[]=word,segment`, `Segment` → `segment`, `Character` → error | `verbose_json` (always, for `language` and `duration`) |
+| Standard | `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`, and unknown ids | one `language` | yes | error | error | error | `json` |
+
+Single-language models get the ISO-639-1 primary subtag (`de-AT` → `de`). Sending more than one language to these models is an error. `temperature` is forwarded. `multichannel`, `mode` (verbatim/smart), and `max_speakers` have no OpenAI equivalent and are rejected. `GaiseTimestampGranularity::None` counts as unset.
+
+**`provider_options`.** Each top-level key replaces the form fields of the same name. Arrays become repeated `key[]` fields, strings are sent as-is, other values are sent as JSON text, and `null` removes the field. Examples: `{"include": ["logprobs"]}`, `{"known_speaker_names": ["agent"], "known_speaker_references": ["data:audio/wav;base64,…"]}`, `{"response_format": "srt"}`, `{"chunking_strategy": {"type": "server_vad", …}}`.
+
+**Response.** The response is parsed by shape, so an overridden `response_format` still maps:
+- `text` comes from `text`.
+- `language` comes from `language` (verbose) or `languages[0].code` (GPT-Transcribe).
+- `duration_seconds` comes from `duration`, or from duration usage.
+- `words[]` take `{word, start, end}`.
+- `segments[]` take `{text, start, end, speaker}`; text is trimmed, and `speaker` is `A`, `B`, … or a known speaker name.
+- `text`, `srt`, and `vtt` bodies become `text` verbatim.
+
+Usage ([`map_transcription_usage`](../gaise-provider-openai/src/media.rs)):
+- Token usage maps to `input` = `input_tokens`, `text_tokens`, `audio_tokens`; `output` = `output_tokens`; `total` = `total_tokens`.
+- Duration usage (`{"type":"duration","seconds"}`) maps to `input.audio_milliseconds`.
+
+**Lifecycle.** `whisper-1`, `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`, and `gpt-4o-transcribe-diarize` were deprecated on 2026-08-26 and are scheduled to shut down on 2027-02-26. Their replacement is `gpt-transcribe` (files) or `gpt-live-transcribe` (realtime). After the shutdown, speaker labels and word timestamps have no OpenAI file-transcription model left.
+
+## Image generation
+
+[`generate_images`](../gaise-provider-openai/src/openai_client.rs) builds the body with [`image_request`](../gaise-provider-openai/src/media.rs) and maps the reply with [`map_image_response`](../gaise-provider-openai/src/media.rs). Audited 2026-10-17 against `CreateImageRequest`, `EditImageBodyJsonParam`, `ImagesResponse`, and `ImageGenUsage`.
+
+- **Endpoint.** With no input images the request goes to `POST {api_url}/images/generations`. With input images it goes to `POST {api_url}/images/edits` using the **JSON** body. That body holds `images: [{image_url}]`, with up to 16 images given as data URLs (from bytes) or URLs; a URL that starts with `file-` is sent as `{file_id}`. An optional `mask` is sent as an image reference. A mask without input images is an error.
+- **Fields.** `model`, `prompt`, `n` (1–10, otherwise an error), `size`, `quality` (lower-cased and passed through: `low`, `medium`, `high`, `auto`; `xhigh` and `max` on `gpt-image-2.5-*`), and `output_format` (`image/png` → `png`, `image/jpeg` → `jpeg`, `image/webp` → `webp`; other values are an error).
+- **Size.** An explicit `size` (`WIDTHxHEIGHT` or `auto`) wins. Otherwise `aspect_ratio` is mapped to a standard size: `1:1` → `1024x1024`, `3:2` → `1536x1024`, `2:3` → `1024x1536`. Any other ratio is an error that asks for an exact size. `resolution` is accepted only as `1K` / `auto`; other tiers are an error, because the GPT image models take exact sizes (`gpt-image-2` and later: multiples of 16, 1:3–3:1, up to `3840x2160`).
+- **Rejected.** `negative_prompt` and `seed` (OpenAI has neither), and `dall-e-*` models (retired 2026-05-12).
+- **`provider_options`.** Top-level keys are merged into the JSON body, and `null` removes a key. Use this for `background`, `output_compression`, `moderation`, `input_fidelity`, `safety_identifier`, and similar fields.
+- **Response.** GPT image models always return `b64_json`, which is decoded into `GaiseGeneratedMedia.data`. `url` and `revised_prompt` are kept when a model returns them. `mime_type` comes from the response `output_format`, falling back to the requested format and then `png`.
+- **Usage** ([`map_image_usage`](../gaise-provider-openai/src/media.rs)): `input` = `input_tokens`, `text_tokens`, `image_tokens`; `output` = `output_tokens`, `image_tokens`, `text_tokens`; `total` = `total_tokens`.
+- **Models.** `gpt-image-2` (+ `-2026-04-21`), `gpt-image-2.5-sunburst` and `gpt-image-2.5-flare` (+ `-2026-09-08` snapshots), and `chatgpt-image-latest`. `gpt-image-1` shuts down on 2026-10-23. `gpt-image-1-mini` and `gpt-image-1.5` shut down on 2026-12-01; the replacement for both is `gpt-image-2.5-sunburst` or `gpt-image-2.5-flare`. Streaming (`partial_images`) is not mapped.
+
+**Video.** OpenAI has had no video API since the Videos API (Sora) shut down on 2026-09-24, so `start_video` / `get_video` keep the default "not supported" error.
+
 ## Live / realtime
 
 Available with `features = ["live"]`; implemented by [`GaiseClientOpenAILive::live_connect`](../gaise-provider-openai/src/openai_live_client.rs#L284) with wire types in [`realtime_models.rs`](../gaise-provider-openai/src/contracts/realtime_models.rs).
@@ -268,14 +316,14 @@ From `model-registry.toml` (audited 2026-10-16). Status is the registry string; 
 | `gpt-realtime-1.5` | — | `active` | — | text, image, audio | text, audio | live | — | realtime transport | No reasoning controls. |
 | `gpt-realtime-translate` | — | `active` | — | audio | audio | — | — | not supported: the /v1/realtime/translations endpoint uses its own session and event vocabulary | Streaming speech-to-speech translation (audio in; audio and transcript out), billed per minute. The target language is set through session.a… |
 | `gpt-audio-1.5` | — | `active` | — | text, audio | text, audio | instruct, instruct_stream | — | Chat audio input is native; audio output is not mapped by the current instruct client | Chat Completions supported; Responses not supported. |
-| `gpt-image-2` | — | `active` | — | image | image | — | — | not yet native | Requires OpenAI Images or Responses image-generation tooling; the GAISe OpenAI instruct client currently uses Chat Completions. Default snap… |
-| `gpt-image-2.5-sunburst` | — | `active` | — | image | image | — | — | not yet native | Released 2026-09-08 (default snapshot gpt-image-2.5-sunburst-2026-09-08); the editing-precision GPT Image 2.5 model. Images API generations… |
-| `gpt-image-2.5-flare` | — | `active` | — | image | image | — | — | not yet native | Released 2026-09-08 (default snapshot gpt-image-2.5-flare-2026-09-08); the fast everyday GPT Image 2.5 model. Images API generations and edi… |
+| `gpt-image-2` | — | `active` | — | image | image | image_generation | — | generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given (up to 16, optional mask) | Requires OpenAI Images or Responses image-generation tooling; the GAISe OpenAI instruct client currently uses Chat Completions. Default snap… |
+| `gpt-image-2.5-sunburst` | — | `active` | — | image | image | image_generation | — | generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given (up to 16, optional mask) | Released 2026-09-08 (default snapshot gpt-image-2.5-sunburst-2026-09-08); the editing-precision GPT Image 2.5 model. Images API generations… |
+| `gpt-image-2.5-flare` | — | `active` | — | image | image | image_generation | — | generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given (up to 16, optional mask) | Released 2026-09-08 (default snapshot gpt-image-2.5-flare-2026-09-08); the fast everyday GPT Image 2.5 model. Images API generations and edi… |
 | `gpt-live-1` | — | `active` | — | text, audio | text, audio | — | — | not supported: the Live API (wss://api.openai.com/v1/live/sessions) has its own session.start / session.input_audio.append / delegation event vocabulary; Chat Completions, Responses, and Realtime are not supported for this model (the instruct and live clients fail fast) | Full-duplex voice model, generally available 2026-09-10. Delegates reasoning and tools to a backend Responses model (session.delegation.type… |
 | `gpt-5.6-cyber` | — | `limited_availability` | — | text, image | text | — | supported | not reachable: Responses API only, Daybreak program approval required | Daybreak Red model (2026-08-12). 400K context (not the 1.05M of the GPT-5.6 family); 272K max input. The instruct client fails fast. |
 | `gpt-daybreak-*` | — | `limited_availability` | — | text | text | — | supported | not reachable: Responses API only, Daybreak program approval required | gpt-daybreak-red-latest and gpt-daybreak-blue-latest (Daybreak Security Tiers, 2026-08-07). Detail pages were not fetched; limits unknown. |
 | `gpt-rosalind-research` | — | `limited_availability` | — | text | text | — | supported | not verified: no model page is published and trusted-access approval is required; the instruct client forwards requests unchanged | GPT-Rosalind life-sciences reasoning model. Changelog 2026-09-08: generally available through the trusted-access program for approved intern… |
-| `gpt-transcribe` | — | `active` | — | text, audio | text | — | — | not supported: speech-to-text has no GAISe surface | Released 2026-07-28; /v1/audio/transcriptions and realtime transcription sessions; streaming; billed per minute. |
+| `gpt-transcribe` | — | `active` | — | text, audio | text | transcription | — | transcribe: POST /v1/audio/transcriptions (languages[], keywords[], prompt; json); realtime transcription sessions are not mapped | Released 2026-07-28; /v1/audio/transcriptions and realtime transcription sessions; streaming; billed per minute. |
 | `gpt-live-transcribe` | — | `active` | — | text, audio | text | — | — | not supported: realtime transcription sessions have no GAISe surface | Released 2026-07-28; /v1/realtime/transcription_sessions only; 'delay' accepts minimal, low, medium, high, xhigh. |
 | `gpt-realtime-whisper` | — | `active` | — | text, audio | text | — | — | not supported: realtime transcription sessions have no GAISe surface | turn_detection must be null for this model. |
 | `gpt-4o-mini-tts` | `gpt-4o-mini-tts-2025-12-15`, `gpt-4o-mini-tts-2025-03-20` | `active` | — | text | text, audio | — | — | not supported: OpenAI text-to-speech has no GAISe surface (use elevenlabs::) | /v1/audio/speech only; 2,000 input tokens; the 2025-12-15 snapshot is the default. Both dated snapshots (2025-03-20 and 2025-12-15), tts-1,… |
@@ -297,11 +345,11 @@ From `model-registry.toml` (audited 2026-10-16). Status is the registry string; 
 | `gpt-4` | `gpt-4-0613`, `gpt-4-1106-preview` | `deprecated` | shutdown 2026-10-23 | unknown | unknown | — | — | — | gpt-4-1106-preview is 128K context. Replacement `gpt-5.6-sol`. |
 | `gpt-3.5-turbo` | `gpt-3.5-turbo-0125` | `deprecated` | shutdown 2026-10-23 | unknown | unknown | — | — | — | gpt-3.5-turbo-1106, gpt-3.5-turbo-instruct, babbage-002, and davinci-002 shut down earlier, on 2026-09-28. Replacement `gpt-5.6-terra`. |
 | `gpt-4.1-nano` | `gpt-4.1-nano-2025-04-14` | `deprecated` | shutdown 2026-10-23 | unknown | unknown | — | — | — | Replacement `gpt-5.6-luna`. |
-| `gpt-image-1` | — | `deprecated` | shutdown 2026-10-23 | unknown | unknown | — | — | — | Replacement `gpt-image-2.5-sunburst or gpt-image-2.5-flare`. |
-| `gpt-image-1.5` | `gpt-image-1-mini`, `chatgpt-image-latest` | `deprecated` | shutdown 2026-12-01 | unknown | unknown | — | — | — | Replacement `gpt-image-2.5-sunburst or gpt-image-2.5-flare`. |
+| `gpt-image-1` | — | `deprecated` | shutdown 2026-10-23 | image | image | image_generation | — | generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given (up to 16, optional mask) | Replacement `gpt-image-2.5-sunburst or gpt-image-2.5-flare`. |
+| `gpt-image-1.5` | `gpt-image-1-mini`, `chatgpt-image-latest` | `deprecated` | shutdown 2026-12-01 | image | image | image_generation | — | generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given (up to 16, optional mask) | Replacement `gpt-image-2.5-sunburst or gpt-image-2.5-flare`. |
 | `gpt-realtime` | `gpt-4o-realtime`, `gpt-realtime-mini`, `gpt-4o-mini-realtime` | `deprecated` | shutdown 2027-01-20 | unknown | unknown | — | — | — | Announced 2026-07-20. Context 32K for gpt-realtime, gpt-realtime-mini, and gpt-4o-realtime. The gpt-4o-*-realtime-preview family and the Ope… |
 | `gpt-audio` | `gpt-4o-audio`, `gpt-audio-mini`, `gpt-4o-mini-audio` | `deprecated` | shutdown 2027-01-20 | unknown | unknown | — | — | — | Replacement `gpt-audio-1.5`. |
-| `whisper-1` | `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`, `gpt-4o-transcribe-diarize` | `deprecated` | shutdown 2027-02-26 | text, audio | text | — | — | not supported: speech-to-text has no GAISe surface | Deprecation announced 2026-08-26 for the whole legacy transcription family. Replacement `gpt-transcribe or gpt-live-transcribe`. |
+| `whisper-1` | `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`, `gpt-4o-transcribe-diarize` | `deprecated` | shutdown 2027-02-26 | text, audio | text | transcription | — | transcribe: POST /v1/audio/transcriptions (whisper-1 verbose_json with word/segment timestamps; gpt-4o-transcribe-diarize diarized_json with chunking_strategy auto; gpt-4o(-mini)-transcribe json only) | Deprecation announced 2026-08-26 for the whole legacy transcription family. Replacement `gpt-transcribe or gpt-live-transcribe`. |
 
 The registry is advisory: any `openai::<id>` string is routed as-is, so new snapshots work before this table is updated.
 
@@ -316,6 +364,7 @@ The registry is advisory: any `openai::<id>` string is routed as-is, so new snap
 - `reasoning_effort` is sent for any model when configured; there is no reasoning-family allowlist, so the model returns the error for unsupported families. The only preemptive rewrite is GPT-5.6 + function tools → `"none"`, plus the single structured-error retry.
 - Streaming inspects only `choices[0]`; multi-choice (`n > 1`) streams are not supported.
 - Retries: 429/5xx/network errors up to 4 attempts with exponential backoff; 4xx other than the GPT-5.6 compatibility 400 are never retried.
+- Media: transcription needs inline bytes (no URL fetch), returns no per-channel output, and has no verbatim/smart or speaker-count control. Image streaming (`partial_images`) and multipart image edits are not used, and video is unavailable.
 - Realtime: one output modality per session (audio wins), 24 kHz PCM16 input only, PNG/JPEG images only, input transcription fixed to `gpt-4o-mini-transcribe`, no VAD `threshold`/sensitivity mapping, `ActivityStart` is a no-op, and `max` effort is downgraded to `xhigh`.
 
 ## Flow
@@ -382,6 +431,7 @@ Hermetic (no network, no credentials):
 - [`src/openai_live_client.rs` tests](../gaise-provider-openai/src/openai_live_client.rs#L728): realtime turn usage and separately billed transcription usage.
 
 - [`tests/decision_tests.rs`](../gaise-provider-openai/tests/decision_tests.rs): Decisions request mapping (predicate / choice / score, criteria folding, levels), validation (null state, missing instructions, choice count, 128 images), image messages, usage, answer matching by name, refusals, upstream errors, and mismatched answer types against a local HTTP server. `live_decision` (`#[ignore]`, needs `OPENAI_API_KEY`) calls the real API.
+- [`tests/media_tests.rs`](../gaise-provider-openai/tests/media_tests.rs): transcription form fields per model family (languages / keywords / prompt, `verbose_json` + granularities, `diarized_json` + auto chunking), the rejected inputs (URL audio, headerless audio, unknown format, > 25 MB, diarize / timestamps on models that cannot honour them, multichannel, mode, max_speakers), `provider_options` merging, multipart encoding, json / verbose / diarized / text response mapping, token and duration usage, image generation vs JSON edit bodies, size mapping, unsupported image options, b64 decoding and image usage, and `transcribe` / `generate_images` against a local HTTP server (including upstream errors).
 - [`tests/responses_tests.rs`](../gaise-provider-openai/tests/responses_tests.rs): Responses routing, request shape, tool round trip with reasoning replay, response and SSE event mapping, and `instruct` / `instruct_stream` against a local HTTP server.
 
 Nothing in the default suite contacts `api.openai.com`. `live_tool_round_trip` (`#[ignore]`, needs `OPENAI_API_KEY`) runs a real two-turn tool call.
@@ -395,6 +445,9 @@ Official documentation:
 - Reasoning guide: <https://developers.openai.com/api/docs/guides/reasoning>
 - GPT-5.5 Pro: <https://developers.openai.com/api/docs/models/gpt-5.5-pro>
 - GPT-Realtime-2.1: <https://developers.openai.com/api/docs/models/gpt-realtime-2.1>
+- Speech to text: <https://developers.openai.com/api/docs/guides/speech-to-text>
+- Image generation: <https://developers.openai.com/api/docs/guides/image-generation>
+- GPT-Transcribe: <https://developers.openai.com/api/docs/models/gpt-transcribe>
 
 Source files:
 
@@ -408,6 +461,9 @@ Source files:
 - [`../gaise-provider-openai/src/contracts/catalog.rs`](../gaise-provider-openai/src/contracts/catalog.rs)
 - [`../gaise-provider-openai/tests/mapping_tests.rs`](../gaise-provider-openai/tests/mapping_tests.rs)
 - [`../gaise-provider-openai/tests/live_mapping_tests.rs`](../gaise-provider-openai/tests/live_mapping_tests.rs)
+- [`../gaise-provider-openai/src/media.rs`](../gaise-provider-openai/src/media.rs)
+- [`../gaise-provider-openai/tests/media_tests.rs`](../gaise-provider-openai/tests/media_tests.rs)
+- [`../gaise-core/src/contracts/gaise_media.rs`](../gaise-core/src/contracts/gaise_media.rs)
 - [`../gaise-core/src/contracts/gaise_content.rs`](../gaise-core/src/contracts/gaise_content.rs)
 - [`../gaise-core/src/contracts/gaise_generation_config.rs`](../gaise-core/src/contracts/gaise_generation_config.rs)
 - [`../gaise-core/src/contracts/gaise_instruct_stream_response.rs`](../gaise-core/src/contracts/gaise_instruct_stream_response.rs)

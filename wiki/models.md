@@ -7,7 +7,7 @@ This page is the human-readable view of [`gaise-core/model-registry.toml`](../ga
 This page is generated from the registry by [`cargo run -p gaise --example models_page`](../gaise-core/examples/models_page.rs); edit the registry (or that example's introductions), not this file. Columns:
 
 - **Input / Output** — modalities classified from the entry's `capabilities` list by [`classify_capabilities`](../gaise-core/src/registry.rs).
-- **Ops** — GAISe operations the entry maps to: `I` instruct, `S` instruct_stream, `E` embeddings, `V` speech (voice), `L` live, `D` decision. Empty means no GAISe surface drives the model (image generation, TTS, bidirectional audio).
+- **Ops** — GAISe operations the entry maps to: `I` instruct, `S` instruct_stream, `E` embeddings, `V` speech (voice), `L` live, `D` decision, `T` transcription, `W` streaming transcription, `P` image generation (picture), `M` video generation (movie). Empty means no GAISe surface drives the model.
 - **Tools / Reasoning** — ✓ supported, ✗ not listed, and the `reasoning_values` the provider documents.
 - **Dates** — `shutdown` is a published retirement date; `not before` is an availability guarantee. Gemini API and Vertex AI dates are **never** interchangeable.
 - **Limits** — context windows, output ceilings, per-input token limits, and character budgets are not repeated here; see [limits.md](limits.md) for the generated model × limits matrix and `GET /v1/models/limits`.
@@ -17,11 +17,11 @@ This page is generated from the registry by [`cargo run -p gaise --example model
 
 - [OpenAI](#openai) — 61 entries
 - [Anthropic](#anthropic) — 20 entries
-- [Google Gemini API](#gemini) — 35 entries
-- [Google Vertex AI](#vertexai) — 30 entries
-- [Amazon Bedrock](#bedrock) — 69 entries
+- [Google Gemini API](#gemini) — 38 entries
+- [Google Vertex AI](#vertexai) — 36 entries
+- [Amazon Bedrock](#bedrock) — 73 entries
 - [Ollama](#ollama) — 46 entries
-- [ElevenLabs](#elevenlabs) — 17 entries
+- [ElevenLabs](#elevenlabs) — 18 entries
 - [xAI](#xai) — 25 entries
 - [TypeSafe AI](#typesafe) — 2 entries
 - [Maintaining the registry](#maintaining-the-registry)
@@ -63,14 +63,14 @@ Instruct uses **Chat Completions**; Responses-only models (GPT-5.5 Pro, gpt-5.6-
 | `gpt-realtime-1.5` | — | `active` | — | text, image, audio | text, audio | L | ✓ | ✗ | realtime transport — No reasoning controls. |
 | `gpt-realtime-translate` | — | `active` | — | audio | audio | — | ✗ | ✗ | not supported: the /v1/realtime/translations endpoint uses its own session and event vocabulary — Streaming s… |
 | `gpt-audio-1.5` | — | `active` | — | text, audio | text, audio | IS | ✓ | ✗ | Chat audio input is native; audio output is not mapped by the current instruct client — Chat Completions supp… |
-| `gpt-image-2` | — | `active` | — | image | image | — | ✗ | ✗ | not yet native — Requires OpenAI Images or Responses image-generation tooling; the GAISe OpenAI instruct clie… |
-| `gpt-image-2.5-sunburst` | — | `active` | — | image | image | — | ✗ | ✗ | not yet native — Released 2026-09-08 (default snapshot gpt-image-2.5-sunburst-2026-09-08); the editing-precis… |
-| `gpt-image-2.5-flare` | — | `active` | — | image | image | — | ✗ | ✗ | not yet native — Released 2026-09-08 (default snapshot gpt-image-2.5-flare-2026-09-08); the fast everyday GPT… |
+| `gpt-image-2` | — | `active` | — | image | image | P | ✗ | ✗ | generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given (… |
+| `gpt-image-2.5-sunburst` | — | `active` | — | image | image | P | ✗ | ✗ | generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given (… |
+| `gpt-image-2.5-flare` | — | `active` | — | image | image | P | ✗ | ✗ | generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given (… |
 | `gpt-live-1` | — | `active` | — | text, audio | text, audio | — | ✓ | ✗ | not supported: the Live API (wss://api.openai.com/v1/live/sessions) has its own session.start / session.input… |
 | `gpt-5.6-cyber` | — | `limited_availability` | — | text, image | text | — | ✓ | ✓ | not reachable: Responses API only, Daybreak program approval required — Daybreak Red model (2026-08-12). 400K… |
 | `gpt-daybreak-*` | — | `limited_availability` | — | text | text | — | ✓ | ✓ | not reachable: Responses API only, Daybreak program approval required — gpt-daybreak-red-latest and gpt-daybr… |
 | `gpt-rosalind-research` | — | `limited_availability` | — | text | text | — | ✗ | ✓ | not verified: no model page is published and trusted-access approval is required; the instruct client forward… |
-| `gpt-transcribe` | — | `active` | — | text, audio | text | — | ✗ | ✗ | not supported: speech-to-text has no GAISe surface — Released 2026-07-28; /v1/audio/transcriptions and realti… |
+| `gpt-transcribe` | — | `active` | — | text, audio | text | T | ✗ | ✗ | transcribe: POST /v1/audio/transcriptions (languages[], keywords[], prompt; json); realtime transcription ses… |
 | `gpt-live-transcribe` | — | `active` | — | text, audio | text | — | ✗ | ✗ | not supported: realtime transcription sessions have no GAISe surface — Released 2026-07-28; /v1/realtime/tran… |
 | `gpt-realtime-whisper` | — | `active` | — | text, audio | text | — | ✗ | ✗ | not supported: realtime transcription sessions have no GAISe surface — turn_detection must be null for this m… |
 | `gpt-4o-mini-tts` | `gpt-4o-mini-tts-2025-12-15`, `gpt-4o-mini-tts-2025-03-20` | `active` | — | text | text, audio | — | ✗ | ✗ | not supported: OpenAI text-to-speech has no GAISe surface (use elevenlabs::) — /v1/audio/speech only; 2,000 i… |
@@ -99,11 +99,11 @@ Instruct uses **Chat Completions**; Responses-only models (GPT-5.5 Pro, gpt-5.6-
 | `gpt-4` | `gpt-4-0613`, `gpt-4-1106-preview` | `deprecated` | shutdown 2026-10-23 | — | — | — | ? | ? | gpt-4-1106-preview is 128K context. |
 | `gpt-3.5-turbo` | `gpt-3.5-turbo-0125` | `deprecated` | shutdown 2026-10-23 | — | — | — | ? | ? | gpt-3.5-turbo-1106, gpt-3.5-turbo-instruct, babbage-002, and davinci-002 shut down earlier, on 2026-09-28. |
 | `gpt-4.1-nano` | `gpt-4.1-nano-2025-04-14` | `deprecated` | shutdown 2026-10-23 | — | — | — | ? | ? | — |
-| `gpt-image-1` | — | `deprecated` | shutdown 2026-10-23 | — | — | — | ? | ? | — |
-| `gpt-image-1.5` | `gpt-image-1-mini`, `chatgpt-image-latest` | `deprecated` | shutdown 2026-12-01 | — | — | — | ? | ? | — |
+| `gpt-image-1` | — | `deprecated` | shutdown 2026-10-23 | image | image | P | ✗ | ✗ | generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given (… |
+| `gpt-image-1.5` | `gpt-image-1-mini`, `chatgpt-image-latest` | `deprecated` | shutdown 2026-12-01 | image | image | P | ✗ | ✗ | generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given (… |
 | `gpt-realtime` | `gpt-4o-realtime`, `gpt-realtime-mini`, `gpt-4o-mini-realtime` | `deprecated` | shutdown 2027-01-20 | — | — | — | ? | ? | Announced 2026-07-20. Context 32K for gpt-realtime, gpt-realtime-mini, and gpt-4o-realtime. The gpt-4o-*-real… |
 | `gpt-audio` | `gpt-4o-audio`, `gpt-audio-mini`, `gpt-4o-mini-audio` | `deprecated` | shutdown 2027-01-20 | — | — | — | ? | ? | — |
-| `whisper-1` | `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`, `gpt-4o-transcribe-diarize` | `deprecated` | shutdown 2027-02-26 | text, audio | text | — | ✗ | ✗ | not supported: speech-to-text has no GAISe surface — Deprecation announced 2026-08-26 for the whole legacy tr… |
+| `whisper-1` | `gpt-4o-transcribe`, `gpt-4o-mini-transcribe`, `gpt-4o-transcribe-diarize` | `deprecated` | shutdown 2027-02-26 | text, audio | text | T | ✗ | ✗ | transcribe: POST /v1/audio/transcriptions (whisper-1 verbose_json with word/segment timestamps; gpt-4o-transc… |
 
 #### Retired
 
@@ -184,13 +184,13 @@ Google AI Gemini API lifecycle only — see [Vertex AI](#vertexai) for Google Cl
 | `gemini-3-flash-preview` | — | `preview` | — | text, image, audio, video, file | text | IS | ✓ | ✓ (minimal, low, medium, high) | native — No shutdown date announced. |
 | `gemini-3.8-live` | — | `stable` | — | text, image, audio, video | text, audio | L | ✓ | ✗ | native Live API transport; thinking configuration is never sent — GA 2026-09-15; replaces gemini-3.1-flash-li… |
 | `gemini-3.8-live-extended-thinking` | — | `stable` | — | text, image, audio, video | text, audio | L | ✓ | ✓ (low, medium, high) | native Live API transport (thinking_level low, medium, or high) — GA 2026-09-15. Background reasoning during… |
-| `gemini-nano-banana-2.1` | — | `stable` | — | text, image, video, file | text, image | IS | ✗ | ✓ (minimal, medium, high) | native image output through generateContent — Nano Banana 2.1, GA 2026-10-06; replaces gemini-3.1-flash-image… |
-| `gemini-3.1-flash-lite-image` | — | `stable` | — | text, image | text, image | IS | ✗ | ✓ (minimal, high) | native image output through generateContent — GA 2026-06-30 (Nano Banana 2 Lite); 1K output only. The model p… |
-| `gemini-3-pro-image` | — | `stable` | — | text, image | text, image | IS | ✗ | ✓ | native image output through generateContent — Released 2026-05-28. Function calling is not supported. |
+| `gemini-nano-banana-2.1` | — | `stable` | — | text, image, video, file | text, image | ISP | ✗ | ✓ (minimal, medium, high) | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize);… |
+| `gemini-3.1-flash-lite-image` | — | `stable` | — | text, image | text, image | ISP | ✗ | ✓ (minimal, high) | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize);… |
+| `gemini-3-pro-image` | — | `stable` | — | text, image | text, image | ISP | ✗ | ✓ | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize);… |
 | `gemini-embedding-2` | `gemini-embedding-2-preview` | `stable` | — | text, image, audio, video | embedding | E | ✗ | ✗ | native; images, audio, video, and PDF through embed_contents (POST /v1/embeddings/contents) — Released 2026-0… |
 | `gemini-3.8-flash-tts` | — | `stable` | — | text | text, audio | — | ✗ | ✗ | text-to-speech is outside the instruct surface — GA 2026-09-22; 130+ languages with automatic language detect… |
 | `gemini-3.8-flash-lite-tts` | — | `stable` | — | text | text, audio | — | ✗ | ✗ | text-to-speech is outside the instruct surface — GA 2026-09-22; 100+ languages with automatic language detect… |
-| `gemini-3.5-transcribe` | `gemini-3.5-transcribe-live` | `stable` | — | text, audio | text | — | ✗ | ✗ | not supported: speech-to-text has no GAISe surface — GA 2026-08-26. gemini-3.5-transcribe is unary generateCo… |
+| `gemini-3.5-transcribe` | `gemini-3.5-transcribe-live` | `stable` | — | text, audio | text | T | ✗ | ✗ | transcribe: generateContent with audioTranscriptionConfig (languageCodes, customVocabulary, wordTimestamp, di… |
 | `gemini-3.5-live-translate-preview` | — | `preview` | — | audio | audio | — | ✗ | ✗ | not supported: speech-to-speech translation uses translationConfig on the Live API, which the live transport… |
 | `gemini-omni-1.1-flash` | — | `stable` | — | text, image, video | text | — | ✗ | ✗ | not supported: video generation is served by the Interactions API only — GA 2026-08-27; conversational video… |
 | `gemini-2.5-pro` | — | `stable` | — | text, image, audio, video, file | text | IS | ✓ | ✓ | native (thinkingBudget mapper path) — No shutdown date announced on the Gemini API deprecations page; the 202… |
@@ -205,16 +205,19 @@ Google AI Gemini API lifecycle only — see [Vertex AI](#vertexai) for Google Cl
 | `gemini-3.5-flash` | — | `deprecated` | — | text, image, audio, video, file | text | IS | ✓ | ✓ (minimal, low, medium, high) | native — Deprecated 2026-10-08 with no shutdown date: requests to gemini-3.5-flash are routed automatically t… |
 | `gemini-3.1-flash-live-preview` | — | `deprecated` | shutdown 2026-11-17 | text, image, audio, video | text, audio | L | ✓ | ✓ (minimal, low, medium, high) | native Live API transport — Released 2026-03-11. The deprecations page names gemini-3.8-live as its replaceme… |
 | `gemini-2.5-flash-native-audio-preview-12-2025` | — | `deprecated` | shutdown 2026-11-17 | text, audio, video | text, audio | L | ✓ | ✓ | Live transport; migration recommended — Live guide still documents thinkingBudget (0 disables) for this model… |
-| `gemini-3.1-flash-image` | — | `deprecated` | — | text, image, video, file | text, image | IS | ✗ | ✓ (minimal, high) | native image output through generateContent — Released 2026-05-28. Function calling and structured outputs ar… |
+| `gemini-3.1-flash-image` | — | `deprecated` | — | text, image, video, file | text, image | ISP | ✗ | ✓ (minimal, high) | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize);… |
 | `gemini-3.1-flash-tts-preview` | — | `deprecated` | shutdown 2026-11-17 | text | text, audio | — | ✗ | ✗ | text-to-speech is outside the instruct surface — Released 2026-04-13; replacement for the 2.5 TTS previews (g… |
+| `veo-3.1-generate-preview` | `veo-3.1-fast-generate-preview`, `veo-3.1-lite-generate-preview` | `deprecated` | shutdown 2026-10-22 | image | video | — | ✗ | ✗ | not supported: the Veo previews shut down on 2026-10-22 and the replacement, gemini-omni-1.1-flash, is served… |
 | `gemini-omni-flash-preview` | — | `deprecated` | shutdown 2026-10-22 | — | — | — | ? | ? | Released 2026-06-30; deprecated 2026-08-27. Reported shut down 2026-09-30 at the last audit, but the deprecat… |
-| `gemini-2.5-flash-image` | — | `deprecated` | shutdown 2027-03-15 | — | — | — | ? | ? | As of 2026-10-09 the Gemini API deprecations table shows a 2027-03-15 shutdown and gemini-3.1-flash-lite-imag… |
+| `gemini-2.5-flash-image` | — | `deprecated` | shutdown 2027-03-15 | — | — | P | ✗ | ✗ | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize);… |
 | `gemini-embedding-001` | — | `deprecated` | shutdown 2028-05-14 | text | embedding | E | ✗ | ✗ | native — Still listed as callable; the earlier registry date (2026-07-14) was the release date. |
 
 #### Retired
 
 | Model | Aliases | Status | Dates | Input | Output | Ops | Tools | Reasoning | GAISe support / notes |
 |---|---|---|---|---|---|---|---|---|---|
+| `veo-3.0-*` | `veo-2.0-generate-001` | `retired` | shutdown 2026-06-30 | — | video | — | ✗ | ✗ | Veo 3.0 and Veo 2 were shut down on the Gemini API on 2026-06-30. |
+| `imagen-*` | — | `retired` | shutdown 2026-08-17 | — | image | — | ✗ | ✗ | imagen-4.0-generate-001, -ultra-generate-001, and -fast-generate-001 shut down on 2026-08-17; earlier Imagen… |
 | `embedding-2-preview` | — | `retired` | shutdown 2026-08-10 | — | — | — | ? | ? | — |
 | `gemini-2.0-flash` | — | `retired` | shutdown 2026-06-01 | — | — | — | ? | ? | — |
 | `gemini-2.0-flash-lite` | — | `retired` | shutdown 2026-06-01 | — | — | — | ? | ? | — |
@@ -248,16 +251,20 @@ Google Cloud lifecycle only. Model Garden listing returns names, versions, and l
 | `gemini-3.1-flash-lite` | — | `active` | not before 2027-05-07 | text, image, audio, video, file | text | IS | ✓ | ✓ (minimal, low, medium, high) | native — GA 2026-05-07. thinking_level MINIMAL (default)..HIGH. |
 | `gemini-3.1-pro-preview` | `gemini-3.1-pro-preview-customtools` | `preview` | — | text, image, audio, video, file | text | IS | ✓ | ✓ (low, medium, high) | native — Public preview since 2026-02-19 (customtools variant 2026-02-23); global endpoint only; not in the l… |
 | `gemini-3-flash-preview` | — | `preview` | — | text, image, audio, video, file | text | IS | ✓ | ✓ (minimal, low, medium, high) | native — Public preview since 2025-12-17; not in the Vertex lifecycle table. The Vertex model page shows laun… |
-| `gemini-nano-banana-2.1` | — | `short_term_active` | — | text, image, video | text, image | IS | ✗ | ✓ | native image output through generateContent — GA 2026-10-06, global endpoint only; short-term availability ta… |
-| `gemini-3.1-flash-image` | — | `active` | not before 2027-05-28 | text, image, video, file | text, image | IS | ✗ | ✓ (minimal, high) | native image output through generateContent — Video input and 4K output are GA since 2026-08-31; us and eu mu… |
-| `gemini-3.1-flash-lite-image` | — | `active` | not before 2027-06-28 | text, image, video, file | text, image | IS | ✗ | ✓ (minimal, high) | native image output through generateContent — GA 2026-06-23 on Vertex (the Gemini API date is 2026-06-30). Li… |
-| `gemini-3-pro-image` | — | `active` | not before 2027-05-28 | text, image, file | text, image | IS | ✗ | ✓ (high) | native image output through generateContent — Function calling is not supported; video input is not supported… |
+| `gemini-nano-banana-2.1` | — | `short_term_active` | — | text, image, video | text, image | ISP | ✗ | ✓ | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize);… |
+| `gemini-3.1-flash-image` | — | `active` | not before 2027-05-28 | text, image, video, file | text, image | ISP | ✗ | ✓ (minimal, high) | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize);… |
+| `gemini-3.1-flash-lite-image` | — | `active` | not before 2027-06-28 | text, image, video, file | text, image | ISP | ✗ | ✓ (minimal, high) | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize);… |
+| `gemini-3-pro-image` | — | `active` | not before 2027-05-28 | text, image, file | text, image | ISP | ✗ | ✓ (high) | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize);… |
 | `gemini-embedding-2` | `gemini-embedding-2-preview` | `active` | — | text, image, audio, video | embedding | — | ✗ | ✗ | not yet: Vertex serves it via :embedContent on the aiplatform.{location}.rep.googleapis.com host, which the a… |
 | `gemini-embedding-001` | — | `active` | not before 2028-05-20 | text | embedding | E | ✗ | ✗ | native — Previous-generation text embedding model; gemini-embedding-2 is current. Accepts one input text per… |
 | `text-embedding-005` | `text-embedding-004`, `text-multilingual-embedding-002` | `active` | not before 2027-04-01 | text | embedding | E | ✗ | ✗ | native — Legacy text embedding family; all retire 2027-04-01. 768 dimensions, 2,048 tokens, 250 texts per cal… |
 | `multimodalembedding@001` | — | `active` | not before 2027-04-01 | text, image, audio, video | embedding | — | ✗ | ✗ | not yet: uses the image/video embedding request schema — 1408 dimensions (128/256/512 for text+image); 32 tex… |
 | `gemini-live-2.5-flash-native-audio` | — | `active` | shutdown 2026-12-13 | text, image, audio, video | text, audio | — | ✓ | ✗ | not supported: the Vertex AI adapter has no Live transport — GA 2025-12-12. Documented as a 128K context wind… |
-| `gemini-3.5-transcribe-preview` | `gemini-3.5-transcribe-live-preview` | `preview` | — | text, audio | text | — | ✗ | ✗ | not supported: speech-to-text has no GAISe surface — Preview since August 2026, global region only; ids diffe… |
+| `gemini-3.5-transcribe-preview` | `gemini-3.5-transcribe-live-preview` | `preview` | — | text, audio | text | T | ✗ | ✗ | transcribe: generateContent with audioTranscriptionConfig — Preview since August 2026, global region only; id… |
+| `gemini-3.5-transcribe` | `gemini-3.5-transcribe-live` | `active` | — | text, audio | text | T | ✗ | ✗ | transcribe: generateContent with audioTranscriptionConfig (languageCodes, customVocabulary, wordTimestamp, di… |
+| `veo-3.1-generate-001` | — | `active` | not before 2026-11-17 | image, video | video | M | ✗ | ✗ | start_video / get_video: predictLongRunning and fetchPredictOperation (first and last frame, up to 3 asset re… |
+| `veo-3.1-fast-generate-001` | — | `active` | not before 2026-11-17 | image, video | video | M | ✗ | ✗ | start_video / get_video: predictLongRunning and fetchPredictOperation — Veo 3.1 Fast, GA 2025-11-17 in us-cen… |
+| `veo-3.1-lite-generate-001` | — | `preview` | — | image | video | M | ✗ | ✗ | start_video / get_video: predictLongRunning and fetchPredictOperation — Veo 3.1 Lite, preview since 2026-04-0… |
 | `gemini-omni-1.1-flash-preview` | — | `preview` | — | text, image, video | text | — | ✗ | ✗ | not supported: video generation has no GAISe surface — Preview since 2026-08-27 (the Gemini API serves gemini… |
 | `gemini-omni-flash-preview` | — | `preview` | shutdown 2027-06-30 | text, image, video | text | — | ✗ | ✗ | not supported: video generation has no GAISe surface — Preview on Vertex since 2026-06-30 with a Vertex retir… |
 | `gemini-3.5-live-translate-preview` | — | `preview` | — | audio | audio | — | ✗ | ✗ | not supported: speech-to-speech translation uses translationConfig on the Live API, and the Vertex AI adapter… |
@@ -269,12 +276,14 @@ Google Cloud lifecycle only. Model Garden listing returns names, versions, and l
 | `gemini-2.5-pro` | — | `deprecated` | shutdown 2026-10-20 | text, image, audio, video, file | text | IS | ✓ | ✓ | native (thinkingBudget mapper path) |
 | `gemini-2.5-flash` | — | `deprecated` | shutdown 2026-10-20 | text, image, audio, video, file | text | IS | ✓ | ✓ | native (thinkingBudget mapper path) |
 | `gemini-2.5-flash-lite` | — | `deprecated` | shutdown 2026-10-20 | text, image, audio, video, file | text | IS | ✓ | ✓ | native (thinkingBudget mapper path) |
-| `gemini-2.5-flash-image` | — | `deprecated` | shutdown 2027-03-15 | text, image | text, image | IS | ✗ | ✗ | Vertex documents a 32,768-token context window for this model; the Gemini API documents 65,536. Vertex retire… |
+| `gemini-2.5-flash-image` | — | `deprecated` | shutdown 2027-03-15 | text, image | text, image | ISP | ✗ | ✗ | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize);… |
 
 #### Retired
 
 | Model | Aliases | Status | Dates | Input | Output | Ops | Tools | Reasoning | GAISe support / notes |
 |---|---|---|---|---|---|---|---|---|---|
+| `veo-3.0-*` | — | `retired` | shutdown 2026-06-30 | — | video | — | ✗ | ✗ | Veo 3.0 endpoints were retired on 2026-06-30. |
+| `imagen-*` | `imagegeneration@*` | `retired` | shutdown 2026-06-30 | — | image | — | ✗ | ✗ | Every imagegeneration@00x, imagen-3.0-*, and imagen-4.0-* endpoint is listed as discontinued (migrate before… |
 | `gemini-2.0-flash` | `gemini-2.0-flash-lite` | `retired` | shutdown 2026-06-01 | — | — | — | ? | ? | — |
 
 ## bedrock
@@ -348,6 +357,10 @@ Model IDs, inference profiles, and lifecycle are **region-specific**; entries ar
 | `google.gemma-4-*` | — | `active` | — | text, image, video | text | — | ✓ | ✗ | not reachable: Gemma 4 is served on bedrock-mantle only (no Converse) — google.gemma-4-31b, google.gemma-4-26… |
 | `twelvelabs.pegasus-1-5-v1:0` | — | `active` | — | text, video | text | — | ✗ | ✗ | not supported: InvokeModel only (no Converse) — Launched 2026-10-08 per the model card (45-day Legacy period)… |
 | `twelvelabs.marengo-embed-3-0-v1:0` | — | `active` | — | text, image, audio, video | embedding | — | ✗ | ✗ | not supported: the InvokeModel embedding builder covers Titan, Cohere, and Nova schemas only — Launched 2025-… |
+| `stability.sd3-5-large-v1:0` | — | `active` | — | image | image | P | ✗ | ✗ | generate_images: InvokeModel (text-to-image, or image-to-image with one input image and strength); n loops se… |
+| `stability.stable-image-ultra-v1:1` | — | `active` | — | image | image | P | ✗ | ✗ | generate_images: InvokeModel (text-to-image, or image-to-image with strength) — Stability AI Stable Image Ult… |
+| `stability.stable-image-core-v1:1` | — | `active` | — | — | image | P | ✗ | ✗ | generate_images: InvokeModel (text-to-image only) — Stability AI Stable Image Core 1.0, us-west-2; png or jpe… |
+| `luma.ray-v2:0` | — | `active` | — | image | video | M | ✗ | ✗ | start_video / get_video: StartAsyncInvoke and GetAsyncInvoke; output_uri (s3://) is required; first and last… |
 
 #### Deprecated and legacy
 
@@ -457,8 +470,9 @@ Text-to-speech and realtime voice. `GET /v1/models` reports model ids, languages
 | `eleven_flash_v2_5` | — | `active` | — | text | audio | VL | ✗ | ✗ | native — ~75 ms latency, 32 languages, 40,000 characters per request, accepts language_code. Numbers are not… |
 | `eleven_flash_v2` | — | `active` | — | text | audio | VL | ✗ | ✗ | native — English only; 30,000 characters per request. |
 | `eleven_multilingual_sts_v2` | `eleven_english_sts_v2` | `active` | — | audio | audio | — | ✗ | ✗ | not supported: speech-to-speech has no GAISe surface |
-| `scribe_v2` | `scribe_v2_realtime` | `active` | — | text, audio | text | — | ✗ | ✗ | not supported: speech-to-text has no GAISe surface yet — scribe_v2_realtime is listed as its own model (~150… |
-| `scribe_v2_medical` | — | `active` | — | text, audio | text | — | ✗ | ✗ | not supported: speech-to-text has no GAISe surface yet — Speech recognition fine-tuned for clinical audio, 90… |
+| `scribe_v2` | — | `active` | — | text, audio | text | T | ✗ | ✗ | transcribe: POST /v1/speech-to-text (diarization up to 32 speakers, word or character timestamps, audio event… |
+| `scribe_v2_medical` | — | `active` | — | text, audio | text | T | ✗ | ✗ | transcribe: POST /v1/speech-to-text, same request shape as scribe_v2 (smart mode is rejected) — Speech recogn… |
+| `scribe_v2_realtime` | — | `active` | — | text, audio | text | W | ✗ | ✗ | transcribe_connect: wss://api.elevenlabs.io/v1/speech-to-text/realtime (feature live); partial and committed… |
 | `eleven_ttv_v3` | `eleven_multilingual_ttv_v2` | `active` | — | text | text, audio | — | ✗ | ✗ | not supported: voice design (/v1/text-to-voice/design) has no GAISe surface — Text-to-voice design models; th… |
 | `music_v2` | — | `active` | — | text | text, audio | — | ✗ | ✗ | not supported: music generation (/v1/music) has no GAISe surface — Studio-grade music with composition plans,… |
 | `music_v2_5` | — | `active` | — | text | text, audio | — | ✗ | ✗ | not supported: music generation (/v1/music) has no GAISe surface — Most advanced music model (listed by 2026-… |
@@ -497,19 +511,19 @@ Grok text models through **Chat Completions** (instruct, streaming, function too
 | `grok-build-0.1` | `grok-code-fast-1`, `grok-code-fast`, `grok-code-fast-1-0825` | `preview` | — | text, image | text | IS | ✓ | ✓ | native via Chat Completions; reasoning_effort is not sent (no values documented) — Early access since May 202… |
 | `grok-voice-3.0` | `grok-voice-latest` | `active` | — | text, audio | text, audio | L | ✓ | ✓ (none, high) | realtime transport (wss://api.x.ai/v1/realtime, feature live): 24 kHz PCM16, server VAD or manual turns, func… |
 | `tts` | — | `active` | — | text | audio | V | ✗ | ✗ | speech and speech_stream via POST /v1/tts (mp3, wav, pcm, mulaw, alaw; 8-48 kHz); alignment from with_timesta… |
-| `grok-voice-transcribe-2.0` | — | `active` | — | text, audio | text | — | ✗ | ✗ | not supported: speech-to-text has no GAISe surface — Default speech-to-text model since September 2026 (POST… |
-| `grok-imagine-image-2.0` | — | `active` | — | image | image | — | ✗ | ✗ | not yet native: Images API (/v1/images/generations and /edits) — Recommended image model; quality low, medium… |
-| `grok-imagine-image` | — | `active` | — | image | image | — | ✗ | ✗ | not yet native: Images API — Grok Imagine Image 1.0 (snapshot grok-imagine-image-2026-03-02). $0.02 per image. |
-| `grok-imagine-video-1.5` | `grok-imagine-video-1.5-preview` | `active` | — | image | video | — | ✗ | ✗ | not yet native: asynchronous Videos API (/v1/videos/generations) — Text or image to video (snapshot grok-imag… |
-| `grok-imagine-video-1.5-lite` | — | `active` | — | image | video | — | ✗ | ✗ | not yet native: asynchronous Videos API — Lower-cost Grok Imagine Video 1.5. $0.020 per second. |
-| `grok-imagine-video` | — | `active` | — | image, video | video | — | ✗ | ✗ | not yet native: asynchronous Videos API (generations, edits, extensions) — Grok Imagine Video 1.0; also edits… |
+| `grok-voice-transcribe-2.0` | — | `active` | — | text, audio | text | TW | ✗ | ✗ | transcribe: POST /v1/stt (diarization, word timestamps, keyterms, multichannel); transcribe_connect: wss://ap… |
+| `grok-imagine-image-2.0` | — | `active` | — | image | image | P | ✗ | ✗ | generate_images: /v1/images/generations or /edits (multi-image references); quality low, medium, auto; resolu… |
+| `grok-imagine-image` | — | `active` | — | image | image | P | ✗ | ✗ | generate_images: /v1/images/generations or /edits; quality is not accepted — Grok Imagine Image 1.0 (snapshot… |
+| `grok-imagine-video-1.5` | `grok-imagine-video-1.5-preview` | `active` | — | image | video | M | ✗ | ✗ | start_video / get_video: /v1/videos/generations (first and last frame, references, 1-15 s, 480p-1080p) — Text… |
+| `grok-imagine-video-1.5-lite` | — | `active` | — | image | video | M | ✗ | ✗ | start_video / get_video: /v1/videos/generations — Lower-cost Grok Imagine Video 1.5. $0.020 per second. |
+| `grok-imagine-video` | — | `active` | — | image, video | video | M | ✗ | ✗ | start_video / get_video: generations, edits (source video), and extensions (source video plus duration) — Gro… |
 
 #### Deprecated and legacy
 
 | Model | Aliases | Status | Dates | Input | Output | Ops | Tools | Reasoning | GAISe support / notes |
 |---|---|---|---|---|---|---|---|---|---|
 | `grok-voice-2.0` | — | `deprecated` | — | text, audio | text, audio | L | ✓ | ✓ (none, high) | realtime transport (feature live) — Deprecated October 2026 when Grok Voice 3.0 shipped with the same endpoin… |
-| `grok-imagine-image-quality` | `grok-imagine-image-quality-20260403`, `grok-imagine-image-quality-latest`, `grok-imagine-image-pro` | `deprecated` | shutdown 2026-11-02 | image | image | — | ✗ | ✗ | not yet native: Images API — Retires 2026-11-02; requests to the slug will then be served by grok-imagine-ima… |
+| `grok-imagine-image-quality` | `grok-imagine-image-quality-20260403`, `grok-imagine-image-quality-latest`, `grok-imagine-image-pro` | `deprecated` | shutdown 2026-11-02 | image | image | P | ✗ | ✗ | generate_images: /v1/images/generations or /edits; served by grok-imagine-image-2.0 at low quality after 2026… |
 
 #### Retired
 
@@ -521,7 +535,7 @@ Grok text models through **Chat Completions** (instruct, streaming, function too
 | `grok-4-fast-non-reasoning` | — | `retired` | shutdown 2026-05-15 | text, image | text | IS | ✓ | ✗ | redirected upstream — Retired 2026-05-15 12:00 PT. The slug still resolves and is served by grok-4.3 with rea… |
 | `grok-4-0709` | — | `retired` | shutdown 2026-05-15 | text, image | text | IS | ✓ | ✓ | redirected upstream; reasoning_effort is not sent — Retired 2026-05-15 12:00 PT. The slug still resolves and… |
 | `grok-3` | — | `retired` | shutdown 2026-05-15 | text | text | IS | ✓ | ✗ | redirected upstream — Retired 2026-05-15 12:00 PT. The slug still resolves and is served by grok-4.3 with rea… |
-| `grok-voice-transcribe-1.0` | — | `retired` | shutdown 2026-10-02 | text, audio | text | — | ✗ | ✗ | not supported: speech-to-text has no GAISe surface — End of life 2026-10-02; requests to the slug are routed… |
+| `grok-voice-transcribe-1.0` | — | `retired` | shutdown 2026-10-02 | text, audio | text | TW | ✗ | ✗ | redirected upstream to grok-voice-transcribe-2.0 — End of life 2026-10-02; requests to the slug are routed to… |
 
 ## typesafe
 
@@ -549,6 +563,7 @@ Published shutdown dates for entries that are not yet retired, soonest first. Tr
 | 2026-10-20 | [vertexai](#vertexai) | `gemini-2.5-flash-lite` | gemini-3.8-flash or gemini-3.1-flash-lite or Gemma 4 |
 | 2026-10-20 | [vertexai](#vertexai) | `gemini-2.5-pro` | gemini-3.8-flash or gemini-3.5-flash |
 | 2026-10-22 | [gemini](#gemini) | `gemini-omni-flash-preview` | gemini-omni-1.1-flash |
+| 2026-10-22 | [gemini](#gemini) | `veo-3.1-generate-preview` | gemini-omni-1.1-flash |
 | 2026-10-23 | [openai](#openai) | `gpt-3.5-turbo` | gpt-5.6-terra |
 | 2026-10-23 | [openai](#openai) | `gpt-4` | gpt-5.6-sol |
 | 2026-10-23 | [openai](#openai) | `gpt-4-turbo` | gpt-5.6-sol |

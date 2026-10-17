@@ -1,5 +1,8 @@
 use crate::contracts::*;
 use crate::decisions::{decision_request_with_images, map_decision_answers, map_decision_usage};
+use crate::media::{
+    image_request, map_image_response, map_transcription_response, transcription_form,
+};
 use crate::responses::{
     ResponsesStreamState, map_responses_event, map_responses_response, responses_request,
     uses_responses_api,
@@ -10,10 +13,11 @@ use futures_util::{Stream, StreamExt};
 use gaise_core::GaiseClient;
 use gaise_core::contracts::{
     EmbeddingTaskControl, GaiseContent, GaiseDecisionRequest, GaiseDecisionResponse,
-    GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseFunctionCall, GaiseInstructRequest,
-    GaiseInstructResponse, GaiseInstructStreamResponse, GaiseListModelsRequest,
-    GaiseListModelsResponse, GaiseMessage, GaiseReasoningEffort, GaiseStreamChunk, GaiseTool,
-    GaiseToolCall, GaiseToolParameter, GaiseUsage, OneOrMany, ResolvedEmbedding, image_media_type,
+    GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseFunctionCall, GaiseImageRequest,
+    GaiseImageResponse, GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
+    GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseReasoningEffort,
+    GaiseStreamChunk, GaiseTool, GaiseToolCall, GaiseToolParameter, GaiseTranscriptionRequest,
+    GaiseTranscriptionResponse, GaiseUsage, OneOrMany, ResolvedEmbedding, image_media_type,
     normalize_l2, resolve_embedding,
 };
 use std::collections::HashMap;
@@ -1173,6 +1177,66 @@ impl GaiseClient for GaiseClientOpenAI {
         let mut response = GaiseListModelsResponse::from_models(models);
         response.retain_operation(request.operation);
         Ok(response)
+    }
+
+    /// `POST /v1/audio/transcriptions` (multipart). See [`crate::media`] for
+    /// the per-model rules.
+    async fn transcribe(
+        &self,
+        request: &GaiseTranscriptionRequest,
+    ) -> Result<GaiseTranscriptionResponse, Box<dyn std::error::Error + Send + Sync>> {
+        let form = transcription_form(request)?;
+        let boundary = format!(
+            "gaise-{:016x}{:08x}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos() as u64)
+                .unwrap_or_default(),
+            form.file.len()
+        );
+        let builder = self
+            .client
+            .post(format!("{}/audio/transcriptions", self.api_url))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header(
+                "Content-Type",
+                format!("multipart/form-data; boundary={boundary}"),
+            )
+            .body(form.encode(&boundary));
+        let response = self.send_with_retry(builder).await?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let err_text = response.text().await?;
+            return Err(format!("OpenAI API error ({status}): {err_text}").into());
+        }
+        let body = response.text().await?;
+        Ok(map_transcription_response(&body, form.response_format())?)
+    }
+
+    /// `POST /v1/images/generations`, or `POST /v1/images/edits` (JSON body)
+    /// when the request carries input images.
+    async fn generate_images(
+        &self,
+        request: &GaiseImageRequest,
+    ) -> Result<GaiseImageResponse, Box<dyn std::error::Error + Send + Sync>> {
+        let (endpoint, body) = image_request(request)?;
+        let builder = self
+            .client
+            .post(format!("{}/{}", self.api_url, endpoint.path()))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(&body);
+        let response = self.send_with_retry(builder).await?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let err_text = response.text().await?;
+            return Err(format!("OpenAI API error ({status}): {err_text}").into());
+        }
+        let text = response.text().await?;
+        let value: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+            let snippet: String = text.chars().take(400).collect();
+            format!("failed to parse OpenAI images response: {e}; body starts: {snippet}")
+        })?;
+        Ok(map_image_response(&value, body["output_format"].as_str())?)
     }
 }
 

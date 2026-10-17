@@ -1,4 +1,5 @@
 use crate::contracts::*;
+use crate::xai_media::*;
 use async_trait::async_trait;
 use base64::Engine;
 use futures_util::{Stream, StreamExt};
@@ -9,6 +10,10 @@ use gaise_core::contracts::{
     GaiseSpeechChunk, GaiseSpeechRequest, GaiseSpeechResponse, GaiseSpeechStreamResponse,
     GaiseStreamChunk, GaiseTool, GaiseToolCall, GaiseToolParameter, GaiseUsage, OneOrMany,
     image_media_type,
+};
+use gaise_core::contracts::{
+    GaiseImageRequest, GaiseImageResponse, GaiseJobStatus, GaiseTranscriptionRequest,
+    GaiseTranscriptionResponse, GaiseVideoJob, GaiseVideoJobRequest, GaiseVideoRequest,
 };
 use gaise_core::{GaiseClient, GaiseSpeechClient};
 use std::collections::HashMap;
@@ -173,7 +178,7 @@ fn ensure_chat_supported(model: &str) -> Result<(), BoxError> {
         Ok(())
     } else {
         Err(format!(
-            "xAI model '{model}' is not served by Chat Completions (multi-agent models need the Responses API; Imagine and voice models use their own endpoints: speech through GaiseSpeechClient, speech-to-speech through live_connect)"
+            "xAI model '{model}' is not served by Chat Completions (multi-agent models need the Responses API; Imagine and voice models use their own endpoints: generate_images, start_video, transcribe, GaiseSpeechClient, and live_connect)"
         )
         .into())
     }
@@ -571,6 +576,72 @@ impl GaiseClientXai {
         Ok(response)
     }
 
+    /// Fail with the xAI error format unless the response is a success.
+    async fn check(response: reqwest::Response) -> Result<reqwest::Response, BoxError> {
+        if !response.status().is_success() {
+            let status = response.status();
+            let err_text = response.text().await?;
+            return Err(format!("xAI API error ({status}): {err_text}").into());
+        }
+        Ok(response)
+    }
+
+    async fn json_body(
+        response: reqwest::Response,
+        what: &str,
+    ) -> Result<serde_json::Value, BoxError> {
+        let text = response.text().await?;
+        serde_json::from_str(&text).map_err(|e| {
+            let snippet: String = text.chars().take(400).collect();
+            format!("failed to parse xAI {what} response: {e}; body starts: {snippet}").into()
+        })
+    }
+
+    /// `POST /v1/stt` as `multipart/form-data`. A form cannot be cloned, so
+    /// it is rebuilt from `parts` for each retry.
+    async fn post_stt(&self, parts: &[XaiSttPart]) -> Result<reqwest::Response, BoxError> {
+        let build = || -> Result<reqwest::RequestBuilder, BoxError> {
+            let mut form = reqwest::multipart::Form::new();
+            for part in parts {
+                form = match part {
+                    XaiSttPart::Text { name, value } => form.text(name.clone(), value.clone()),
+                    XaiSttPart::File {
+                        data,
+                        file_name,
+                        mime_type,
+                    } => form.part(
+                        "file",
+                        reqwest::multipart::Part::bytes(data.clone())
+                            .file_name(file_name.clone())
+                            .mime_str(mime_type)?,
+                    ),
+                };
+            }
+            Ok(self
+                .client
+                .post(format!("{}/stt", self.api_url))
+                .bearer_auth(&self.api_key)
+                .multipart(form))
+        };
+        let mut attempt = 0u32;
+        loop {
+            attempt += 1;
+            let outcome = build()?.send().await;
+            let retryable = match &outcome {
+                Ok(resp) => is_transient_status(resp.status()),
+                Err(_) => true,
+            };
+            if !retryable || attempt >= MAX_ATTEMPTS {
+                return Self::check(outcome?).await;
+            }
+            if let Ok(resp) = outcome {
+                let _ = resp.bytes().await;
+            }
+            let delay = std::time::Duration::from_millis(400u64 * (1u64 << (attempt - 1)));
+            tokio::time::sleep(delay).await;
+        }
+    }
+
     /// `GET /v1/models`: ids, aliases, context length, and reasoning efforts.
     pub async fn list_models_raw(&self) -> Result<XaiModelList, BoxError> {
         let builder = self
@@ -701,6 +772,64 @@ impl GaiseClient for GaiseClientXai {
         let mut response = GaiseListModelsResponse::from_models(models);
         response.retain_operation(request.operation);
         Ok(response)
+    }
+
+    /// `POST /v1/stt` (multipart; the audio file is the last field).
+    async fn transcribe(
+        &self,
+        request: &GaiseTranscriptionRequest,
+    ) -> Result<GaiseTranscriptionResponse, BoxError> {
+        let parts = build_xai_stt_parts(request)?;
+        let response = self.post_stt(&parts).await?;
+        let text = response.text().await?;
+        let parsed: XaiSttResponse = serde_json::from_str(&text).map_err(|e| {
+            let snippet: String = text.chars().take(400).collect();
+            format!("failed to parse xAI speech-to-text response: {e}; body starts: {snippet}")
+        })?;
+        Ok(map_xai_stt_response(parsed))
+    }
+
+    /// `POST /v1/images/generations`, or `/v1/images/edits` with input images.
+    async fn generate_images(
+        &self,
+        request: &GaiseImageRequest,
+    ) -> Result<GaiseImageResponse, BoxError> {
+        let (path, body) = build_xai_image_request(request)?;
+        let response = self.post_json(path, &body).await?;
+        let body = Self::json_body(response, "image").await?;
+        Ok(map_xai_image_response(&body)?)
+    }
+
+    /// `POST /v1/videos/generations` (or `/edits`, `/extensions` for a source
+    /// video). Returns the queued job; poll it with `get_video`.
+    async fn start_video(&self, request: &GaiseVideoRequest) -> Result<GaiseVideoJob, BoxError> {
+        let (path, body) = build_xai_video_request(request)?;
+        let response = self.post_json(path, &body).await?;
+        let body = Self::json_body(response, "video").await?;
+        let id = body["request_id"]
+            .as_str()
+            .filter(|id| !id.is_empty())
+            .ok_or("xAI video response has no request_id")?;
+        Ok(GaiseVideoJob {
+            id: id.to_string(),
+            model: request.model.clone(),
+            status: GaiseJobStatus::Queued,
+            ..Default::default()
+        })
+    }
+
+    /// `GET /v1/videos/{request_id}`.
+    async fn get_video(&self, request: &GaiseVideoJobRequest) -> Result<GaiseVideoJob, BoxError> {
+        if request.id.trim().is_empty() {
+            return Err("xAI video job id is empty".into());
+        }
+        let builder = self
+            .client
+            .get(format!("{}/videos/{}", self.api_url, request.id.trim()))
+            .bearer_auth(&self.api_key);
+        let response = Self::check(self.send_with_retry(builder).await?).await?;
+        let body = Self::json_body(response, "video status").await?;
+        Ok(map_xai_video_job(&request.id, &request.model, &body))
     }
 }
 
