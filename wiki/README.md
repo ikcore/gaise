@@ -1,6 +1,6 @@
 # GAISe wiki
 
-GAISe (Generative AI Service) is a Rust workspace that maps one provider-neutral contract onto seven vendor APIs — OpenAI, Anthropic, Google Gemini, Google Vertex AI, Amazon Bedrock, Ollama, and ElevenLabs — for chat (`instruct`), streaming, embeddings, text-to-speech, model discovery, and live/realtime sessions. This wiki documents the implementation as audited on **2026-09-12**; every page links to the source it describes.
+GAISe (Generative AI Service) is a Rust workspace that maps one provider-neutral contract onto eight vendor APIs — OpenAI, Anthropic, Google Gemini, Google Vertex AI, Amazon Bedrock, Ollama, ElevenLabs, and xAI — for chat (`instruct`), streaming, embeddings, text-to-speech, model discovery, and live/realtime sessions. This wiki documents the implementation as audited on **2026-09-12**; every page links to the source it describes.
 
 ## Pages
 
@@ -29,6 +29,7 @@ GAISe (Generative AI Service) is a Rust workspace that maps one provider-neutral
 | [**Amazon Bedrock**](vendor-bedrock.md) | `bedrock` | [`gaise-provider-bedrock`](../gaise-provider-bedrock/) | Converse/ConverseStream, InvokeModel embeddings, `ListFoundationModels` |
 | [**Ollama**](vendor-ollama.md) | `ollama` | [`gaise-provider-ollama`](../gaise-provider-ollama/) | `/api/chat`, `/api/embed`, `/api/tags` |
 | [**ElevenLabs**](vendor-elevenlabs.md) | `elevenlabs` | [`gaise-provider-elevenlabs`](../gaise-provider-elevenlabs/) | Text-to-speech, streaming speech, realtime voice (`live`), `GET /v1/models` |
+| [**xAI**](vendor-xai.md) | `xai` | [`gaise-provider-xai`](../gaise-provider-xai/) | Chat Completions, text-to-speech, speech-to-speech (`live`), `GET /v1/models` |
 | [**TypeSafe AI**](decision.md) | `typesafe` | [`gaise-provider-typesafe`](../gaise-provider-typesafe/) | Typed decisions (System One), `GET /v1/models` |
 
 Each vendor page follows the same outline — configuration, request mapping (roles, modalities, tools, generation config, model-family rules), response mapping, streaming, usage counters, embeddings, live, model discovery, the vendor's model table, limitations, flow diagrams, tests, and sources — so the same question can be answered in the same place for every provider.
@@ -58,8 +59,9 @@ flowchart LR
     Router --> BED["Bedrock<br/>Converse · InvokeModel"]
     Router --> OLL["Ollama<br/>chat · embed"]
     Router --> ELL["ElevenLabs<br/>speech · realtime voice"]
+    Router --> XAI["xAI<br/>Chat · speech · speech-to-speech"]
     Registry["model-registry.toml<br/>bundled overlay"] -.-> Router
-    OAI & ANT & GEM & VAI & BED & OLL & ELL --> Norm["Normalized messages, streams, media, speech, tools, usage, and model records"]
+    OAI & ANT & GEM & VAI & BED & OLL & ELL & XAI --> Norm["Normalized messages, streams, media, speech, tools, usage, and model records"]
     Norm --> App
     HTTP["gaise-api<br/>JSON · SSE · WebSocket"] --> Router
 ```
@@ -72,7 +74,7 @@ flowchart TD
         E[embeddings]
         M[list_models]
     end
-    subgraph Speech["GaiseSpeechClient (elevenlabs feature)"]
+    subgraph Speech["GaiseSpeechClient (elevenlabs or xai feature)"]
         V[speech]
         VS[speech_stream]
     end

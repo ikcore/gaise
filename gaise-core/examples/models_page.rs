@@ -15,7 +15,7 @@ use gaise_core::registry::{ModelRegistry, RegistryModel, RegistryProvider};
 /// tables stay readable; the registry keeps the full text.
 const NOTE_LIMIT: usize = 109;
 
-const PROVIDERS: [(&str, &str, &str); 8] = [
+const PROVIDERS: [(&str, &str, &str); 9] = [
     ("openai", "OpenAI", OPENAI_INTRO),
     ("anthropic", "Anthropic", ANTHROPIC_INTRO),
     ("gemini", "Google Gemini API", GEMINI_INTRO),
@@ -23,6 +23,7 @@ const PROVIDERS: [(&str, &str, &str); 8] = [
     ("bedrock", "Amazon Bedrock", BEDROCK_INTRO),
     ("ollama", "Ollama", OLLAMA_INTRO),
     ("elevenlabs", "ElevenLabs", ELEVENLABS_INTRO),
+    ("xai", "xAI", XAI_INTRO),
     (
         "typesafe",
         "TypeSafe AI",
@@ -32,7 +33,7 @@ const PROVIDERS: [(&str, &str, &str); 8] = [
 
 const HEADER: &str = "# Models
 
-> Part of the [GAISe wiki](README.md) · [Capabilities](capabilities.md) · [HTTP API](api.md#get-v1models) · [Rust SDK](sdk.md#model-discovery) · [Flows](flows.md#model-discovery) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Google Gemini API](vendor-gemini.md) · [Google Vertex AI](vendor-vertexai.md) · [Amazon Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md) · [ElevenLabs](vendor-elevenlabs.md)
+> Part of the [GAISe wiki](README.md) · [Capabilities](capabilities.md) · [HTTP API](api.md#get-v1models) · [Rust SDK](sdk.md#model-discovery) · [Flows](flows.md#model-discovery) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Google Gemini API](vendor-gemini.md) · [Google Vertex AI](vendor-vertexai.md) · [Amazon Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md) · [ElevenLabs](vendor-elevenlabs.md) · [xAI](vendor-xai.md)
 
 This page is the human-readable view of [`gaise-core/model-registry.toml`](../gaise-core/model-registry.toml) (schema {schema}, audited **{audited}**), which is compiled into the `gaise` crate and applied as an overlay by [`list_models`](api.md#get-v1models). It is advisory: GAISe accepts arbitrary model IDs so new releases work before this file is updated, and the provider's own model API (see [Model discovery](capabilities.md#model-discovery)) is always the first source of truth.
 
@@ -56,6 +57,8 @@ const VERTEXAI_INTRO: &str = "Google Cloud lifecycle only. Model Garden listing 
 const BEDROCK_INTRO: &str = "Model IDs, inference profiles, and lifecycle are **region-specific**; entries are representative and `ListFoundationModels` / `ListInferenceProfiles` are authoritative ([`catalog.rs`](../gaise-provider-bedrock/src/catalog.rs)). The registry matcher strips `us.`/`eu.`/`apac.`/`ap.`/`jp.`/`au.`/`ca.`/`il.`/`in.`/`global.`/`us-gov.` profile prefixes and `-vN:M` suffixes, and `*` entries are family globs.";
 
 const OLLAMA_INTRO: &str = "Decision models (`nimble`, `tev1`, `clef`, `clef-flash`, `laya`, `d1`, `pplx-decider`, and others) are driven through `decision` on Ollama's `POST /v1/systemone`; Clef, Clef Flash, d1, and pplx-decider also take images through `decision_with_images`. The installed catalog is dynamic (`GET /api/tags`); entries are family globs describing typical capabilities, and `-cloud` tags match the same globs. `POST /api/show` (opt-in `include_details`) reports the real capabilities of each installed tag ([`catalog.rs`](../gaise-provider-ollama/src/contracts/catalog.rs)).";
+
+const XAI_INTRO: &str = "Grok text models through **Chat Completions** (instruct, streaming, function tools, images; `reasoning_content` becomes reasoning parts), text-to-speech as `xai::tts` (`POST /v1/tts` has no model id), and speech-to-speech over `wss://api.x.ai/v1/realtime` (feature `live`). `GET /v1/models` reports aliases, context length, and accepted reasoning efforts ([`catalog.rs`](../gaise-provider-xai/src/contracts/catalog.rs)). Retired slugs still resolve and redirect upstream to grok-4.3; the multi-agent model is Responses-only, and Imagine image/video and speech-to-text have no GAISe surface.";
 
 const ELEVENLABS_INTRO: &str = "Text-to-speech and realtime voice. `GET /v1/models` reports model ids, languages, `can_do_text_to_speech`, style/speaker-boost support, and per-request character limits ([`models.rs`](../gaise-provider-elevenlabs/src/contracts/models.rs)). Voices are account-specific (`GET /v2/voices`) and ElevenLabs default voices expire 2026-12-31, so no voice is hard-coded. `eleven_v3*` realtime goes through the text-to-dialogue WebSocket; other models use `stream-input`.";
 

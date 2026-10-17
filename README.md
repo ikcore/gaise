@@ -5,9 +5,27 @@
 [![Rust](https://img.shields.io/badge/rust-1.91%2B-orange.svg)](https://www.rust-lang.org)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/ikcore/gaise#license)
 
-GAISe is a Rust abstraction over OpenAI, Anthropic, Google Gemini, Vertex AI, Amazon Bedrock, Ollama, ElevenLabs, and TypeSafe AI. It provides one request/response contract for text, reasoning, tools, images, audio, files, embeddings, and streaming.
+GAISe is a Rust abstraction over OpenAI, Anthropic, Google Gemini, Vertex AI, Amazon Bedrock, Ollama, ElevenLabs, TypeSafe AI, and xAI. It provides one request/response contract for text, reasoning, tools, images, audio, files, embeddings, and streaming.
 
 Written by Ian Knowles. Project page: [BadAI](https://badai.company/open-source/gaise).
+
+## What's new in 5.0
+
+- **xAI (Grok) provider** in the new [`gaise-provider-xai`](https://crates.io/crates/gaise-provider-xai) crate, on by default in `gaise-client` (feature `xai`):
+  - **Chat:** `instruct` and `instruct_stream` for `xai::grok-4.7`, `grok-4.6`, `grok-4.5`, `grok-4.3`, `grok-4.20`, and `grok-build-0.1`. Supports function tools and image input, and returns Grok's reasoning trace as reasoning parts. Usage includes cached, image, and reasoning tokens, plus the request cost in USD ticks.
+  - **Reasoning effort** is mapped per model: low to xhigh on grok-4.7 and 4.6, low to high on grok-4.5, and none to xhigh on grok-4.3.
+  - **Text-to-speech** as `xai::tts`: mp3, wav, pcm, mulaw, or alaw output at 8–48 kHz, with voice, speed, and per-character timestamps. It is served on the existing `POST /v1/speech*` routes.
+  - **Speech-to-speech** with Grok Voice 3.0 (`xai::grok-voice-3.0` or `xai::grok-voice-latest`) over xAI's realtime WebSocket, with the `live` feature. It supports server VAD or manual turns, function tools, and input transcription, and is served on `GET /v1/live`.
+  - **Model listing** reports aliases, context length, and the reasoning efforts each model accepts.
+- **New registry entries:** 25 xAI models, including:
+  - the Grok 4.x text family and Grok Build 0.1;
+  - Grok Voice 3.0, and Grok Voice 2.0 (deprecated);
+  - the speech-to-text models and the Grok Imagine image and video models, which are listed only, with no GAISe operation yet;
+  - the slugs xAI retired on 2026-05-15.
+
+  The new `video_output` capability term describes the video models.
+- **Configuration:** `XAI_API_KEY` and `XAI_API_URL` for the HTTP server, and `xai_api_url` / `xai_api_key` on `GaiseClientConfig`.
+- **Breaking:** `GaiseClientConfig` has new public fields, so code that builds it as a struct literal needs `..Default::default()`. Nothing changes for existing model ids. See the [changelog](CHANGELOG.md).
 
 ## What is included
 
@@ -17,12 +35,13 @@ Written by Ian Knowles. Project page: [BadAI](https://badai.company/open-source/
 - Tool calling with nested JSON schemas and provider thought-signature round trips.
 - Model-aware reasoning controls, prompt caching, retry handling, modality-aware input/output/total usage reporting, and robust stream framing.
 - Generated-image output for Gemini, Vertex AI, and supported Bedrock response shapes.
-- Bidirectional OpenAI Realtime and Gemini Live transports.
+- Bidirectional OpenAI Realtime, Gemini Live, and xAI speech-to-speech transports, plus ElevenLabs realtime voice.
+- Text-to-speech through `GaiseSpeechClient` (ElevenLabs and xAI), as a full clip or streamed.
 - Hermetic mapping and parser tests; live or credentialed checks are opt-in and ignored by default.
 
 ## Provider coverage
 
-Model registry audited **2026-10-09**. Newest additions: the OpenAI Decisions API (beta, `gpt-6-luna`); Claude Haiku 5.5 at Anthropic and on Bedrock; Nano Banana 2.1 on the Gemini API and Vertex AI; GLM 5.3 and TwelveLabs Pegasus 1.5 on Bedrock; the Clef, Clef Flash, and Laya decision models, Mistral Large 4, and EmbeddingGemma 2 on Ollama. New model ids work before the registry is updated; the registry only adds limits, lifecycle dates, and per-family parameter rules.
+Model registry audited **2026-10-16**; xAI was added on 2026-10-17. Newest additions: the xAI Grok 4.7, 4.6, 4.5, 4.3, and 4.20 models, Grok Build 0.1, and Grok Voice 3.0; TypeSafe Jev 1.14 with image input; the OpenAI Decisions API (beta, `gpt-6-luna`); Claude Haiku 5.5 at Anthropic and on Bedrock; Nano Banana 2.1 on the Gemini API and Vertex AI; GLM 5.3 and TwelveLabs Pegasus 1.5 on Bedrock; the Clef, Clef Flash, and Laya decision models, Mistral Large 4, and EmbeddingGemma 2 on Ollama. New model ids work before the registry is updated; the registry only adds limits, lifecycle dates, and per-family parameter rules.
 
 | Provider | crates.io | Main API surface | Current model examples |
 |---|---|---|---|
@@ -32,28 +51,30 @@ Model registry audited **2026-10-09**. Newest additions: the OpenAI Decisions AP
 | Vertex AI | [`gaise-provider-vertexai`](https://crates.io/crates/gaise-provider-vertexai) | generateContent, Embeddings | Gemini 4 Argon (GA 2026-10-13), Gemini 3.8 Flash through 3.1 Flash-Lite, 3.1 Pro preview, image-output models, gemini-embedding-001 and text-embedding-005 |
 | Bedrock | [`gaise-provider-bedrock`](https://crates.io/crates/gaise-provider-bedrock) | Converse, ConverseStream, InvokeModel | Claude Fable 5.1 / Opus 5 / Sonnet 5 / Haiku 5.5, Amazon Nova 2 Lite and Nova Pro/Lite/Micro, OpenAI GPT-6 Astra, GPT-5.6, and gpt-oss, xAI Grok 4.6, DeepSeek V3.2, Mistral Large 3, Llama 4, Qwen3 Coder; Titan, Cohere, and Nova embeddings |
 | ElevenLabs | [`gaise-provider-elevenlabs`](https://crates.io/crates/gaise-provider-elevenlabs) | Text-to-speech and realtime voice | ElevenLabs speech and voice models |
+| xAI | [`gaise-provider-xai`](https://crates.io/crates/gaise-provider-xai) | Chat Completions, text-to-speech, speech-to-speech | Grok 4.7, 4.6, 4.5, 4.3, 4.20, and Grok Build 0.1 (text and images, tools, reasoning effort); `xai::tts` text-to-speech; Grok Voice 3.0 speech-to-speech over the realtime WebSocket |
 | TypeSafe AI | [`gaise-provider-typesafe`](https://crates.io/crates/gaise-provider-typesafe) | Typed decisions (System One) | `typesafe::jev`: Choice, Score, and Noul questions with typed answers and probabilities |
 | Ollama | [`gaise-provider-ollama`](https://crates.io/crates/gaise-provider-ollama) | Chat, Embeddings, and typed decisions | Any installed tag (Qwen 3.5–3.8, GPT-OSS, Gemma 4, GLM 5.3, Granite 4.2, DeepSeek R1 and V4.1 Flash, Kimi K3, Llama 4, Muse Glimmer, Laguna S/XS 2.1, and the common embedding families); vision, thinking, and tools are model-dependent |
 
-GAISe also wraps ElevenLabs for text-to-speech and realtime voice (`POST /v1/speech*`, `GET /v1/live`). Model availability changes quickly. [`gaise-core/model-registry.toml`](gaise-core/model-registry.toml) records the 2026-10-09 audit, including provider-specific retirement dates, and is bundled into the `gaise` crate so `list_models` can enrich what each provider's model API leaves out. The [wiki](wiki/README.md) is the complete developer guide: [HTTP API](wiki/api.md), [Rust SDK](wiki/sdk.md), [capabilities](wiki/capabilities.md), the full [model catalog](wiki/models.md), [flow diagrams](wiki/flows.md), [examples](wiki/examples.md), and one page per vendor ([OpenAI](wiki/vendor-openai.md), [Anthropic](wiki/vendor-anthropic.md), [Gemini](wiki/vendor-gemini.md), [Vertex AI](wiki/vendor-vertexai.md), [Bedrock](wiki/vendor-bedrock.md), [Ollama](wiki/vendor-ollama.md), [ElevenLabs](wiki/vendor-elevenlabs.md)).
+GAISe also wraps ElevenLabs and xAI for text-to-speech and realtime voice (`POST /v1/speech*`, `GET /v1/live`). Model availability changes quickly. [`gaise-core/model-registry.toml`](gaise-core/model-registry.toml) records the 2026-10-09 audit, including provider-specific retirement dates, and is bundled into the `gaise` crate so `list_models` can enrich what each provider's model API leaves out. The [wiki](wiki/README.md) is the complete developer guide: [HTTP API](wiki/api.md), [Rust SDK](wiki/sdk.md), [capabilities](wiki/capabilities.md), the full [model catalog](wiki/models.md), [flow diagrams](wiki/flows.md), [examples](wiki/examples.md), and one page per vendor ([OpenAI](wiki/vendor-openai.md), [Anthropic](wiki/vendor-anthropic.md), [Gemini](wiki/vendor-gemini.md), [Vertex AI](wiki/vendor-vertexai.md), [Bedrock](wiki/vendor-bedrock.md), [Ollama](wiki/vendor-ollama.md), [ElevenLabs](wiki/vendor-elevenlabs.md), [xAI](wiki/vendor-xai.md)).
 
 ## Installation
 
 ```toml
 [dependencies]
-gaise = "3"
-gaise-client = "3"
+gaise = "5"
+gaise-client = "5"
 tokio = { version = "1", features = ["full"] }
 
 # Or depend on individual adapters:
-# gaise-provider-openai = "3"
-# gaise-provider-anthropic = "3"
-# gaise-provider-gemini = "3"
-# gaise-provider-vertexai = "3"
-# gaise-provider-bedrock = "3"
-# gaise-provider-ollama = "3"
-# gaise-provider-elevenlabs = "3"
-# gaise-provider-typesafe = "3"
+# gaise-provider-openai = "5"
+# gaise-provider-anthropic = "5"
+# gaise-provider-gemini = "5"
+# gaise-provider-vertexai = "5"
+# gaise-provider-bedrock = "5"
+# gaise-provider-ollama = "5"
+# gaise-provider-elevenlabs = "5"
+# gaise-provider-typesafe = "5"
+# gaise-provider-xai = "5"
 ```
 
 ## Router quick start
@@ -266,9 +287,56 @@ The Axum service exposes:
 
 - `POST /v1/instruct`
 - `POST /v1/instruct/stream` (SSE)
-- `POST /v1/embeddings`
+- `POST /v1/embeddings` and `POST /v1/embeddings/contents`
+- `POST /v1/decision` (alias `/v1/systemone`)
+- `POST /v1/speech`, `POST /v1/speech/stream` (SSE), `POST /v1/speech/audio` (ElevenLabs and xAI)
+- `GET /v1/live` (WebSocket; `live` feature)
+- `GET /v1/models`, `GET /v1/models/limits`, `GET /v1/models/{provider}::{id}`
 
 See [`API_DOCUMENTATION.md`](API_DOCUMENTATION.md) for the wire format.
+
+## xAI: chat, text-to-speech, and speech-to-speech
+
+```rust
+use gaise_client::{GaiseClientConfig, GaiseClientService};
+use gaise_core::{GaiseClient, GaiseSpeechClient};
+use gaise_core::contracts::*;
+
+let service = GaiseClientService::new(GaiseClientConfig {
+    xai_api_key: std::env::var("XAI_API_KEY").ok(),
+    ..Default::default()
+});
+
+// Chat with Grok 4.7 at high reasoning effort.
+let reply = service
+    .instruct(&GaiseInstructRequest {
+        model: "xai::grok-4.7".into(),
+        input: OneOrMany::One(GaiseMessage {
+            role: "user".into(),
+            content: Some(OneOrMany::One(GaiseContent::Text { text: "Hello, Grok".into() })),
+            ..Default::default()
+        }),
+        generation_config: Some(GaiseGenerationConfig {
+            thinking_effort: Some("high".into()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    })
+    .await?;
+
+// Text-to-speech (xAI's TTS endpoint has no model id; `tts` is the routing name).
+let clip = service
+    .speech(&GaiseSpeechRequest {
+        model: "xai::tts".into(),
+        input: "Welcome to GAISe.".into(),
+        voice: Some("eve".into()),
+        format: Some("audio/mpeg".into()),
+        ..Default::default()
+    })
+    .await?;
+```
+
+For speech-to-speech, enable the `live` feature and call `live_connect` with `model: "xai::grok-voice-latest"`. See [wiki/vendor-xai.md](wiki/vendor-xai.md) for the full mapping.
 
 ## Development and tests
 
@@ -291,7 +359,10 @@ The default suite does not call provider APIs. Tests requiring credentials, a ru
 | `gaise-provider-gemini` | Gemini API and Gemini Live |
 | `gaise-provider-vertexai` | Vertex AI with service-account authentication |
 | `gaise-provider-bedrock` | Bedrock Converse/Invoke and embeddings |
-| `gaise-provider-ollama` | Local Ollama chat and embeddings |
+| `gaise-provider-ollama` | Local Ollama chat, embeddings, and typed decisions |
+| `gaise-provider-elevenlabs` | ElevenLabs text-to-speech and realtime voice |
+| `gaise-provider-typesafe` | TypeSafe typed decisions |
+| `gaise-provider-xai` | xAI Grok chat, text-to-speech, and speech-to-speech |
 | `gaise-api` | Axum JSON/SSE/WebSocket server |
 | `gaise-chatbot` | Example CLI chatbot |
 
@@ -305,6 +376,9 @@ The default suite does not call provider APIs. Tests requiring credentials, a ru
 | `VERTEXAI_SA_PATH`, `VERTEXAI_API_URL` | Vertex AI |
 | `BEDROCK_REGION` and normal AWS credential variables | Bedrock |
 | `OLLAMA_URL` | Ollama |
+| `ELEVENLABS_API_KEY`, `ELEVENLABS_API_URL` | ElevenLabs |
+| `TYPESAFE_API_KEY`, `TYPESAFE_API_URL` | TypeSafe AI |
+| `XAI_API_KEY`, `XAI_API_URL` | xAI |
 | `GAISE_PORT` | API server; defaults to 3000 |
 
 ## License

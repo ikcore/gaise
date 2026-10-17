@@ -22,7 +22,7 @@ use gaise_core::{
     GaiseLiveClient,
     contracts::{GaiseLiveConfig, GaiseLiveSession},
 };
-#[cfg(feature = "elevenlabs")]
+#[cfg(any(feature = "elevenlabs", feature = "xai"))]
 use gaise_core::{
     GaiseSpeechClient,
     contracts::{GaiseSpeechRequest, GaiseSpeechResponse, GaiseSpeechStreamResponse},
@@ -50,6 +50,10 @@ use gaise_provider_vertexai::vertexai_client::GaiseClientVertexAI;
 
 #[cfg(feature = "typesafe")]
 use gaise_provider_typesafe::GaiseClientTypeSafe;
+#[cfg(feature = "xai")]
+use gaise_provider_xai::xai_client::GaiseClientXai;
+#[cfg(all(feature = "xai", feature = "live"))]
+use gaise_provider_xai::xai_live_client::GaiseClientXaiLive;
 
 /// Configuration for the GAISe client service.
 /// This struct holds the necessary URLs and credentials for different AI providers.
@@ -97,6 +101,12 @@ pub struct GaiseClientConfig {
     /// TypeSafe API key.
     #[cfg(feature = "typesafe")]
     pub typesafe_api_key: Option<String>,
+    /// API URL for xAI (default: "https://api.x.ai/v1").
+    #[cfg(feature = "xai")]
+    pub xai_api_url: Option<String>,
+    /// API key for xAI.
+    #[cfg(feature = "xai")]
+    pub xai_api_key: Option<String>,
     /// Optional logger for requests and responses.
     pub logger: Option<Arc<dyn IGaiseLogger>>,
 }
@@ -112,7 +122,7 @@ pub struct GaiseClientService {
     clients: RwLock<HashMap<String, Arc<dyn GaiseClient>>>,
     #[cfg(feature = "live")]
     live_clients: RwLock<HashMap<String, Arc<dyn GaiseLiveClient>>>,
-    #[cfg(feature = "elevenlabs")]
+    #[cfg(any(feature = "elevenlabs", feature = "xai"))]
     speech_clients: RwLock<HashMap<String, Arc<dyn GaiseSpeechClient>>>,
     logger: Option<Arc<dyn IGaiseLogger>>,
 }
@@ -126,7 +136,7 @@ impl GaiseClientService {
             clients: RwLock::new(HashMap::new()),
             #[cfg(feature = "live")]
             live_clients: RwLock::new(HashMap::new()),
-            #[cfg(feature = "elevenlabs")]
+            #[cfg(any(feature = "elevenlabs", feature = "xai"))]
             speech_clients: RwLock::new(HashMap::new()),
             logger,
         }
@@ -135,7 +145,7 @@ impl GaiseClientService {
     /// Retrieves an existing client for the specified provider or initializes a new one.
     ///
     /// Supported providers: "ollama", "vertexai", "openai", "bedrock", "anthropic",
-    /// "gemini", "elevenlabs", "typesafe".
+    /// "gemini", "elevenlabs", "typesafe", "xai".
     pub async fn get_client(
         &self,
         provider: &str,
@@ -274,6 +284,8 @@ impl GaiseClientService {
             }
             #[cfg(feature = "elevenlabs")]
             "elevenlabs" => Arc::new(self.build_elevenlabs(connection)?),
+            #[cfg(feature = "xai")]
+            "xai" => Arc::new(self.build_xai(connection)?),
             _ => return Err(format!("Unknown or disabled provider: {}", provider).into()),
         };
 
@@ -352,6 +364,10 @@ impl GaiseClientService {
         if self.config.elevenlabs_api_key.is_some() {
             providers.push("elevenlabs".into());
         }
+        #[cfg(feature = "xai")]
+        if self.config.xai_api_key.is_some() {
+            providers.push("xai".into());
+        }
         #[cfg(feature = "typesafe")]
         if self
             .config
@@ -415,8 +431,23 @@ impl GaiseClientService {
         Ok(GaiseClientElevenLabs::new(url.to_string(), key.to_string()))
     }
 
+    #[cfg(feature = "xai")]
+    fn build_xai(
+        &self,
+        connection: Option<&GaiseConnection>,
+    ) -> Result<GaiseClientXai, Box<dyn std::error::Error + Send + Sync>> {
+        let url = Self::resolve_url(
+            connection,
+            self.config.xai_api_url.as_deref(),
+            Some(gaise_provider_xai::xai_client::DEFAULT_API_URL),
+            "xAI",
+        )?;
+        let key = Self::resolve_key(connection, self.config.xai_api_key.as_deref(), "xAI")?;
+        Ok(GaiseClientXai::new(url.to_string(), key.to_string()))
+    }
+
     /// Retrieves or initializes a speech (text-to-speech) client for the provider.
-    #[cfg(feature = "elevenlabs")]
+    #[cfg(any(feature = "elevenlabs", feature = "xai"))]
     pub async fn get_speech_client(
         &self,
         provider: &str,
@@ -425,7 +456,7 @@ impl GaiseClientService {
     }
 
     /// Speech client honouring a per-request [`GaiseConnection`].
-    #[cfg(feature = "elevenlabs")]
+    #[cfg(any(feature = "elevenlabs", feature = "xai"))]
     pub async fn get_speech_client_with(
         &self,
         provider: &str,
@@ -438,9 +469,13 @@ impl GaiseClientService {
                 return Ok(client.clone());
             }
         }
+        #[allow(unused_variables)]
         let connection = connection.filter(|c| !c.is_empty());
         let client: Arc<dyn GaiseSpeechClient> = match provider {
+            #[cfg(feature = "elevenlabs")]
             "elevenlabs" => Arc::new(self.build_elevenlabs(connection)?),
+            #[cfg(feature = "xai")]
+            "xai" => Arc::new(self.build_xai(connection)?),
             _ => return Err(format!("No speech provider available for: {}", provider).into()),
         };
         let mut clients = self.speech_clients.write().await;
@@ -449,7 +484,7 @@ impl GaiseClientService {
     }
 
     /// Registers a speech client under a provider key.
-    #[cfg(feature = "elevenlabs")]
+    #[cfg(any(feature = "elevenlabs", feature = "xai"))]
     pub async fn add_speech_client(&self, provider: &str, client: Arc<dyn GaiseSpeechClient>) {
         let mut clients = self.speech_clients.write().await;
         clients.insert(provider.to_string(), client);
@@ -846,6 +881,17 @@ impl GaiseClientService {
             }
             #[cfg(feature = "elevenlabs")]
             "elevenlabs" => Arc::new(self.build_elevenlabs(connection)?),
+            #[cfg(feature = "xai")]
+            "xai" => {
+                let url = Self::resolve_url(
+                    connection,
+                    self.config.xai_api_url.as_deref(),
+                    Some(gaise_provider_xai::xai_client::DEFAULT_API_URL),
+                    "xAI",
+                )?;
+                let key = Self::resolve_key(connection, self.config.xai_api_key.as_deref(), "xAI")?;
+                Arc::new(GaiseClientXaiLive::new(url.to_string(), key.to_string()))
+            }
             _ => return Err(format!("No live provider available for: {}", provider).into()),
         };
 
@@ -877,7 +923,7 @@ impl GaiseLiveClient for GaiseClientService {
     }
 }
 
-#[cfg(feature = "elevenlabs")]
+#[cfg(any(feature = "elevenlabs", feature = "xai"))]
 #[async_trait]
 impl GaiseSpeechClient for GaiseClientService {
     async fn speech(

@@ -1,6 +1,6 @@
 # Models
 
-> Part of the [GAISe wiki](README.md) · [Capabilities](capabilities.md) · [HTTP API](api.md#get-v1models) · [Rust SDK](sdk.md#model-discovery) · [Flows](flows.md#model-discovery) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Google Gemini API](vendor-gemini.md) · [Google Vertex AI](vendor-vertexai.md) · [Amazon Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md) · [ElevenLabs](vendor-elevenlabs.md)
+> Part of the [GAISe wiki](README.md) · [Capabilities](capabilities.md) · [HTTP API](api.md#get-v1models) · [Rust SDK](sdk.md#model-discovery) · [Flows](flows.md#model-discovery) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Google Gemini API](vendor-gemini.md) · [Google Vertex AI](vendor-vertexai.md) · [Amazon Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md) · [ElevenLabs](vendor-elevenlabs.md) · [xAI](vendor-xai.md)
 
 This page is the human-readable view of [`gaise-core/model-registry.toml`](../gaise-core/model-registry.toml) (schema 2, audited **2026-10-16**), which is compiled into the `gaise` crate and applied as an overlay by [`list_models`](api.md#get-v1models). It is advisory: GAISe accepts arbitrary model IDs so new releases work before this file is updated, and the provider's own model API (see [Model discovery](capabilities.md#model-discovery)) is always the first source of truth.
 
@@ -22,6 +22,7 @@ This page is generated from the registry by [`cargo run -p gaise --example model
 - [Amazon Bedrock](#bedrock) — 69 entries
 - [Ollama](#ollama) — 46 entries
 - [ElevenLabs](#elevenlabs) — 17 entries
+- [xAI](#xai) — 25 entries
 - [TypeSafe AI](#typesafe) — 2 entries
 - [Maintaining the registry](#maintaining-the-registry)
 - [Lifecycle calendar](#lifecycle-calendar)
@@ -471,6 +472,57 @@ Text-to-speech and realtime voice. `GET /v1/models` reports model ids, languages
 | `eleven_turbo_v2` | — | `deprecated` | — | text | audio | VL | ✗ | ✗ | native while available — Character limit as for the functionally equivalent eleven_flash_v2. |
 | `music_v1` | — | `deprecated` | — | text | text, audio | — | ✗ | ✗ | not supported: music generation (/v1/music) has no GAISe surface — Listed under Deprecated models by 2026-09-… |
 
+## xai
+
+### xAI
+
+Grok text models through **Chat Completions** (instruct, streaming, function tools, images; `reasoning_content` becomes reasoning parts), text-to-speech as `xai::tts` (`POST /v1/tts` has no model id), and speech-to-speech over `wss://api.x.ai/v1/realtime` (feature `live`). `GET /v1/models` reports aliases, context length, and accepted reasoning efforts ([`catalog.rs`](../gaise-provider-xai/src/contracts/catalog.rs)). Retired slugs still resolve and redirect upstream to grok-4.3; the multi-agent model is Responses-only, and Imagine image/video and speech-to-text have no GAISe surface.
+
+- Vendor page: [vendor-xai.md](vendor-xai.md) · GAISe surface: Chat Completions (instruct, streaming, function tools), text-to-speech, realtime speech-to-speech, and model listing
+- Discovery: GET /v1/models (id, created, owned_by, aliases, context_length, capabilities.reasoning_effort and default, prices); GET /v1/tts/voices for voices
+- Official catalog: <https://docs.x.ai/developers/models> · lifecycle: <https://docs.x.ai/developers/release-notes>
+- Added 2026-10-17 from docs.x.ai (now branded SpaceXSI; the API host is still api.x.ai). The instruct client uses Chat Completions, which xAI labels a legacy endpoint but still serves for every text model except the multi-agent model; the Responses API (recommended upstream) is needed for encrypted reasoning, server-side tools (web_search, x_search, code execution, collections, MCP), and the multi-agent model, none of which GAISe maps. Chat Completions contract: max_completion_tokens (max_tokens is deprecated; default 128,000, excluding reasoning); reasoning_effort per model (grok-4.7/4.6 low-xhigh, grok-4.5 low-high, grok-4.3 none-xhigh); presence_penalty, frequency_penalty, and stop return an error on reasoning models (GAISe never sends them); logprobs are ignored on grok-4.20 and newer; responses may carry reasoning_content; tool calls stream whole in one chunk; usage reports cost_in_usd_ticks (1 USD = 10^10 ticks). There is no deprecations page: retirements are announced in the release notes and migration guides (the 2026-05-15 retirement redirects old slugs to grok-4.3). No public embedding model is listed. The US regional endpoint (https://us.api.x.ai/v1) serves only grok-4.7 and grok-4.6 and no voice, image, or video API. Text-to-speech (POST /v1/tts) has no model id; GAISe routes it as xai::tts.
+
+#### Current and preview
+
+| Model | Aliases | Status | Dates | Input | Output | Ops | Tools | Reasoning | GAISe support / notes |
+|---|---|---|---|---|---|---|---|---|---|
+| `grok-4.7` | — | `active` | — | text, image | text | IS | ✓ | ✓ (low, medium, high, xhigh) | native via Chat Completions (instruct, streaming, function tools, images); reasoning_content mapped to reason… |
+| `grok-4.6` | — | `active` | — | text, image | text | IS | ✓ | ✓ (low, medium, high, xhigh) | native via Chat Completions — Released August 2026. Same effort set as grok-4.7 (default high, reasoning cann… |
+| `grok-4.5` | `grok-4.5-latest`, `grok-build-latest` | `active` | — | text, image | text | IS | ✓ | ✓ (low, medium, high) | native via Chat Completions — Released July 2026. The model page lists xhigh, but the reasoning guide says xh… |
+| `grok-4.3` | `grok-4.3-latest` | `active` | — | text, image | text | IS | ✓ | ✓ (none, low, medium, high, xhigh) | native via Chat Completions — Default effort low; none disables reasoning. Redirect target of the slugs retir… |
+| `grok-4.20-0309-reasoning` | `grok-4.20`, `grok-4.20-reasoning`, `grok-4.20-reasoning-latest`, `grok-4.20-0309`, `grok-4.20-reasoning-gv2` | `active` | — | text, image | text | IS | ✓ | ✓ | native via Chat Completions; reasoning_effort is not sent (no values documented) — Released March 2026. The m… |
+| `grok-4.20-0309-non-reasoning` | `grok-4.20-non-reasoning`, `grok-4.20-non-reasoning-latest`, `grok-4.20-beta-non-reasoning`, `grok-4.20-non-reasoning-gv2` | `active` | — | text, image | text | IS | ✓ | ✗ | native via Chat Completions — Released March 2026; non-reasoning variant of Grok 4.20. |
+| `grok-4.20-multi-agent-0309` | `grok-4.20-multi-agent`, `grok-4.20-multi-agent-latest`, `grok-4.20-multi-agent-beta-0309` | `preview` | — | text, image | text | — | ✓ | ✓ (low, medium, high, xhigh) | not supported: Responses API only (the model does not work with Chat Completions); the adapter fails fast — B… |
+| `grok-build-0.1` | `grok-code-fast-1`, `grok-code-fast`, `grok-code-fast-1-0825` | `preview` | — | text, image | text | IS | ✓ | ✓ | native via Chat Completions; reasoning_effort is not sent (no values documented) — Early access since May 202… |
+| `grok-voice-3.0` | `grok-voice-latest` | `active` | — | text, audio | text, audio | L | ✓ | ✓ (none, high) | realtime transport (wss://api.x.ai/v1/realtime, feature live): 24 kHz PCM16, server VAD or manual turns, func… |
+| `tts` | — | `active` | — | text | audio | V | ✗ | ✗ | speech and speech_stream via POST /v1/tts (mp3, wav, pcm, mulaw, alaw; 8-48 kHz); alignment from with_timesta… |
+| `grok-voice-transcribe-2.0` | — | `active` | — | text, audio | text | — | ✗ | ✗ | not supported: speech-to-text has no GAISe surface — Default speech-to-text model since September 2026 (POST… |
+| `grok-imagine-image-2.0` | — | `active` | — | image | image | — | ✗ | ✗ | not yet native: Images API (/v1/images/generations and /edits) — Recommended image model; quality low, medium… |
+| `grok-imagine-image` | — | `active` | — | image | image | — | ✗ | ✗ | not yet native: Images API — Grok Imagine Image 1.0 (snapshot grok-imagine-image-2026-03-02). $0.02 per image. |
+| `grok-imagine-video-1.5` | `grok-imagine-video-1.5-preview` | `active` | — | image | video | — | ✗ | ✗ | not yet native: asynchronous Videos API (/v1/videos/generations) — Text or image to video (snapshot grok-imag… |
+| `grok-imagine-video-1.5-lite` | — | `active` | — | image | video | — | ✗ | ✗ | not yet native: asynchronous Videos API — Lower-cost Grok Imagine Video 1.5. $0.020 per second. |
+| `grok-imagine-video` | — | `active` | — | image, video | video | — | ✗ | ✗ | not yet native: asynchronous Videos API (generations, edits, extensions) — Grok Imagine Video 1.0; also edits… |
+
+#### Deprecated and legacy
+
+| Model | Aliases | Status | Dates | Input | Output | Ops | Tools | Reasoning | GAISe support / notes |
+|---|---|---|---|---|---|---|---|---|---|
+| `grok-voice-2.0` | — | `deprecated` | — | text, audio | text, audio | L | ✓ | ✓ (none, high) | realtime transport (feature live) — Deprecated October 2026 when Grok Voice 3.0 shipped with the same endpoin… |
+| `grok-imagine-image-quality` | `grok-imagine-image-quality-20260403`, `grok-imagine-image-quality-latest`, `grok-imagine-image-pro` | `deprecated` | shutdown 2026-11-02 | image | image | — | ✗ | ✗ | not yet native: Images API — Retires 2026-11-02; requests to the slug will then be served by grok-imagine-ima… |
+
+#### Retired
+
+| Model | Aliases | Status | Dates | Input | Output | Ops | Tools | Reasoning | GAISe support / notes |
+|---|---|---|---|---|---|---|---|---|---|
+| `grok-4-1-fast-reasoning` | — | `retired` | shutdown 2026-05-15 | text, image | text | IS | ✓ | ✓ | redirected upstream; reasoning_effort is not sent — Retired 2026-05-15 12:00 PT. The slug still resolves and… |
+| `grok-4-1-fast-non-reasoning` | — | `retired` | shutdown 2026-05-15 | text, image | text | IS | ✓ | ✗ | redirected upstream — Retired 2026-05-15 12:00 PT. The slug still resolves and is served by grok-4.3 with rea… |
+| `grok-4-fast-reasoning` | — | `retired` | shutdown 2026-05-15 | text, image | text | IS | ✓ | ✓ | redirected upstream; reasoning_effort is not sent — Retired 2026-05-15 12:00 PT. The slug still resolves and… |
+| `grok-4-fast-non-reasoning` | — | `retired` | shutdown 2026-05-15 | text, image | text | IS | ✓ | ✗ | redirected upstream — Retired 2026-05-15 12:00 PT. The slug still resolves and is served by grok-4.3 with rea… |
+| `grok-4-0709` | — | `retired` | shutdown 2026-05-15 | text, image | text | IS | ✓ | ✓ | redirected upstream; reasoning_effort is not sent — Retired 2026-05-15 12:00 PT. The slug still resolves and… |
+| `grok-3` | — | `retired` | shutdown 2026-05-15 | text | text | IS | ✓ | ✗ | redirected upstream — Retired 2026-05-15 12:00 PT. The slug still resolves and is served by grok-4.3 with rea… |
+| `grok-voice-transcribe-1.0` | — | `retired` | shutdown 2026-10-02 | text, audio | text | — | ✗ | ✗ | not supported: speech-to-text has no GAISe surface — End of life 2026-10-02; requests to the slug are routed… |
+
 ## typesafe
 
 ### TypeSafe AI
@@ -506,6 +558,7 @@ Published shutdown dates for entries that are not yet retired, soonest first. Tr
 | 2026-10-23 | [openai](#openai) | `o1` | gpt-5.6-sol |
 | 2026-10-23 | [openai](#openai) | `o3-mini` | gpt-5.6-sol |
 | 2026-10-23 | [openai](#openai) | `o4-mini` | gpt-5.6-terra |
+| 2026-11-02 | [xai](#xai) | `grok-imagine-image-quality` | grok-imagine-image-2.0 |
 | 2026-11-17 | [gemini](#gemini) | `gemini-2.5-flash-native-audio-preview-12-2025` | gemini-3.8-live |
 | 2026-11-17 | [gemini](#gemini) | `gemini-3.1-flash-live-preview` | gemini-3.8-live |
 | 2026-11-17 | [gemini](#gemini) | `gemini-3.1-flash-tts-preview` | gemini-3.8-flash-tts or gemini-3.8-flash-lite-tts |

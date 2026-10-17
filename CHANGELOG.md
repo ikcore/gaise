@@ -8,6 +8,57 @@ change, or an additive adapter feature is a minor release; a change to a public
 contract (removed or renamed items, new required fields, changed serialization)
 is a major release.
 
+## [5.0.0] - 2026-10-17
+
+xAI (Grok) is a new provider covering chat, text-to-speech, and
+speech-to-speech. This is a major release because `GaiseClientConfig` gains
+public fields. Nothing changes for existing model ids.
+
+### Added
+- New crate `gaise-provider-xai`:
+  - `GaiseClientXai` implements `GaiseClient` (`instruct`, `instruct_stream`,
+    `list_models`) on xAI Chat Completions, with function tools, image input,
+    `reasoning_content` mapped to reasoning parts, and usage including
+    `cost_in_usd_ticks`.
+  - `GaiseClientXai` also implements `GaiseSpeechClient` on `POST /v1/tts`,
+    routed as `xai::tts` because the endpoint has no model id. It supports
+    mp3, wav, pcm, mulaw, and alaw output, and character timestamps.
+  - `GaiseClientXaiLive` (feature `live`) runs speech-to-speech over
+    `wss://api.x.ai/v1/realtime` (`grok-voice-3.0`, `grok-voice-latest`):
+    24 kHz PCM16, server VAD or manual turns, function tools, and input
+    transcription.
+  - `xai_chat_rules` sets the `reasoning_effort` values each family accepts:
+    - grok-4.7 and 4.6: low to xhigh; reasoning cannot be disabled.
+    - grok-4.5: low to high.
+    - grok-4.3: none to xhigh.
+    - Never sent for grok-4.20, grok-build-0.1, or the retired slugs.
+    - The multi-agent, Imagine, and voice models fail fast before any HTTP
+      call.
+- `gaise-client` feature `xai` (on by default). The router resolves `xai::`
+  for instruct, speech, and live. `configured_providers` lists `xai` when a
+  key is set.
+- `gaise-api` reads `XAI_API_KEY` and `XAI_API_URL` and has a new `xai`
+  feature (on by default). The speech routes are served when either
+  `elevenlabs` or `xai` is enabled.
+- Registry: an `xai` provider entry and 25 models.
+  - Current text models: grok-4.7, grok-4.6, grok-4.5, grok-4.3, grok-4.20
+    (reasoning and non-reasoning), and grok-build-0.1.
+  - The grok-4.20 multi-agent model is registered as Responses-only.
+  - Slugs retired on 2026-05-15 are marked retired; they redirect upstream
+    to grok-4.3.
+  - Grok Voice 3.0, and Grok Voice 2.0 (deprecated).
+  - `tts`, the speech-to-text models, and the Grok Imagine image and video
+    models.
+- Registry capability term `video_output`.
+- `wiki/vendor-xai.md`.
+
+### Changed
+- **Breaking:** `GaiseClientConfig` has new `xai_api_url` and `xai_api_key`
+  fields (behind the `xai` feature). Code that builds the struct with a
+  literal and no `..Default::default()` must add them.
+- `GaiseClientService`'s speech methods and its `GaiseSpeechClient` impl are
+  compiled when either the `elevenlabs` or the `xai` feature is enabled.
+
 ## [4.5.0] - 2026-10-16
 
 Model audit of every provider. TypeSafe now takes images (Jev 1.13 and 1.14);
@@ -245,6 +296,7 @@ request rules in advance.
   ElevenLabs speech, standardized embeddings, the model limits matrix
   (`/v1/models/limits`), and the wiki.
 
+[5.0.0]: https://github.com/ikcore/gaise/pull/21
 [4.5.0]: https://github.com/ikcore/gaise/pull/20
 [4.4.0]: https://github.com/ikcore/gaise/pull/19
 [4.3.0]: https://github.com/ikcore/gaise/pull/18

@@ -15,7 +15,7 @@ CRATES=(
   gaise
   gaise-provider-anthropic gaise-provider-bedrock gaise-provider-gemini
   gaise-provider-ollama gaise-provider-openai gaise-provider-vertexai
-  gaise-provider-elevenlabs gaise-provider-typesafe
+  gaise-provider-elevenlabs gaise-provider-typesafe gaise-provider-xai
   gaise-client
   gaise-api
 )
