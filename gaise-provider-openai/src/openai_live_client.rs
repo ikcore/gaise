@@ -5,9 +5,10 @@ use gaise_core::GaiseLiveClient;
 use gaise_core::contracts::{
     GaiseFunctionCall, GaiseLiveConfig, GaiseLiveEvent, GaiseLiveEventStream, GaiseLiveInput,
     GaiseLiveModality, GaiseLiveSession, GaiseReasoningEffort, GaiseTool, GaiseToolParameter,
-    GaiseUsage,
+    GaiseUsage, LiveToolCallGate,
 };
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -147,6 +148,30 @@ fn normalize_realtime_reasoning_effort(effort: &str) -> Option<String> {
                 .as_str()
                 .to_string(),
         ),
+    }
+}
+
+/// Feed one server event to the tool-call gate. Returns `true` when the
+/// session should send `response.create` now: the response that issued
+/// function calls has finished and every call already has an output.
+pub fn observe_tool_calls(
+    gate: &mut LiveToolCallGate,
+    event_type: &str,
+    call_id: Option<&str>,
+) -> bool {
+    match event_type {
+        "response.created" => {
+            gate.response_started();
+            false
+        }
+        "response.function_call_arguments.done" => {
+            if let Some(call_id) = call_id {
+                gate.call_issued(call_id);
+            }
+            false
+        }
+        "response.done" => gate.response_finished(),
+        _ => false,
     }
 }
 
@@ -444,6 +469,12 @@ impl GaiseLiveClient for GaiseClientOpenAILive {
             }))
             .await;
 
+        // Parallel function calls: `response.create` waits until every call
+        // of the finished response has an output (see `LiveToolCallGate`).
+        let gate = Arc::new(Mutex::new(LiveToolCallGate::new()));
+        let send_gate = gate.clone();
+        let (continue_tx, mut continue_rx) = mpsc::unbounded_channel::<()>();
+
         // Spawn send loop
         let event_tx_send = event_tx.clone();
         let manual_vad = config.vad_config.as_ref().is_some_and(|vad| !vad.enabled);
@@ -452,7 +483,31 @@ impl GaiseLiveClient for GaiseClientOpenAILive {
             .as_ref()
             .and_then(|gc| gc.input_image_detail.clone());
         tokio::spawn(async move {
-            while let Some(input) = input_rx.recv().await {
+            loop {
+                let input = tokio::select! {
+                    input = input_rx.recv() => match input {
+                        Some(input) => input,
+                        None => break,
+                    },
+                    Some(()) = continue_rx.recv() => {
+                        let msg = OpenAIRealtimeResponseCreate {
+                            r#type: "response.create".to_string(),
+                        };
+                        let sent = match serde_json::to_string(&msg) {
+                            Ok(json) => ws_sink.send(Message::Text(json.into())).await.map_err(|e| e.to_string()),
+                            Err(e) => Err(e.to_string()),
+                        };
+                        if let Err(e) = sent {
+                            let _ = event_tx_send
+                                .send(Ok(GaiseLiveEvent::Error {
+                                    message: format!("Send error: {}", e),
+                                }))
+                                .await;
+                            break;
+                        }
+                        continue;
+                    }
+                };
                 let result: Result<(), Box<dyn std::error::Error + Send + Sync>> = match input {
                     GaiseLiveInput::Audio { data, sample_rate } => {
                         if sample_rate != 24_000 {
@@ -553,14 +608,28 @@ impl GaiseLiveClient for GaiseClientOpenAILive {
                                 r#type: "function_call_output".to_string(),
                                 role: None,
                                 content: None,
-                                call_id: Some(call_id),
+                                call_id: Some(call_id.clone()),
                                 output: Some(result.to_string()),
                             },
                         };
-                        let response_msg = OpenAIRealtimeResponseCreate {
-                            r#type: "response.create".to_string(),
-                        };
-                        send_two_messages(&mut ws_sink, &item_msg, &response_msg).await
+                        let release = send_gate
+                            .lock()
+                            .map(|mut g| g.output_submitted(&call_id))
+                            .unwrap_or(true);
+                        if release {
+                            let response_msg = OpenAIRealtimeResponseCreate {
+                                r#type: "response.create".to_string(),
+                            };
+                            send_two_messages(&mut ws_sink, &item_msg, &response_msg).await
+                        } else {
+                            match serde_json::to_string(&item_msg) {
+                                Ok(json) => ws_sink
+                                    .send(Message::Text(json.into()))
+                                    .await
+                                    .map_err(|e| e.into()),
+                                Err(e) => Err(e.into()),
+                            }
+                        }
                     }
                     GaiseLiveInput::ActivityStart => Ok(()),
                     GaiseLiveInput::ActivityEnd | GaiseLiveInput::AudioStreamEnd => {
@@ -652,6 +721,15 @@ impl GaiseLiveClient for GaiseClientOpenAILive {
                         continue;
                     }
                 };
+                let release = gate
+                    .lock()
+                    .map(|mut g| {
+                        observe_tool_calls(&mut g, &event.r#type, event.call_id.as_deref())
+                    })
+                    .unwrap_or(false);
+                if release {
+                    let _ = continue_tx.send(());
+                }
 
                 match event.r#type.as_str() {
                     // Audio output

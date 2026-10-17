@@ -100,7 +100,7 @@ muse!(gaise_transcription_session, {
 muse!(gaise_live_config, {GaiseLiveConfig, GaiseLiveModality, GaiseVadConfig, GaiseTranscriptionConfig});
 muse!(gaise_live_event, { GaiseLiveEvent });
 muse!(gaise_live_input, { GaiseLiveInput });
-muse!(gaise_live_session, {GaiseLiveSession, GaiseLiveEventStream});
+muse!(gaise_live_session, {GaiseLiveSession, GaiseLiveEventStream, LiveToolCallGate});
 
 use serde::{Deserialize, Serialize};
 
