@@ -5,7 +5,7 @@
 [![Rust](https://img.shields.io/badge/rust-1.91%2B-orange.svg)](https://www.rust-lang.org)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://github.com/ikcore/gaise#license)
 
-GAISe is a Rust abstraction over OpenAI, Anthropic, Google Gemini, Vertex AI, Amazon Bedrock, Ollama, ElevenLabs, and TypeSafe AI. It provides one request/response contract for text, reasoning, tools, images, audio, files, embeddings, and streaming.
+GAISe is a Rust abstraction over OpenAI, Anthropic, Google Gemini, Vertex AI, Amazon Bedrock, Ollama, ElevenLabs, TypeSafe AI, and xAI. It provides one request/response contract for text, reasoning, tools, images, audio, files, embeddings, and streaming.
 
 Written by Ian Knowles. Project page: [BadAI](https://badai.company/open-source/gaise).
 
@@ -32,28 +32,30 @@ Model registry audited **2026-10-09**. Newest additions: the OpenAI Decisions AP
 | Vertex AI | [`gaise-provider-vertexai`](https://crates.io/crates/gaise-provider-vertexai) | generateContent, Embeddings | Gemini 4 Argon (GA 2026-10-13), Gemini 3.8 Flash through 3.1 Flash-Lite, 3.1 Pro preview, image-output models, gemini-embedding-001 and text-embedding-005 |
 | Bedrock | [`gaise-provider-bedrock`](https://crates.io/crates/gaise-provider-bedrock) | Converse, ConverseStream, InvokeModel | Claude Fable 5.1 / Opus 5 / Sonnet 5 / Haiku 5.5, Amazon Nova 2 Lite and Nova Pro/Lite/Micro, OpenAI GPT-6 Astra, GPT-5.6, and gpt-oss, xAI Grok 4.6, DeepSeek V3.2, Mistral Large 3, Llama 4, Qwen3 Coder; Titan, Cohere, and Nova embeddings |
 | ElevenLabs | [`gaise-provider-elevenlabs`](https://crates.io/crates/gaise-provider-elevenlabs) | Text-to-speech and realtime voice | ElevenLabs speech and voice models |
+| xAI | [`gaise-provider-xai`](https://crates.io/crates/gaise-provider-xai) | Chat Completions, text-to-speech, speech-to-speech | Grok 4.7, 4.6, 4.5, 4.3, 4.20, and Grok Build 0.1 (text and images, tools, reasoning effort); `xai::tts` text-to-speech; Grok Voice 3.0 speech-to-speech over the realtime WebSocket |
 | TypeSafe AI | [`gaise-provider-typesafe`](https://crates.io/crates/gaise-provider-typesafe) | Typed decisions (System One) | `typesafe::jev`: Choice, Score, and Noul questions with typed answers and probabilities |
 | Ollama | [`gaise-provider-ollama`](https://crates.io/crates/gaise-provider-ollama) | Chat, Embeddings, and typed decisions | Any installed tag (Qwen 3.5–3.8, GPT-OSS, Gemma 4, GLM 5.3, Granite 4.2, DeepSeek R1 and V4.1 Flash, Kimi K3, Llama 4, Muse Glimmer, Laguna S/XS 2.1, and the common embedding families); vision, thinking, and tools are model-dependent |
 
-GAISe also wraps ElevenLabs for text-to-speech and realtime voice (`POST /v1/speech*`, `GET /v1/live`). Model availability changes quickly. [`gaise-core/model-registry.toml`](gaise-core/model-registry.toml) records the 2026-10-09 audit, including provider-specific retirement dates, and is bundled into the `gaise` crate so `list_models` can enrich what each provider's model API leaves out. The [wiki](wiki/README.md) is the complete developer guide: [HTTP API](wiki/api.md), [Rust SDK](wiki/sdk.md), [capabilities](wiki/capabilities.md), the full [model catalog](wiki/models.md), [flow diagrams](wiki/flows.md), [examples](wiki/examples.md), and one page per vendor ([OpenAI](wiki/vendor-openai.md), [Anthropic](wiki/vendor-anthropic.md), [Gemini](wiki/vendor-gemini.md), [Vertex AI](wiki/vendor-vertexai.md), [Bedrock](wiki/vendor-bedrock.md), [Ollama](wiki/vendor-ollama.md), [ElevenLabs](wiki/vendor-elevenlabs.md)).
+GAISe also wraps ElevenLabs and xAI for text-to-speech and realtime voice (`POST /v1/speech*`, `GET /v1/live`). Model availability changes quickly. [`gaise-core/model-registry.toml`](gaise-core/model-registry.toml) records the 2026-10-09 audit, including provider-specific retirement dates, and is bundled into the `gaise` crate so `list_models` can enrich what each provider's model API leaves out. The [wiki](wiki/README.md) is the complete developer guide: [HTTP API](wiki/api.md), [Rust SDK](wiki/sdk.md), [capabilities](wiki/capabilities.md), the full [model catalog](wiki/models.md), [flow diagrams](wiki/flows.md), [examples](wiki/examples.md), and one page per vendor ([OpenAI](wiki/vendor-openai.md), [Anthropic](wiki/vendor-anthropic.md), [Gemini](wiki/vendor-gemini.md), [Vertex AI](wiki/vendor-vertexai.md), [Bedrock](wiki/vendor-bedrock.md), [Ollama](wiki/vendor-ollama.md), [ElevenLabs](wiki/vendor-elevenlabs.md), [xAI](wiki/vendor-xai.md)).
 
 ## Installation
 
 ```toml
 [dependencies]
-gaise = "3"
-gaise-client = "3"
+gaise = "5"
+gaise-client = "5"
 tokio = { version = "1", features = ["full"] }
 
 # Or depend on individual adapters:
-# gaise-provider-openai = "3"
-# gaise-provider-anthropic = "3"
-# gaise-provider-gemini = "3"
-# gaise-provider-vertexai = "3"
-# gaise-provider-bedrock = "3"
-# gaise-provider-ollama = "3"
-# gaise-provider-elevenlabs = "3"
-# gaise-provider-typesafe = "3"
+# gaise-provider-openai = "5"
+# gaise-provider-anthropic = "5"
+# gaise-provider-gemini = "5"
+# gaise-provider-vertexai = "5"
+# gaise-provider-bedrock = "5"
+# gaise-provider-ollama = "5"
+# gaise-provider-elevenlabs = "5"
+# gaise-provider-typesafe = "5"
+# gaise-provider-xai = "5"
 ```
 
 ## Router quick start

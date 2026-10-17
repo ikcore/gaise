@@ -13,7 +13,7 @@
 use gaise_core::contracts::{GaiseModelLimitsEntry, GaiseOperation};
 use gaise_core::registry::{ModelRegistry, limits_matrix};
 
-const PROVIDERS: [(&str, &str); 8] = [
+const PROVIDERS: [(&str, &str); 9] = [
     ("openai", "OpenAI"),
     ("anthropic", "Anthropic"),
     ("gemini", "Google Gemini API"),
@@ -21,6 +21,7 @@ const PROVIDERS: [(&str, &str); 8] = [
     ("bedrock", "Amazon Bedrock"),
     ("ollama", "Ollama"),
     ("elevenlabs", "ElevenLabs"),
+    ("xai", "xAI"),
     ("typesafe", "TypeSafe AI"),
 ];
 

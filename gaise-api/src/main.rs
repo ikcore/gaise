@@ -26,6 +26,10 @@ async fn main() {
     let elevenlabs_api_url = std::env::var("ELEVENLABS_API_URL").ok();
     #[cfg(feature = "elevenlabs")]
     let elevenlabs_api_key = std::env::var("ELEVENLABS_API_KEY").ok();
+    #[cfg(feature = "xai")]
+    let xai_api_url = std::env::var("XAI_API_URL").ok();
+    #[cfg(feature = "xai")]
+    let xai_api_key = std::env::var("XAI_API_KEY").ok();
 
     let vertexai_sa = vertexai_sa_path.and_then(|path| {
         let sa_json = std::fs::read_to_string(path).ok()?;
@@ -49,6 +53,10 @@ async fn main() {
         elevenlabs_api_url,
         #[cfg(feature = "elevenlabs")]
         elevenlabs_api_key,
+        #[cfg(feature = "xai")]
+        xai_api_url,
+        #[cfg(feature = "xai")]
+        xai_api_key,
         logger: Some(Arc::new(ConsoleGaiseLogger)),
     };
 

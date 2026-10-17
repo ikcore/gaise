@@ -28,7 +28,7 @@ use gaise_core::{
     GaiseLiveClient,
     contracts::{GaiseLiveConfig, GaiseLiveEvent, GaiseLiveInput},
 };
-#[cfg(feature = "elevenlabs")]
+#[cfg(any(feature = "elevenlabs", feature = "xai"))]
 use gaise_core::{
     GaiseSpeechClient,
     contracts::{GaiseSpeechChunk, GaiseSpeechRequest},
@@ -54,7 +54,7 @@ pub fn create_app(state: Arc<AppState>) -> Router {
     #[cfg(feature = "live")]
     let router = router.route("/v1/live", axum::routing::get(handle_live_ws));
 
-    #[cfg(feature = "elevenlabs")]
+    #[cfg(any(feature = "elevenlabs", feature = "xai"))]
     let router = router
         .route("/v1/speech", post(handle_speech))
         .route("/v1/speech/stream", post(handle_speech_stream))
@@ -285,7 +285,7 @@ async fn handle_get_model(
 // ── Speech endpoints ───────────────────────────────────────────────
 
 /// `POST /v1/speech` — full clip as JSON (`audio` is a byte array).
-#[cfg(feature = "elevenlabs")]
+#[cfg(any(feature = "elevenlabs", feature = "xai"))]
 async fn handle_speech(
     State(state): State<Arc<AppState>>,
     Json(request): Json<GaiseSpeechRequest>,
@@ -301,7 +301,7 @@ async fn handle_speech(
 
 /// `POST /v1/speech/stream` — SSE of `GaiseSpeechStreamResponse` (audio,
 /// alignment, usage chunks).
-#[cfg(feature = "elevenlabs")]
+#[cfg(any(feature = "elevenlabs", feature = "xai"))]
 async fn handle_speech_stream(
     State(state): State<Arc<AppState>>,
     Json(request): Json<GaiseSpeechRequest>,
@@ -324,7 +324,7 @@ async fn handle_speech_stream(
 /// `POST /v1/speech/audio` — raw audio bytes, chunked as the provider
 /// produces them, with the MIME type in `Content-Type` and the PCM rate in
 /// `X-Gaise-Sample-Rate`. Alignment and usage chunks are dropped.
-#[cfg(feature = "elevenlabs")]
+#[cfg(any(feature = "elevenlabs", feature = "xai"))]
 async fn handle_speech_audio(
     State(state): State<Arc<AppState>>,
     Json(request): Json<GaiseSpeechRequest>,

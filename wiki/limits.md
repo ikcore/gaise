@@ -373,6 +373,36 @@ Figures are the vendor-documented limits recorded in [`model-registry.toml`](../
 | `music_v1` | deprecated | — | — | — | — | — | — |  |
 | `eleven_text_to_sound_v2` | active | — | — | — | — | — | — |  |
 
+### xAI
+
+| Model | Status | Ops | Context window | Max output | Max input / text | Dimensions | Chars / request | Notes |
+|---|---|---|---:|---:|---:|---:|---:|---|
+| `grok-4.7` | active | IS | 500,000 | — | — | — | — | No published text output limit; max_completion_tokens defaults to 128,000 and excludes reasoning. Prompts of 200K tokens or more are billed at the long-context rate. |
+| `grok-4.6` | active | IS | 500,000 | — | — | — | — |  |
+| `grok-4.5` (`grok-4.5-latest`, `grok-build-latest`) | active | IS | 500,000 | — | — | — | — |  |
+| `grok-4.3` (`grok-4.3-latest`) | active | IS | 1,000,000 | — | — | — | — |  |
+| `grok-4.20-0309-reasoning` (`grok-4.20`, `grok-4.20-reasoning`, `grok-4.20-reasoning-latest`, `grok-4.20-0309`, `grok-4.20-reasoning-gv2`) | active | IS | 1,000,000 | — | — | — | — |  |
+| `grok-4.20-0309-non-reasoning` (`grok-4.20-non-reasoning`, `grok-4.20-non-reasoning-latest`, `grok-4.20-beta-non-reasoning`, `grok-4.20-non-reasoning-gv2`) | active | IS | 1,000,000 | — | — | — | — |  |
+| `grok-4.20-multi-agent-0309` (`grok-4.20-multi-agent`, `grok-4.20-multi-agent-latest`, `grok-4.20-multi-agent-beta-0309`) | preview | — | 1,000,000 | — | — | — | — |  |
+| `grok-build-0.1` (`grok-code-fast-1`, `grok-code-fast`, `grok-code-fast-1-0825`) | preview | IS | 256,000 | — | — | — | — |  |
+| `grok-4-1-fast-reasoning` | retired | IS | — | — | — | — | — |  |
+| `grok-4-1-fast-non-reasoning` | retired | IS | — | — | — | — | — |  |
+| `grok-4-fast-reasoning` | retired | IS | — | — | — | — | — |  |
+| `grok-4-fast-non-reasoning` | retired | IS | — | — | — | — | — |  |
+| `grok-4-0709` | retired | IS | — | — | — | — | — |  |
+| `grok-3` | retired | IS | — | — | — | — | — |  |
+| `grok-voice-3.0` (`grok-voice-latest`) | active | L | — | — | — | — | — |  |
+| `grok-voice-2.0` | deprecated | L | — | — | — | — | — |  |
+| `tts` | active | V | — | — | — | — | 60,000 | xAI text-to-speech has no model id: POST /v1/tts takes text, language (auto by default), voice_id (default eve), output_format, and speed (0.7-1.5). Billed $15 per 1M characters. |
+| `grok-voice-transcribe-2.0` | active | — | — | — | — | — | — |  |
+| `grok-voice-transcribe-1.0` | retired | — | — | — | — | — | — |  |
+| `grok-imagine-image-2.0` | active | — | — | — | — | — | — |  |
+| `grok-imagine-image` | active | — | — | — | — | — | — |  |
+| `grok-imagine-image-quality` (`grok-imagine-image-quality-20260403`, `grok-imagine-image-quality-latest`, `grok-imagine-image-pro`) | deprecated | — | — | — | — | — | — |  |
+| `grok-imagine-video-1.5` (`grok-imagine-video-1.5-preview`) | active | — | — | — | — | — | — |  |
+| `grok-imagine-video-1.5-lite` | active | — | — | — | — | — | — |  |
+| `grok-imagine-video` | active | — | — | — | — | — | — |  |
+
 ### TypeSafe AI
 
 | Model | Operation | Context window | Additional input limit |

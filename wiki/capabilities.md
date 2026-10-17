@@ -32,6 +32,8 @@
 
 **ElevenLabs** (`elevenlabs`) adds the speech surfaces: `speech` (`POST /v1/text-to-speech/{voice}`), `speech_stream` (`…/stream`), `live` (text-in/audio-out WebSocket), and `list_models` (`GET /v1/models`); it has no instruct or embeddings surface. See [vendor-elevenlabs.md](vendor-elevenlabs.md).
 
+**xAI** (`xai`) covers Grok chat through Chat Completions (`instruct`, `instruct_stream` with tools and image input), `speech` / `speech_stream` (`POST /v1/tts`, routed as `xai::tts`), `live` speech-to-speech (`wss://api.x.ai/v1/realtime`, `live` feature), and `list_models` (`GET /v1/models`); `embeddings` returns an error. See [vendor-xai.md](vendor-xai.md).
+
 Source: [`gaise-client/src/lib.rs`](../gaise-client/src/lib.rs) and each provider's client module linked from the [vendor pages](README.md#vendors).
 
 ## Modalities by provider
@@ -184,7 +186,7 @@ Counters keep provider names inside the three maps; an absent modality counter m
 
 | ElevenLabs | `GET /v1/models` | model_id, name, description, alpha flag | `can_do_text_to_speech`, `can_do_voice_conversion`, style / speaker-boost flags | `maximum_text_length_per_request` → `max_input_characters` | lifecycle notes |
 
-Catalog modules: [elevenlabs](../gaise-provider-elevenlabs/src/contracts/models.rs) · [openai](../gaise-provider-openai/src/contracts/catalog.rs) · [anthropic](../gaise-provider-anthropic/src/contracts/catalog.rs) · [gemini](../gaise-provider-gemini/src/contracts/catalog.rs) · [vertexai](../gaise-provider-vertexai/src/contracts/catalog.rs) · [bedrock](../gaise-provider-bedrock/src/catalog.rs) · [ollama](../gaise-provider-ollama/src/contracts/catalog.rs).
+Catalog modules: [elevenlabs](../gaise-provider-elevenlabs/src/contracts/models.rs) · [openai](../gaise-provider-openai/src/contracts/catalog.rs) · [anthropic](../gaise-provider-anthropic/src/contracts/catalog.rs) · [gemini](../gaise-provider-gemini/src/contracts/catalog.rs) · [vertexai](../gaise-provider-vertexai/src/contracts/catalog.rs) · [bedrock](../gaise-provider-bedrock/src/catalog.rs) · [ollama](../gaise-provider-ollama/src/contracts/catalog.rs) · [xai](../gaise-provider-xai/src/contracts/catalog.rs).
 
 ### The common record
 

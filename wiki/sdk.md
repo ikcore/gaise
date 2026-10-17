@@ -1,6 +1,6 @@
 # Rust SDK
 
-> Part of the [GAISe wiki](README.md) · [HTTP API](api.md) · [Capabilities](capabilities.md) · [Models](models.md) · [Flows](flows.md) · [Examples](examples.md) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Gemini](vendor-gemini.md) · [Vertex AI](vendor-vertexai.md) · [Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md) · [ElevenLabs](vendor-elevenlabs.md)
+> Part of the [GAISe wiki](README.md) · [HTTP API](api.md) · [Capabilities](capabilities.md) · [Models](models.md) · [Flows](flows.md) · [Examples](examples.md) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Gemini](vendor-gemini.md) · [Vertex AI](vendor-vertexai.md) · [Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md) · [ElevenLabs](vendor-elevenlabs.md) · [xAI](vendor-xai.md)
 
 GAISe is consumed as a set of Rust crates. [`gaise`](../gaise-core/) (library name `gaise_core`) defines the provider-neutral contracts and the [`GaiseClient`](../gaise-core/src/lib.rs) / [`GaiseLiveClient`](../gaise-core/src/lib.rs) traits; six `gaise-provider-*` crates implement them; [`gaise-client`](../gaise-client/) routes `provider::model` strings to whichever adapters are compiled in; [`gaise-api`](../gaise-api/) wraps the router in HTTP (see [api.md](api.md)).
 
@@ -31,11 +31,12 @@ flowchart TD
     bed[gaise-provider-bedrock]
     oll[gaise-provider-ollama]
     ell[gaise-provider-elevenlabs]
+    xai[gaise-provider-xai]
     client["gaise-client<br/>GaiseClientService router"]
     api["gaise-api<br/>Axum HTTP / SSE / WS"]
     bot[gaise-chatbot]
-    core --> oai & ant & gem & vai & bed & oll & ell
-    oai & ant & gem & vai & bed & oll & ell --> client
+    core --> oai & ant & gem & vai & bed & oll & ell & xai
+    oai & ant & gem & vai & bed & oll & ell & xai --> client
     core --> client
     client --> api
     client --> bot
@@ -52,16 +53,17 @@ flowchart TD
 | `gaise-provider-bedrock` | [`gaise-provider-bedrock/`](../gaise-provider-bedrock/) | Converse/ConverseStream, InvokeModel embeddings — [vendor page](vendor-bedrock.md) |
 | `gaise-provider-ollama` | [`gaise-provider-ollama/`](../gaise-provider-ollama/) | Local chat and embeddings — [vendor page](vendor-ollama.md) |
 | `gaise-provider-elevenlabs` | [`gaise-provider-elevenlabs/`](../gaise-provider-elevenlabs/) | Text-to-speech, streaming speech, realtime voice (`live`) — [vendor page](vendor-elevenlabs.md) |
+| `gaise-provider-xai` | [`gaise-provider-xai/`](../gaise-provider-xai/) | Grok Chat Completions, text-to-speech, speech-to-speech (`live`) — [vendor page](vendor-xai.md) |
 | `gaise-api` | [`gaise-api/`](../gaise-api/) | HTTP server — [api.md](api.md) |
 | `gaise-chatbot` | [`gaise-chatbot/`](../gaise-chatbot/) | Minimal CLI example |
 
 ```toml
 [dependencies]
-gaise-core = { package = "gaise", version = "3" }
-gaise-client = { version = "3", default-features = false, features = ["openai", "anthropic", "live"] }
+gaise-core = { package = "gaise", version = "5" }
+gaise-client = { version = "5", default-features = false, features = ["openai", "anthropic", "live"] }
 ```
 
-[`gaise-client`](../gaise-client/Cargo.toml) enables all seven providers by default. The `live` feature adds `GaiseLiveClient` support for whichever of `openai` and `gemini` are also enabled.
+[`gaise-client`](../gaise-client/Cargo.toml) enables every provider by default (`openai`, `anthropic`, `gemini`, `vertexai`, `bedrock`, `ollama`, `elevenlabs`, `typesafe`, `xai`). The `live` feature adds `GaiseLiveClient` support for whichever of `openai`, `gemini`, `elevenlabs`, and `xai` are also enabled.
 
 | Feature | Pulls in | Surfaces |
 |---|---|---|
@@ -72,7 +74,8 @@ gaise-client = { version = "3", default-features = false, features = ["openai", 
 | `bedrock` | `gaise-provider-bedrock` | Converse, ConverseStream, InvokeModel, `ListFoundationModels` |
 | `ollama` | `gaise-provider-ollama` | `/api/chat`, `/api/embed`, `/api/tags` |
 | `elevenlabs` | `gaise-provider-elevenlabs` | Text-to-speech, `GET /v1/models`, `GaiseSpeechClient` on the router |
-| `live` | `openai?/live`, `gemini?/live`, `elevenlabs?/live` | OpenAI Realtime, Gemini Live, ElevenLabs realtime voice |
+| `xai` | `gaise-provider-xai` | Chat Completions, `GET /v1/models`, text-to-speech via `GaiseSpeechClient` on the router |
+| `live` | `openai?/live`, `gemini?/live`, `elevenlabs?/live`, `xai?/live` | OpenAI Realtime, Gemini Live, ElevenLabs realtime voice, xAI speech-to-speech |
 
 ## Choosing an entry point
 

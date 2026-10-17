@@ -25,7 +25,7 @@ ROOT = subprocess.run(
     ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True
 ).stdout.strip() + "/"
 CHECK = "--check" in sys.argv
-VENDORS = ["openai", "anthropic", "gemini", "vertexai", "bedrock", "ollama", "elevenlabs"]
+VENDORS = ["openai", "anthropic", "gemini", "vertexai", "bedrock", "ollama", "elevenlabs", "xai"]
 TABLE_HEAD = (
     "| Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |\n"
     "|---|---|---|---|---|---|---|---|---|---|\n"

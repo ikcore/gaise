@@ -1,6 +1,6 @@
 # HTTP API
 
-> Part of the [GAISe wiki](README.md) · [Rust SDK](sdk.md) · [Capabilities](capabilities.md) · [Models](models.md) · [Flows](flows.md) · [Examples](examples.md) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Gemini](vendor-gemini.md) · [Vertex AI](vendor-vertexai.md) · [Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md) · [ElevenLabs](vendor-elevenlabs.md)
+> Part of the [GAISe wiki](README.md) · [Rust SDK](sdk.md) · [Capabilities](capabilities.md) · [Models](models.md) · [Flows](flows.md) · [Examples](examples.md) · Vendors: [OpenAI](vendor-openai.md) · [Anthropic](vendor-anthropic.md) · [Gemini](vendor-gemini.md) · [Vertex AI](vendor-vertexai.md) · [Bedrock](vendor-bedrock.md) · [Ollama](vendor-ollama.md) · [ElevenLabs](vendor-elevenlabs.md) · [xAI](vendor-xai.md)
 
 [`gaise-api`](../gaise-api/) exposes the common contracts over JSON, Server-Sent Events, and an optional WebSocket. It is a thin Axum layer over [`GaiseClientService`](sdk.md#the-router-gaiseclientservice): every route deserializes a core contract, calls the router, and serializes the result — no provider logic lives here ([`gaise-api/src/lib.rs`](../gaise-api/src/lib.rs)). The Postman collection [`gaise_postman_collection.json`](../gaise_postman_collection.json) contains a ready-made request for every route and vendor below.
 
@@ -78,7 +78,7 @@ GAISe does not restrict IDs to an allowlist. Use [`GET /v1/models`](#get-v1model
 | `GET` | `/v1/models/{provider}::{id}` | query | `GaiseModel` | [`handle_get_model`](../gaise-api/src/lib.rs) |
 | `GET` | `/v1/models/limits` | query | `GaiseModelLimitsMatrix` | [`handle_model_limits`](../gaise-api/src/lib.rs) |
 | `GET` | `/v1/live` | WebSocket | `GaiseLiveEvent` frames | [`handle_live_ws`](../gaise-api/src/lib.rs) (`live` feature) |
-| `POST` | `/v1/speech` | `GaiseSpeechRequest` | `GaiseSpeechResponse` | [`handle_speech`](../gaise-api/src/lib.rs) (`elevenlabs` feature, default) |
+| `POST` | `/v1/speech` | `GaiseSpeechRequest` | `GaiseSpeechResponse` | [`handle_speech`](../gaise-api/src/lib.rs) (`elevenlabs` or `xai` feature, both default) |
 | `POST` | `/v1/speech/stream` | `GaiseSpeechRequest` | SSE of `GaiseSpeechStreamResponse` | [`handle_speech_stream`](../gaise-api/src/lib.rs) |
 | `POST` | `/v1/speech/audio` | `GaiseSpeechRequest` | raw audio bytes | [`handle_speech_audio`](../gaise-api/src/lib.rs) |
 
@@ -462,7 +462,7 @@ OpenAI Realtime takes 24 kHz PCM and PNG/JPEG stills; Gemini Live takes audio an
 
 ## `POST /v1/speech`
 
-Renders a complete clip. Currently served by [ElevenLabs](vendor-elevenlabs.md); the contract is provider-neutral.
+Renders a complete clip. Served by [ElevenLabs](vendor-elevenlabs.md) and [xAI](vendor-xai.md) (`xai::tts`); the contract is provider-neutral.
 
 ```mermaid
 sequenceDiagram
@@ -543,8 +543,8 @@ Every request body (`instruct`, `instruct/stream`, `embeddings`, `speech*`, the 
 
 | Field | Used by |
 |---|---|
-| `api_url` | OpenAI, Anthropic, Gemini, Ollama, ElevenLabs base URL; the Vertex AI `{{MODEL}}` URL template |
-| `api_key` | OpenAI, Anthropic, Gemini, ElevenLabs |
+| `api_url` | OpenAI, Anthropic, Gemini, Ollama, ElevenLabs, xAI base URL; the Vertex AI `{{MODEL}}` URL template |
+| `api_key` | OpenAI, Anthropic, Gemini, ElevenLabs, xAI |
 | `region` | Bedrock (credentials still come from the AWS chain) |
 | `service_account` | Vertex AI service-account JSON (`client_email`, `private_key`) |
 
@@ -584,6 +584,7 @@ Provider error bodies are passed through verbatim (`OpenAI API error: …`, `Ant
 | `BEDROCK_REGION` + AWS credential chain | Region passed into the SDK builder | SDK resolution |
 | `OLLAMA_URL` | Ollama endpoint | `http://localhost:11434` |
 | `ELEVENLABS_API_KEY`, `ELEVENLABS_API_URL` | ElevenLabs credential, base URL (regional hosts allowed) | URL `https://api.elevenlabs.io` |
+| `XAI_API_KEY`, `XAI_API_URL` | xAI credential, base URL (`https://us.api.x.ai/v1` for the US regional endpoint) | URL `https://api.x.ai/v1` |
 
 Per-vendor configuration details are on each [vendor page](README.md#vendors).
 

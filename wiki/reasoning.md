@@ -235,6 +235,20 @@ Generated from the bundled registry and the real adapters — each cell is what 
 | `mistral-medium-3.5:*` | `think: false` | `think: true` | `think: true` | `think: true` | `think: true` | `think: true` | `think: true` | `think: true` | `think: true` |
 | `mistral-large-4:*` | `think: false` | `think: true` | `think: true` | `think: true` | `think: true` | `think: true` | `think: true` | `think: true` | `think: true` |
 
+### xAI (Chat Completions)
+
+| Model | `none` | `auto` | `minimal` | `low` | `medium` | `high` | `xhigh` | `max` | `ultra` |
+|---|---|---|---|---|---|---|---|---|---|
+| `grok-4.7` | `reasoning_effort: low` | omitted (model default) | `reasoning_effort: low` | `reasoning_effort: low` | `reasoning_effort: medium` | `reasoning_effort: high` | `reasoning_effort: xhigh` | `reasoning_effort: xhigh` | `reasoning_effort: xhigh` |
+| `grok-4.6` | `reasoning_effort: low` | omitted (model default) | `reasoning_effort: low` | `reasoning_effort: low` | `reasoning_effort: medium` | `reasoning_effort: high` | `reasoning_effort: xhigh` | `reasoning_effort: xhigh` | `reasoning_effort: xhigh` |
+| `grok-4.5` | `reasoning_effort: low` | omitted (model default) | `reasoning_effort: low` | `reasoning_effort: low` | `reasoning_effort: medium` | `reasoning_effort: high` | `reasoning_effort: high` | `reasoning_effort: high` | `reasoning_effort: high` |
+| `grok-4.3` | `reasoning_effort: none` | omitted (model default) | `reasoning_effort: low` | `reasoning_effort: low` | `reasoning_effort: medium` | `reasoning_effort: high` | `reasoning_effort: xhigh` | `reasoning_effort: xhigh` | `reasoning_effort: xhigh` |
+| `grok-4.20-0309-reasoning` | omitted (model default) | omitted (model default) | omitted (model default) | omitted (model default) | omitted (model default) | omitted (model default) | omitted (model default) | omitted (model default) | omitted (model default) |
+| `grok-4.20-multi-agent-0309` | — (Responses-only) | — (Responses-only) | — (Responses-only) | — (Responses-only) | — (Responses-only) | — (Responses-only) | — (Responses-only) | — (Responses-only) | — (Responses-only) |
+| `grok-build-0.1` | omitted (model default) | omitted (model default) | omitted (model default) | omitted (model default) | omitted (model default) | omitted (model default) | omitted (model default) | omitted (model default) | omitted (model default) |
+| `grok-voice-3.0` | live: `reasoning.effort` high or none | live: `reasoning.effort` high or none | live: `reasoning.effort` high or none | live: `reasoning.effort` high or none | live: `reasoning.effort` high or none | live: `reasoning.effort` high or none | live: `reasoning.effort` high or none | live: `reasoning.effort` high or none | live: `reasoning.effort` high or none |
+| `grok-voice-2.0` | live: `reasoning.effort` high or none | live: `reasoning.effort` high or none | live: `reasoning.effort` high or none | live: `reasoning.effort` high or none | live: `reasoning.effort` high or none | live: `reasoning.effort` high or none | live: `reasoning.effort` high or none | live: `reasoning.effort` high or none | live: `reasoning.effort` high or none |
+
 ## Token budgets
 
 `thinking_tokens` is the explicit manual budget. Where a family has levels instead of budgets it is converted (Gemini 3.x: ≤ 2,000 → `LOW`, ≤ 12,000 → `MEDIUM`, else `HIGH`; OpenAI Realtime: ≤ 1,000 `minimal` … > 24,000 `xhigh`). Where a family has budgets it is clamped to the documented range and kept below `max_tokens`:

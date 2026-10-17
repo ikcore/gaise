@@ -1006,7 +1006,7 @@ dependencies = [
 
 [[package]]
 name = "gaise"
-version = "4.5.0"
+version = "5.0.0"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -1020,7 +1020,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-api"
-version = "4.5.0"
+version = "5.0.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1041,7 +1041,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-chatbot"
-version = "4.5.0"
+version = "5.0.0"
 dependencies = [
  "futures-util",
  "gaise",
@@ -1055,7 +1055,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-client"
-version = "4.5.0"
+version = "5.0.0"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -1068,6 +1068,7 @@ dependencies = [
  "gaise-provider-openai",
  "gaise-provider-typesafe",
  "gaise-provider-vertexai",
+ "gaise-provider-xai",
  "serde",
  "serde_json",
  "tokio",
@@ -1075,7 +1076,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-anthropic"
-version = "4.5.0"
+version = "5.0.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -1088,7 +1089,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-bedrock"
-version = "4.5.0"
+version = "5.0.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -1109,7 +1110,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-elevenlabs"
-version = "4.5.0"
+version = "5.0.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -1129,7 +1130,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-gemini"
-version = "4.5.0"
+version = "5.0.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -1146,7 +1147,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-ollama"
-version = "4.5.0"
+version = "5.0.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1162,7 +1163,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-openai"
-version = "4.5.0"
+version = "5.0.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1182,7 +1183,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-typesafe"
-version = "4.5.0"
+version = "5.0.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1197,7 +1198,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-vertexai"
-version = "4.5.0"
+version = "5.0.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -1210,6 +1211,25 @@ dependencies = [
  "serde_bytes",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "gaise-provider-xai"
+version = "5.0.0"
+dependencies = [
+ "async-trait",
+ "axum",
+ "base64",
+ "futures-util",
+ "gaise",
+ "http 1.4.0",
+ "reqwest 0.12.26",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "tokio-tungstenite 0.26.2",
+ "tungstenite 0.26.2",
 ]
 
 [[package]]

@@ -129,6 +129,7 @@ pub const CAPABILITY_VOCABULARY: &[&str] = &[
     "audio_input",
     "audio_output",
     "video_input",
+    "video_output",
     "files",
     "embeddings",
     "multimodal_embeddings",
@@ -166,6 +167,7 @@ pub fn classify_capabilities(terms: &[String]) -> Result<ClassifiedCapabilities,
             "audio_input" => push(&mut out.input, GaiseModality::Audio),
             "audio_output" => push(&mut out.output, GaiseModality::Audio),
             "video_input" => push(&mut out.input, GaiseModality::Video),
+            "video_output" => push(&mut out.output, GaiseModality::Video),
             "files" => push(&mut out.input, GaiseModality::File),
             "embeddings" => {
                 embeddings = true;
@@ -682,6 +684,7 @@ mod tests {
             "bedrock",
             "ollama",
             "elevenlabs",
+            "xai",
         ] {
             assert!(
                 registry.provider(provider).is_some(),
@@ -1030,6 +1033,51 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
         );
         assert_eq!(find("ollama", "nemotron-3.5-bolt"), "nemotron-3.5-bolt:*");
         assert_eq!(find("ollama", "muse-spark-open:cloud"), "muse-spark-open:*");
+        // xAI, added 2026-10-17.
+        assert_eq!(find("xai", "grok-4.7"), "grok-4.7");
+        assert_eq!(find("xai", "grok-4.6"), "grok-4.6");
+        assert_eq!(find("xai", "grok-build-latest"), "grok-4.5");
+        assert_eq!(find("xai", "grok-4.3-latest"), "grok-4.3");
+        assert_eq!(find("xai", "grok-4.20"), "grok-4.20-0309-reasoning");
+        assert_eq!(
+            find("xai", "grok-4.20-non-reasoning"),
+            "grok-4.20-0309-non-reasoning"
+        );
+        assert_eq!(
+            find("xai", "grok-4.20-multi-agent"),
+            "grok-4.20-multi-agent-0309"
+        );
+        assert_eq!(find("xai", "grok-code-fast-1"), "grok-build-0.1");
+        assert_eq!(find("xai", "grok-voice-latest"), "grok-voice-3.0");
+        assert_eq!(
+            find("xai", "grok-imagine-image-pro"),
+            "grok-imagine-image-quality"
+        );
+        assert_eq!(
+            find("xai", "grok-imagine-image-2026-03-02"),
+            "grok-imagine-image"
+        );
+        assert_eq!(
+            find("xai", "grok-imagine-video-1.5-2026-05-30"),
+            "grok-imagine-video-1.5"
+        );
+        assert_eq!(find("xai", "tts"), "tts");
+        let grok3 = registry.find("xai", "grok-3").unwrap();
+        assert_eq!(grok3.status, "retired");
+        assert_eq!(grok3.replacement.as_deref(), Some("grok-4.3"));
+        let video = registry
+            .find("xai", "grok-imagine-video")
+            .unwrap()
+            .classified()
+            .unwrap();
+        assert!(video.output.contains(&GaiseModality::Video));
+        assert!(video.operations.is_empty());
+        let voice = registry
+            .find("xai", "grok-voice-3.0")
+            .unwrap()
+            .classified()
+            .unwrap();
+        assert_eq!(voice.operations, vec![GaiseOperation::Live]);
         let flash = registry.find("vertexai", "gemini-3.8-flash").unwrap();
         assert_eq!(flash.status, "active");
         assert_eq!(flash.retirement_not_before.as_deref(), Some("2027-09-02"));
@@ -1481,6 +1529,9 @@ max_output_tokens = 128000
         const UNDOCUMENTED: &[&str] = &[
             "elevenlabs::eleven_v3_conversational",
             "elevenlabs::eleven_v4_turbo",
+            // Session-based (120-minute limit); xAI documents no token window.
+            "xai::grok-voice-3.0",
+            "xai::grok-voice-2.0",
         ];
         let registry = ModelRegistry::bundled();
         let mut missing = Vec::new();

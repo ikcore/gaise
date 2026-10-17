@@ -157,7 +157,7 @@ bash .claude/skills/model-release/scripts/publish.sh
   - the release type and why;
   - a **Not verified** section (anything from summarised pages, anything untested live);
   - test results;
-  - end with the 🤖 Generated with Claude Code line.
+  - no "Generated with Claude Code" footer; the maintainer forbids it on this repository.
 - **Merge:** only after checks pass.
 - **`publish.sh`:** publishes in dependency order, skips versions already on crates.io, and stops at the first failure. Re-run it after fixing the cause.
 
@@ -170,6 +170,6 @@ Tell the user:
 - adapter changes;
 - what could not be verified;
 - the PR link;
-- whether all 11 crates published.
+- whether all 12 crates published.
 
 Lead with anything they need to act on.
