@@ -15,9 +15,9 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 
 use crate::contracts::{
-    EmbeddingProfile, GaiseMetadataSource, GaiseModality, GaiseModel, GaiseModelCapabilities,
-    GaiseModelLimits, GaiseModelLimitsEntry, GaiseModelLimitsMatrix, GaiseModelStatus,
-    GaiseOperation, GaiseSupport,
+    EmbeddingProfile, GaiseMediaOperation, GaiseMetadataSource, GaiseModality, GaiseModel,
+    GaiseModelCapabilities, GaiseModelLimits, GaiseModelLimitsEntry, GaiseModelLimitsMatrix,
+    GaiseModelStatus, GaiseOperation, GaiseSupport,
 };
 
 /// The raw TOML text bundled with the crate.
@@ -140,6 +140,11 @@ pub const CAPABILITY_VOCABULARY: &[&str] = &[
     "tools",
     "realtime",
     "speech",
+    // Media operations (see `RegistryModel::media_operations`).
+    "transcription",
+    "live_transcription",
+    "image_generation",
+    "video_generation",
 ];
 
 /// Classify a flat capability list into typed modalities and operations.
@@ -196,6 +201,9 @@ pub fn classify_capabilities(terms: &[String]) -> Result<ClassifiedCapabilities,
                 push(&mut out.output, GaiseModality::Audio);
             }
             "image_editing" => out.features.push(term.clone()),
+            "transcription" | "live_transcription" | "image_generation" | "video_generation" => {
+                out.features.push(term.clone())
+            }
             other => return Err(format!("unknown capability term '{other}'")),
         }
     }
@@ -270,6 +278,20 @@ impl RegistryModel {
             classified.operations = operations;
         }
         Ok(classified)
+    }
+
+    /// Media operations GAISe can drive for this entry, from the
+    /// `transcription`, `live_transcription`, `image_generation`, and
+    /// `video_generation` capability terms.
+    pub fn media_operations(&self) -> Vec<GaiseMediaOperation> {
+        let mut ops: Vec<GaiseMediaOperation> = self
+            .capabilities
+            .iter()
+            .filter_map(|c| GaiseMediaOperation::parse(c).filter(|op| op.as_str() == c))
+            .collect();
+        ops.sort();
+        ops.dedup();
+        ops
     }
 
     pub fn status(&self) -> GaiseModelStatus {

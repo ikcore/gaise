@@ -9,9 +9,11 @@ use gaise_core::{
     GaiseClient,
     contracts::{
         GaiseConnection, GaiseContent, GaiseContentEmbeddingsRequest, GaiseDecisionRequest,
-        GaiseDecisionResponse, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse,
-        GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
-        GaiseListModelsRequest, GaiseListModelsResponse, GaiseModel, GaiseProviderError,
+        GaiseDecisionResponse, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseImageRequest,
+        GaiseImageResponse, GaiseInstructRequest, GaiseInstructResponse,
+        GaiseInstructStreamResponse, GaiseListModelsRequest, GaiseListModelsResponse,
+        GaiseMediaSource, GaiseModel, GaiseProviderError, GaiseTranscriptionRequest,
+        GaiseTranscriptionResponse, GaiseVideoJob, GaiseVideoJobRequest, GaiseVideoRequest,
         redact_secrets,
     },
     logging::IGaiseLogger,
@@ -508,6 +510,20 @@ fn log_value<T: serde::Serialize>(request: &T) -> serde_json::Value {
     value
 }
 
+/// Size or location of request media, logged instead of the bytes.
+fn media_summary(source: Option<&GaiseMediaSource>) -> serde_json::Value {
+    match source {
+        Some(GaiseMediaSource::Bytes { data, mime_type }) => {
+            serde_json::json!({"bytes": data.len(), "mime_type": mime_type})
+        }
+        Some(GaiseMediaSource::Url { url, .. }) => {
+            // Drop query strings: signed URLs carry credentials.
+            serde_json::json!({"url": url.split('?').next().unwrap_or_default()})
+        }
+        None => serde_json::Value::Null,
+    }
+}
+
 /// Apply the registry overlay and the `provider::id` routing form.
 fn finish_model(registry: &ModelRegistry, provider: &str, model: &mut GaiseModel) {
     if model.provider.is_empty() {
@@ -825,6 +841,188 @@ impl GaiseClient for GaiseClientService {
 
         Ok(response)
     }
+
+    async fn transcribe(
+        &self,
+        request: &GaiseTranscriptionRequest,
+    ) -> Result<GaiseTranscriptionResponse, Box<dyn std::error::Error + Send + Sync>> {
+        request.validate()?;
+        let (provider, model) = Self::parse_model(&request.model)?;
+        let client = self
+            .get_client_with(provider, request.connection.as_ref())
+            .await?;
+        if let Some(logger) = &self.logger {
+            logger.log_request(
+                request.correlation_id.as_deref(),
+                "transcribe",
+                &request.model,
+                serde_json::json!({
+                    "audio": media_summary(request.audio.as_ref()),
+                    "languages": request.languages,
+                    "diarize": request.diarize,
+                    "timestamps": request.timestamps,
+                }),
+            );
+        }
+        let mut req = request.clone();
+        req.model = model.to_string();
+        req.connection = None;
+        let response = client.transcribe(&req).await?;
+        if let Some(logger) = &self.logger {
+            logger.log_response(
+                request.correlation_id.as_deref(),
+                "transcribe",
+                &request.model,
+                serde_json::json!({
+                    "chars": response.text.chars().count(),
+                    "language": response.language,
+                    "duration_seconds": response.duration_seconds,
+                }),
+                serde_json::to_value(&response.usage).ok(),
+            );
+        }
+        Ok(response)
+    }
+
+    async fn generate_images(
+        &self,
+        request: &GaiseImageRequest,
+    ) -> Result<GaiseImageResponse, Box<dyn std::error::Error + Send + Sync>> {
+        request.validate()?;
+        let (provider, model) = Self::parse_model(&request.model)?;
+        let client = self
+            .get_client_with(provider, request.connection.as_ref())
+            .await?;
+        if let Some(logger) = &self.logger {
+            logger.log_request(
+                request.correlation_id.as_deref(),
+                "generate_images",
+                &request.model,
+                serde_json::json!({
+                    "prompt": request.prompt,
+                    "images": request.images.iter().map(|i| media_summary(Some(i))).collect::<Vec<_>>(),
+                    "n": request.n,
+                    "size": request.size,
+                    "aspect_ratio": request.aspect_ratio,
+                    "resolution": request.resolution,
+                }),
+            );
+        }
+        let mut req = request.clone();
+        req.model = model.to_string();
+        req.connection = None;
+        let response = client.generate_images(&req).await?;
+        if let Some(logger) = &self.logger {
+            logger.log_response(
+                request.correlation_id.as_deref(),
+                "generate_images",
+                &request.model,
+                serde_json::json!({"images": response.images.len(), "filtered": response.filtered}),
+                serde_json::to_value(&response.usage).ok(),
+            );
+        }
+        Ok(response)
+    }
+
+    async fn start_video(
+        &self,
+        request: &GaiseVideoRequest,
+    ) -> Result<GaiseVideoJob, Box<dyn std::error::Error + Send + Sync>> {
+        request.validate()?;
+        let (provider, model) = Self::parse_model(&request.model)?;
+        let client = self
+            .get_client_with(provider, request.connection.as_ref())
+            .await?;
+        if let Some(logger) = &self.logger {
+            logger.log_request(
+                request.correlation_id.as_deref(),
+                "start_video",
+                &request.model,
+                serde_json::json!({
+                    "prompt": request.prompt,
+                    "image": media_summary(request.image.as_ref()),
+                    "duration_seconds": request.duration_seconds,
+                    "aspect_ratio": request.aspect_ratio,
+                    "resolution": request.resolution,
+                }),
+            );
+        }
+        let mut req = request.clone();
+        req.model = model.to_string();
+        req.connection = None;
+        let mut job = client.start_video(&req).await?;
+        job.model = request.model.clone();
+        if let Some(logger) = &self.logger {
+            logger.log_response(
+                request.correlation_id.as_deref(),
+                "start_video",
+                &request.model,
+                serde_json::json!({"id": job.id, "status": job.status}),
+                None,
+            );
+        }
+        Ok(job)
+    }
+
+    async fn get_video(
+        &self,
+        request: &GaiseVideoJobRequest,
+    ) -> Result<GaiseVideoJob, Box<dyn std::error::Error + Send + Sync>> {
+        let (provider, model) = Self::parse_model(&request.model)?;
+        let client = self
+            .get_client_with(provider, request.connection.as_ref())
+            .await?;
+        let mut req = request.clone();
+        req.model = model.to_string();
+        req.connection = None;
+        let mut job = client.get_video(&req).await?;
+        job.model = request.model.clone();
+        if let Some(logger) = &self.logger
+            && job.status.is_terminal()
+        {
+            logger.log_response(
+                request.correlation_id.as_deref(),
+                "get_video",
+                &request.model,
+                serde_json::json!({"id": job.id, "status": job.status, "videos": job.videos.len(), "error": job.error}),
+                serde_json::to_value(&job.usage).ok(),
+            );
+        }
+        Ok(job)
+    }
+}
+
+impl GaiseClientService {
+    /// Start a video job and poll it every `poll_interval` until it
+    /// completes or fails. Errors if `timeout` passes first.
+    pub async fn generate_video_and_wait(
+        &self,
+        request: &GaiseVideoRequest,
+        poll_interval: std::time::Duration,
+        timeout: std::time::Duration,
+    ) -> Result<GaiseVideoJob, Box<dyn std::error::Error + Send + Sync>> {
+        let started = std::time::Instant::now();
+        let mut job = self.start_video(request).await?;
+        while !job.status.is_terminal() {
+            if started.elapsed() >= timeout {
+                return Err(format!(
+                    "video job {} still {:?} after {:?}",
+                    job.id, job.status, timeout
+                )
+                .into());
+            }
+            tokio::time::sleep(poll_interval).await;
+            job = self
+                .get_video(&GaiseVideoJobRequest {
+                    model: request.model.clone(),
+                    id: job.id.clone(),
+                    correlation_id: request.correlation_id.clone(),
+                    connection: request.connection.clone(),
+                })
+                .await?;
+        }
+        Ok(job)
+    }
 }
 
 #[cfg(feature = "live")]
@@ -920,6 +1118,23 @@ impl GaiseLiveClient for GaiseClientService {
         cfg.model = actual_model.to_string();
         cfg.connection = None;
         client.live_connect(&cfg).await
+    }
+
+    async fn transcribe_connect(
+        &self,
+        config: &gaise_core::contracts::GaiseTranscriptionSessionConfig,
+    ) -> Result<
+        gaise_core::contracts::GaiseTranscriptionSession,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        let (provider, actual_model) = Self::parse_model(&config.model)?;
+        let client = self
+            .get_live_client_with(provider, config.connection.as_ref())
+            .await?;
+        let mut cfg = config.clone();
+        cfg.model = actual_model.to_string();
+        cfg.connection = None;
+        client.transcribe_connect(&cfg).await
     }
 }
 
