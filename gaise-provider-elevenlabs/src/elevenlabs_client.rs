@@ -2,10 +2,12 @@
 //!
 //! - [`GaiseSpeechClient`]: `POST /v1/text-to-speech/{voice_id}` (+`/with-timestamps`)
 //!   and `/stream` (+`/stream/with-timestamps`).
-//! - [`GaiseClient`]: only `list_models` (`GET /v1/models`); chat and
-//!   embeddings return explicit "not supported" errors.
+//! - [`GaiseClient`]: `list_models` (`GET /v1/models`) and `transcribe`
+//!   (`POST /v1/speech-to-text`, Scribe); chat and embeddings return
+//!   explicit "not supported" errors.
 //! - [`GaiseLiveClient`] (feature `live`): realtime text-in / audio-out over
-//!   `stream-input`, or the text-to-dialogue WebSocket for `eleven_v3*`.
+//!   `stream-input`, or the text-to-dialogue WebSocket for `eleven_v3*`;
+//!   `transcribe_connect` streams audio to `/v1/speech-to-text/realtime`.
 
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -17,7 +19,7 @@ use gaise_core::contracts::{
     GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseInstructRequest, GaiseInstructResponse,
     GaiseInstructStreamResponse, GaiseListModelsRequest, GaiseListModelsResponse,
     GaiseSpeechAlignment, GaiseSpeechChunk, GaiseSpeechRequest, GaiseSpeechResponse,
-    GaiseSpeechStreamResponse, GaiseUsage,
+    GaiseSpeechStreamResponse, GaiseTranscriptionRequest, GaiseTranscriptionResponse, GaiseUsage,
 };
 use gaise_core::{GaiseClient, GaiseSpeechClient};
 
@@ -169,6 +171,43 @@ impl GaiseClientElevenLabs {
             }
         }
         Ok(voices)
+    }
+
+    /// `POST /v1/speech-to-text` (multipart, synchronous).
+    pub async fn transcribe_raw(
+        &self,
+        request: &GaiseTranscriptionRequest,
+    ) -> Result<GaiseTranscriptionResponse, BoxErr> {
+        let form = build_transcription_form(request)?;
+        let file_bytes = form.file().map(|(data, _, _)| data).unwrap_or_default();
+        let boundary = multipart_boundary(file_bytes);
+        let body = form.encode(&boundary);
+        let response = self
+            .client
+            .post(format!("{}/v1/speech-to-text", self.api_url))
+            .header("xi-api-key", &self.api_key)
+            .header(
+                reqwest::header::CONTENT_TYPE,
+                ElevenLabsTranscriptionForm::content_type(&boundary),
+            )
+            .body(body)
+            .send()
+            .await?;
+        let status = response.status();
+        let body = response.text().await?;
+        if !status.is_success() {
+            return Err(format_error(status.as_u16(), &body).into());
+        }
+        if status.as_u16() == 202 {
+            return Err("ElevenLabs accepted the transcription asynchronously (HTTP 202); GAISe needs a synchronous result".into());
+        }
+        let value: serde_json::Value = serde_json::from_str(&body).map_err(|e| {
+            let snippet: String = body.chars().take(300).collect();
+            format!(
+                "failed to parse ElevenLabs transcription response: {e}; body starts: {snippet}"
+            )
+        })?;
+        Ok(map_transcription_response(&value)?)
     }
 
     /// `GET /v1/models`.
@@ -442,6 +481,13 @@ impl GaiseClient for GaiseClientElevenLabs {
         response.retain_operation(request.operation);
         Ok(response)
     }
+
+    async fn transcribe(
+        &self,
+        request: &GaiseTranscriptionRequest,
+    ) -> Result<GaiseTranscriptionResponse, BoxErr> {
+        self.transcribe_raw(request).await
+    }
 }
 
 #[cfg(feature = "live")]
@@ -450,7 +496,8 @@ mod live {
     use futures_util::SinkExt;
     use gaise_core::GaiseLiveClient;
     use gaise_core::contracts::{
-        GaiseLiveConfig, GaiseLiveEvent, GaiseLiveInput, GaiseLiveSession,
+        GaiseLiveConfig, GaiseLiveEvent, GaiseLiveInput, GaiseLiveSession, GaiseTranscriptionEvent,
+        GaiseTranscriptionInput, GaiseTranscriptionSession, GaiseTranscriptionSessionConfig,
     };
     use tokio::sync::mpsc;
     use tokio_tungstenite::tungstenite::Message;
@@ -479,6 +526,29 @@ mod live {
         }
     }
 
+    /// WebSocket upgrade request carrying the `xi-api-key` header.
+    fn ws_request(url: &str, api_key: &str) -> Result<http::Request<()>, BoxErr> {
+        let host = http::Uri::try_from(url)?
+            .authority()
+            .map(|a| a.as_str().to_string())
+            .unwrap_or_else(|| "api.elevenlabs.io".to_string());
+        Ok(http::Request::builder()
+            .uri(url)
+            .header("xi-api-key", api_key)
+            .header("Sec-WebSocket-Version", "13")
+            .header(
+                "Sec-WebSocket-Key",
+                tungstenite::handshake::client::generate_key(),
+            )
+            .header("Connection", "Upgrade")
+            .header("Upgrade", "websocket")
+            .header("Host", host)
+            .body(())?)
+    }
+
+    /// How long `Close` waits for the final committed transcript.
+    const CLOSE_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
     fn alignment_text(chars: &[String]) -> String {
         chars.concat()
     }
@@ -496,23 +566,7 @@ mod live {
             let dialogue = model_uses_dialogue_websocket(&model);
             let url = live_url(&self.api_url, &model, &voice);
 
-            let request = http::Request::builder()
-                .uri(&url)
-                .header("xi-api-key", self.api_key())
-                .header("Sec-WebSocket-Version", "13")
-                .header(
-                    "Sec-WebSocket-Key",
-                    tungstenite::handshake::client::generate_key(),
-                )
-                .header("Connection", "Upgrade")
-                .header("Upgrade", "websocket")
-                .header(
-                    "Host",
-                    http::Uri::try_from(&url)?
-                        .host()
-                        .unwrap_or("api.elevenlabs.io"),
-                )
-                .body(())?;
+            let request = ws_request(&url, self.api_key())?;
             let (ws_stream, _) = tokio_tungstenite::connect_async(request).await?;
             let (mut ws_sink, mut ws_source) = ws_stream.split();
 
@@ -685,6 +739,143 @@ mod live {
             });
 
             Ok(GaiseLiveSession {
+                tx: input_tx,
+                rx: Box::pin(tokio_stream::wrappers::ReceiverStream::new(event_rx)),
+            })
+        }
+
+        /// Scribe realtime: `wss://…/v1/speech-to-text/realtime`.
+        async fn transcribe_connect(
+            &self,
+            config: &GaiseTranscriptionSessionConfig,
+        ) -> Result<GaiseTranscriptionSession, BoxErr> {
+            let setup = build_realtime_transcription_setup(&self.api_url, config)?;
+            let request = ws_request(&setup.url, self.api_key())?;
+            let (ws_stream, _) = tokio_tungstenite::connect_async(request).await?;
+            let (mut ws_sink, mut ws_source) = ws_stream.split();
+
+            let (input_tx, mut input_rx) = mpsc::channel::<GaiseTranscriptionInput>(256);
+            let (event_tx, event_rx) =
+                mpsc::channel::<Result<GaiseTranscriptionEvent, BoxErr>>(256);
+            let (commit_tx, mut commit_rx) = tokio::sync::watch::channel(0u64);
+            let sample_rate = setup.sample_rate;
+            let mut previous_text = config.prompt.clone().filter(|p| !p.trim().is_empty());
+
+            // Send loop.
+            let send_events = event_tx.clone();
+            tokio::spawn(async move {
+                let mut first_chunk = true;
+                let mut uncommitted = false;
+                loop {
+                    let input = input_rx.recv().await;
+                    let (frame, closing) = match input {
+                        Some(GaiseTranscriptionInput::Audio { data }) => {
+                            if data.is_empty() {
+                                continue;
+                            }
+                            uncommitted = true;
+                            let prev = if first_chunk {
+                                previous_text.take()
+                            } else {
+                                None
+                            };
+                            (
+                                Some(realtime_audio_chunk(
+                                    &data,
+                                    sample_rate,
+                                    false,
+                                    prev.as_deref(),
+                                )),
+                                false,
+                            )
+                        }
+                        Some(GaiseTranscriptionInput::Commit) => {
+                            uncommitted = false;
+                            (
+                                Some(realtime_audio_chunk(&[], sample_rate, true, None)),
+                                false,
+                            )
+                        }
+                        // `Close`, or every sender dropped.
+                        Some(GaiseTranscriptionInput::Close) | None => {
+                            let frame = uncommitted
+                                .then(|| realtime_audio_chunk(&[], sample_rate, true, None));
+                            (frame, true)
+                        }
+                        Some(_) => continue,
+                    };
+                    let seen = *commit_rx.borrow_and_update();
+                    if let Some(frame) = frame {
+                        first_chunk = false;
+                        if let Err(e) = ws_sink.send(Message::Text(frame.into())).await {
+                            let _ = send_events
+                                .send(Err(format!("ElevenLabs websocket send failed: {e}").into()))
+                                .await;
+                            break;
+                        }
+                        if closing {
+                            // Wait for the final committed transcript.
+                            let _ = tokio::time::timeout(CLOSE_GRACE, async {
+                                let _ = commit_rx.wait_for(|commits| *commits > seen).await;
+                            })
+                            .await;
+                        }
+                    }
+                    if closing {
+                        let _ = ws_sink.send(Message::Close(None)).await;
+                        break;
+                    }
+                }
+            });
+
+            // Receive loop.
+            let recv_events = event_tx;
+            let mut mapper = ElevenLabsRealtimeMapper::new(
+                setup.model.clone(),
+                setup.include_timestamps,
+                config.interim_results,
+            );
+            tokio::spawn(async move {
+                let mut reason: Option<String> = None;
+                while let Some(msg) = ws_source.next().await {
+                    let text = match msg {
+                        Ok(Message::Text(t)) => t.to_string(),
+                        Ok(Message::Binary(b)) => String::from_utf8_lossy(&b).to_string(),
+                        Ok(Message::Close(frame)) => {
+                            reason = frame
+                                .filter(|f| {
+                                    f.code
+                                        != tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Normal
+                                })
+                                .map(|f| format!("{} ({})", f.reason, f.code));
+                            break;
+                        }
+                        Ok(_) => continue,
+                        Err(e) => {
+                            let _ = recv_events
+                                .send(Err(format!("ElevenLabs websocket error: {e}").into()))
+                                .await;
+                            break;
+                        }
+                    };
+                    for event in mapper.map_frame(&text) {
+                        if recv_events.send(Ok(event)).await.is_err() {
+                            return;
+                        }
+                    }
+                    commit_tx.send_replace(mapper.commits());
+                    if mapper.ended() {
+                        break;
+                    }
+                }
+                for event in mapper.finish(reason) {
+                    if recv_events.send(Ok(event)).await.is_err() {
+                        return;
+                    }
+                }
+            });
+
+            Ok(GaiseTranscriptionSession {
                 tx: input_tx,
                 rx: Box::pin(tokio_stream::wrappers::ReceiverStream::new(event_rx)),
             })

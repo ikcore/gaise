@@ -402,6 +402,51 @@ Realtime text-in/audio-out reuses [Live](#live): `live_connect` with `voice` set
 
 ### Live
 
+### Media
+
+`GaiseClient` has four media methods. Each defaults to "not supported":
+- `transcribe` for speech-to-text.
+- `generate_images` to generate or edit images.
+- `start_video` and `get_video` for asynchronous video jobs.
+
+`GaiseLiveClient::transcribe_connect` opens a streaming speech-to-text session. The router routes all of them by `provider::model`, and `GaiseClientService::generate_video_and_wait` polls a video job until it finishes. See [media.md](media.md) for the contracts and provider coverage.
+
+```rust
+use gaise_core::GaiseClient;
+use gaise_core::contracts::*;
+
+let transcript = service
+    .transcribe(&GaiseTranscriptionRequest {
+        model: "openai::gpt-transcribe".into(),
+        audio: Some(GaiseMediaSource::bytes(std::fs::read("call.wav")?, "audio/wav")),
+        languages: vec!["en".into()],
+        ..Default::default()
+    })
+    .await?;
+
+let images = service
+    .generate_images(&GaiseImageRequest {
+        model: "openai::gpt-image-2.5-flare".into(),
+        prompt: "A paper boat on a pond".into(),
+        size: Some("1536x1024".into()),
+        ..Default::default()
+    })
+    .await?;
+
+let job = service
+    .generate_video_and_wait(
+        &GaiseVideoRequest {
+            model: "xai::grok-imagine-video-1.5".into(),
+            prompt: Some("A paper boat drifting on a pond".into()),
+            duration_seconds: Some(6),
+            ..Default::default()
+        },
+        std::time::Duration::from_secs(5),
+        std::time::Duration::from_secs(600),
+    )
+    .await?;
+```
+
 Behind the `live` feature, [`GaiseLiveClient::live_connect`](../gaise-core/src/lib.rs) takes a [`GaiseLiveConfig`](../gaise-core/src/contracts/gaise_live_config.rs) (model, system instruction, voice, `modalities`, tools, generation config, VAD, transcription) and returns a [`GaiseLiveSession`](../gaise-core/src/contracts/gaise_live_session.rs) with a `tx` channel of [`GaiseLiveInput`](../gaise-core/src/contracts/gaise_live_input.rs) and an `rx` stream of [`GaiseLiveEvent`](../gaise-core/src/contracts/gaise_live_event.rs).
 
 ```mermaid

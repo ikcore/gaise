@@ -8,6 +8,73 @@ change, or an additive adapter feature is a minor release; a change to a public
 contract (removed or renamed items, new required fields, changed serialization)
 is a major release.
 
+## [5.5.0] - 2026-10-17
+
+Media operations: speech-to-text (batch and streaming), image generation and
+editing, and asynchronous video generation. The contracts were designed by
+comparing OpenAI, Google, Bedrock, ElevenLabs, and xAI. Every change is
+additive: new trait methods have defaults, and existing types, enums, and
+model ids are unchanged.
+
+### Added
+- `gaise-core` media contracts:
+  - Shared: `GaiseMediaSource` and `GaiseGeneratedMedia`.
+  - Transcription: `GaiseTranscriptionRequest` / `Response` with words,
+    segments, channels, and speakers.
+  - Images: `GaiseImageRequest` / `Response`.
+  - Video: `GaiseVideoRequest`, `GaiseVideoJob`, `GaiseVideoJobRequest`, and
+    `GaiseJobStatus`.
+  - Streaming transcription: `GaiseTranscriptionSessionConfig` /
+    `Input` / `Event` / `Session`, with partial and final transcripts and
+    end-of-utterance marks.
+  - `GaiseAudioFormat`, plus the non-exhaustive `GaiseMediaOperation` enum.
+- Default methods `GaiseClient::transcribe`, `generate_images`,
+  `start_video`, and `get_video`, plus `GaiseLiveClient::transcribe_connect`.
+- Router: routes all five methods by `provider::model` and logs size
+  summaries, never media bytes. New helper
+  `GaiseClientService::generate_video_and_wait`.
+- HTTP:
+  - `POST /v1/transcriptions` and `POST /v1/images`.
+  - `POST /v1/videos` (answers `202` with the job) and
+    `GET /v1/videos/{id}?model=`.
+  - `GET /v1/transcriptions/live` (WebSocket, `live` feature).
+- Providers:
+  - OpenAI: transcription (`gpt-transcribe`, `whisper-1`,
+    `gpt-4o-transcribe-diarize`) and images (gpt-image-2 and 2.5;
+    generations and JSON edits).
+  - Gemini API: transcription (`gemini-3.5-transcribe`) and Nano Banana
+    images.
+  - Vertex AI: transcription, Nano Banana images, and Veo 3.1 video
+    (`predictLongRunning` / `fetchPredictOperation`).
+  - Bedrock: Stability AI images (SD3.5 Large, Stable Image Ultra and
+    Core) and Luma Ray 2 video (`StartAsyncInvoke`; needs an `s3://`
+    `output_uri`).
+  - ElevenLabs: Scribe v2 transcription and streaming transcription
+    (`scribe_v2_realtime`).
+  - xAI: transcription and streaming transcription (`/v1/stt`), Grok
+    Imagine images, and Grok Imagine video (generate, edit, extend).
+- Registry:
+  - Capability terms `transcription`, `live_transcription`,
+    `image_generation`, and `video_generation`, with
+    `RegistryModel::media_operations`.
+  - New rows:
+    - Bedrock: `stability.sd3-5-large-v1:0`,
+      `stability.stable-image-ultra-v1:1`,
+      `stability.stable-image-core-v1:1`, and `luma.ray-v2:0`.
+    - Vertex: `veo-3.1-generate-001`, `-fast-`, and `-lite-`, and
+      `gemini-3.5-transcribe`.
+    - ElevenLabs: `scribe_v2_realtime`.
+    - Retired: Imagen (Gemini API and Vertex) and Veo 3.0.
+    - Gemini API Veo 3.1 previews, deprecated with shutdown on
+      2026-10-22.
+  - The generated tables show media operations as `T`, `W`, `P`, and `M`.
+- `wiki/media.md`, and media sections on every affected vendor page.
+
+### Changed
+- `elevenlabs::scribe_v2_realtime` now resolves to its own registry row,
+  which carries `live_transcription`. Before, it was an alias of
+  `scribe_v2`.
+
 ## [5.0.0] - 2026-10-17
 
 xAI (Grok) is a new provider covering chat, text-to-speech, and
@@ -296,6 +363,7 @@ request rules in advance.
   ElevenLabs speech, standardized embeddings, the model limits matrix
   (`/v1/models/limits`), and the wiki.
 
+[5.5.0]: https://github.com/ikcore/gaise/pull/22
 [5.0.0]: https://github.com/ikcore/gaise/pull/21
 [4.5.0]: https://github.com/ikcore/gaise/pull/20
 [4.4.0]: https://github.com/ikcore/gaise/pull/19

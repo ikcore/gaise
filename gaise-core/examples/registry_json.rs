@@ -22,6 +22,7 @@ fn main() {
                     "tools": classified.tools,
                     "reasoning": classified.reasoning,
                     "features": classified.features,
+                    "media_operations": m.media_operations(),
                 });
             }
             value["mapped_status"] = serde_json::to_value(m.status()).unwrap();

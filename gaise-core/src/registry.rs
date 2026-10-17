@@ -15,9 +15,9 @@ use std::sync::OnceLock;
 use serde::{Deserialize, Serialize};
 
 use crate::contracts::{
-    EmbeddingProfile, GaiseMetadataSource, GaiseModality, GaiseModel, GaiseModelCapabilities,
-    GaiseModelLimits, GaiseModelLimitsEntry, GaiseModelLimitsMatrix, GaiseModelStatus,
-    GaiseOperation, GaiseSupport,
+    EmbeddingProfile, GaiseMediaOperation, GaiseMetadataSource, GaiseModality, GaiseModel,
+    GaiseModelCapabilities, GaiseModelLimits, GaiseModelLimitsEntry, GaiseModelLimitsMatrix,
+    GaiseModelStatus, GaiseOperation, GaiseSupport,
 };
 
 /// The raw TOML text bundled with the crate.
@@ -140,6 +140,11 @@ pub const CAPABILITY_VOCABULARY: &[&str] = &[
     "tools",
     "realtime",
     "speech",
+    // Media operations (see `RegistryModel::media_operations`).
+    "transcription",
+    "live_transcription",
+    "image_generation",
+    "video_generation",
 ];
 
 /// Classify a flat capability list into typed modalities and operations.
@@ -196,6 +201,9 @@ pub fn classify_capabilities(terms: &[String]) -> Result<ClassifiedCapabilities,
                 push(&mut out.output, GaiseModality::Audio);
             }
             "image_editing" => out.features.push(term.clone()),
+            "transcription" | "live_transcription" | "image_generation" | "video_generation" => {
+                out.features.push(term.clone())
+            }
             other => return Err(format!("unknown capability term '{other}'")),
         }
     }
@@ -270,6 +278,20 @@ impl RegistryModel {
             classified.operations = operations;
         }
         Ok(classified)
+    }
+
+    /// Media operations GAISe can drive for this entry, from the
+    /// `transcription`, `live_transcription`, `image_generation`, and
+    /// `video_generation` capability terms.
+    pub fn media_operations(&self) -> Vec<GaiseMediaOperation> {
+        let mut ops: Vec<GaiseMediaOperation> = self
+            .capabilities
+            .iter()
+            .filter_map(|c| GaiseMediaOperation::parse(c).filter(|op| op.as_str() == c))
+            .collect();
+        ops.sort();
+        ops.dedup();
+        ops
     }
 
     pub fn status(&self) -> GaiseModelStatus {
@@ -1033,6 +1055,64 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
         );
         assert_eq!(find("ollama", "nemotron-3.5-bolt"), "nemotron-3.5-bolt:*");
         assert_eq!(find("ollama", "muse-spark-open:cloud"), "muse-spark-open:*");
+        // Media operations, 5.5.0 (2026-10-17).
+        assert_eq!(
+            find("elevenlabs", "scribe_v2_realtime"),
+            "scribe_v2_realtime"
+        );
+        assert_eq!(
+            find("vertexai", "gemini-3.5-transcribe"),
+            "gemini-3.5-transcribe"
+        );
+        assert_eq!(
+            find("vertexai", "veo-3.1-generate-001"),
+            "veo-3.1-generate-001"
+        );
+        assert_eq!(find("vertexai", "imagen-4.0-generate-001"), "imagen-*");
+        assert_eq!(find("gemini", "imagen-4.0-ultra-generate-001"), "imagen-*");
+        assert_eq!(
+            find("gemini", "veo-3.1-fast-generate-preview"),
+            "veo-3.1-generate-preview"
+        );
+        assert_eq!(
+            find("bedrock", "us.stability.sd3-5-large-v1:0"),
+            "stability.sd3-5-large-v1:0"
+        );
+        assert_eq!(find("bedrock", "luma.ray-v2:0"), "luma.ray-v2:0");
+        let media = |provider: &str, model: &str| {
+            registry.find(provider, model).unwrap().media_operations()
+        };
+        use crate::contracts::GaiseMediaOperation as M;
+        assert_eq!(media("openai", "gpt-transcribe"), vec![M::Transcription]);
+        assert_eq!(
+            media("openai", "gpt-image-2.5-sunburst"),
+            vec![M::ImageGeneration]
+        );
+        assert_eq!(
+            media("xai", "grok-voice-transcribe-2.0"),
+            vec![M::Transcription, M::LiveTranscription]
+        );
+        assert_eq!(
+            media("elevenlabs", "scribe_v2_realtime"),
+            vec![M::LiveTranscription]
+        );
+        assert_eq!(
+            media("gemini", "gemini-nano-banana-2.1"),
+            vec![M::ImageGeneration]
+        );
+        assert_eq!(
+            media("vertexai", "veo-3.1-generate-001"),
+            vec![M::VideoGeneration]
+        );
+        assert_eq!(media("bedrock", "luma.ray-v2:0"), vec![M::VideoGeneration]);
+        assert!(media("openai", "gpt-6-astra").is_empty());
+        // Media rows never become instruct models.
+        let nano = registry
+            .find("gemini", "gemini-nano-banana-2.1")
+            .unwrap()
+            .classified()
+            .unwrap();
+        assert!(nano.features.iter().any(|f| f == "image_generation"));
         // xAI, added 2026-10-17.
         assert_eq!(find("xai", "grok-4.7"), "grok-4.7");
         assert_eq!(find("xai", "grok-4.6"), "grok-4.6");

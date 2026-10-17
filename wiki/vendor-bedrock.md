@@ -2,15 +2,15 @@
 
 > Part of the [GAISe wiki](README.md) · [Models](models.md#bedrock) · [Capabilities](capabilities.md) · [HTTP API](api.md) · [Rust SDK](sdk.md) · [Flows](flows.md) · [Examples](examples.md)
 
-The `bedrock` adapter drives Amazon Bedrock through the official AWS SDKs rather than hand-built HTTP. `instruct` and `instruct_stream` call **Converse** and **ConverseStream** on `aws-sdk-bedrockruntime`; `embeddings` calls **InvokeModel** with the Titan or Cohere request bodies; `list_models` calls **ListFoundationModels** and **ListInferenceProfiles** on the `aws-sdk-bedrock` control-plane client. The adapter deliberately does not wrap `InvokeModelWithBidirectionalStream` (Nova Sonic), the `bedrock-mantle` Messages endpoint (Mythos 5), guardrails, `toolChoice`, or explicit `cachePoint` blocks. It is enabled in `gaise-client` by the `bedrock` Cargo feature, which is part of the default feature set.
+The `bedrock` adapter drives Amazon Bedrock through the official AWS SDKs rather than hand-built HTTP. `instruct` and `instruct_stream` call **Converse** and **ConverseStream** on `aws-sdk-bedrockruntime`; `embeddings` calls **InvokeModel** with the Titan or Cohere request bodies; `generate_images` calls **InvokeModel** on the Stability AI image models; `start_video` / `get_video` call **StartAsyncInvoke** / **GetAsyncInvoke** on Luma Ray 2; `list_models` calls **ListFoundationModels** and **ListInferenceProfiles** on the `aws-sdk-bedrock` control-plane client. The adapter deliberately does not wrap `InvokeModelWithBidirectionalStream` (Nova Sonic), the `bedrock-mantle` Messages endpoint (Mythos 5), guardrails, `toolChoice`, or explicit `cachePoint` blocks. It is enabled in `gaise-client` by the `bedrock` Cargo feature, which is part of the default feature set.
 
 ## At a glance
 
-| Crate | Feature flag | Client type | Instruct surface | Streaming surface | Embeddings surface | Live surface | Model listing surface |
-|---|---|---|---|---|---|---|---|
-| [`gaise-provider-bedrock`](../gaise-provider-bedrock/Cargo.toml) | [`bedrock`](../gaise-client/Cargo.toml#L33) | [`GaiseClientBedrock`](../gaise-provider-bedrock/src/bedrock_client.rs#L153) | [`Converse`](../gaise-provider-bedrock/src/bedrock_client.rs#L762) | [`ConverseStream`](../gaise-provider-bedrock/src/bedrock_client.rs#L929) | [`InvokeModel`](../gaise-provider-bedrock/src/bedrock_client.rs#L1149) | Not supported | [`ListFoundationModels` + `ListInferenceProfiles`](../gaise-provider-bedrock/src/bedrock_client.rs#L732) via [`catalog.rs`](../gaise-provider-bedrock/src/catalog.rs) |
+| Crate | Feature flag | Client type | Instruct surface | Streaming surface | Embeddings surface | Image / video surface | Live surface | Model listing surface |
+|---|---|---|---|---|---|---|---|---|
+| [`gaise-provider-bedrock`](../gaise-provider-bedrock/Cargo.toml) | [`bedrock`](../gaise-client/Cargo.toml#L33) | [`GaiseClientBedrock`](../gaise-provider-bedrock/src/bedrock_client.rs#L153) | [`Converse`](../gaise-provider-bedrock/src/bedrock_client.rs#L762) | [`ConverseStream`](../gaise-provider-bedrock/src/bedrock_client.rs#L929) | [`InvokeModel`](../gaise-provider-bedrock/src/bedrock_client.rs#L1149) | `InvokeModel` (Stability) / `StartAsyncInvoke` + `GetAsyncInvoke` (Luma Ray 2) via [`media.rs`](../gaise-provider-bedrock/src/media.rs) | Not supported | [`ListFoundationModels` + `ListInferenceProfiles`](../gaise-provider-bedrock/src/bedrock_client.rs#L732) via [`catalog.rs`](../gaise-provider-bedrock/src/catalog.rs) |
 
-There is no `contracts/` module: the SDK's own types (`aws_sdk_bedrockruntime::types::*`, `aws_smithy_types::Document`) are used directly, and the conversion helpers live as private functions in [`bedrock_client.rs`](../gaise-provider-bedrock/src/bedrock_client.rs).
+There is no `contracts/` module: the SDK's own types (`aws_sdk_bedrockruntime::types::*`, `aws_smithy_types::Document`) are used directly, and the conversion helpers live as private functions in [`bedrock_client.rs`](../gaise-provider-bedrock/src/bedrock_client.rs). The image and video request builders and response mappers are public, SDK-free functions in [`media.rs`](../gaise-provider-bedrock/src/media.rs).
 
 ## Configuration
 
@@ -206,6 +206,50 @@ Embeddings ([`#L1214-L1224`](../gaise-provider-bedrock/src/bedrock_client.rs#L12
 - Inference-profile prefixes (`us.`, `eu.`, `global.`, …) are stripped before the registry lookup, so `us.cohere.embed-v4:0` resolves to the v4 profile.
 - Values are narrowed to `f32`. Cohere `embedding_types` and image input, Nova image/audio/video input, and Titan image input are not mapped. `external_id` is `None`.
 
+## Image generation
+
+[`generate_images`](../gaise-provider-bedrock/src/bedrock_client.rs) calls **InvokeModel** on the Stability AI models, using the pure builders in [`media.rs`](../gaise-provider-bedrock/src/media.rs). **Amazon Nova Canvas reached end of life on 2026-09-30** (requests to `amazon.nova-canvas-v1:0` fail) and Titan Image Generator is gone; GAISe rejects those ids with an error naming the Stability replacement. The Stability models are served in `us-west-2` (or through a `us.` inference profile).
+
+| Model ID | Shape | Image-to-image | `output_format` | Seed range |
+|---|---|---|---|---|
+| `stability.sd3-5-large-v1:0` | SD3.5 | yes: `mode: "image-to-image"`, `image`, `strength` | png (default), jpeg, webp | 0-4294967294 |
+| `stability.stable-image-ultra-v1:1` | Ultra | yes: `image`, `strength` (no `mode`) | png, jpeg | 0-4294967295 |
+| `stability.stable-image-core-v1:1` | Core | no (text-to-image only) | png, jpeg | 0-4294967295 |
+| other `stability.*` | SD3.5 | as SD3.5 | as SD3.5 | as SD3.5 |
+
+Request mapping ([`stability_image_body`](../gaise-provider-bedrock/src/media.rs)):
+
+- `prompt` → `prompt` (at most 10,000 characters); `negative_prompt` → `negative_prompt`; `seed` → `seed` (0 means random); `output_format` (`image/png`, `image/jpeg`, `image/webp` or the bare names) → `png` / `jpeg` / `webp`.
+- `aspect_ratio` → `aspect_ratio` (`16:9`, `1:1`, `21:9`, `2:3`, `3:2`, `4:5`, `5:4`, `9:16`, `9:21`), text-to-image only. `size` (`WxH`) is accepted when it reduces to one of those ratios (`1920x1080` → `16:9`).
+- One input image in `images` turns the request into image-to-image. The image is sent as base64: pass `GaiseMediaSource::Bytes` or a base64 `data:` URL; other URLs are rejected. `strength` defaults to 0.35 (Ultra's documented default; SD3.5 requires one) and is overridden by `provider_options.strength`.
+- `provider_options` keys are merged into the body as-is.
+- Rejected with an error: `mask` (no inpainting on these models), more than one input image, image input on Core, `aspect_ratio` together with an input image, `resolution`, `quality` other than `auto`, `webp` on Ultra/Core, out-of-range seeds, and unsupported ratios.
+
+**`n`.** Each Stability call returns one image, so `n` (default 1, at most 10) is served by `n` sequential `InvokeModel` calls. When a non-zero `seed` is set, call *i* uses `seed + i` so the images differ.
+
+Response mapping ([`map_stability_image_response`](../gaise-provider-bedrock/src/media.rs)): `images[i]` (base64) → `GaiseGeneratedMedia { data, mime_type, seed: seeds[i] }`, with `mime_type` taken from the requested output format (png when unset). Each `finish_reasons` entry starting with `Filter reason:` (`prompt`, `output image`, `input image`) counts towards `filtered`; a call that returns no image and only `Inference error` fails. `usage` and `external_id` are `None`.
+
+## Video generation
+
+[`start_video`](../gaise-provider-bedrock/src/bedrock_client.rs) calls **StartAsyncInvoke** on Luma Ray 2 (`luma.ray-v2:0`, `us-west-2`) and returns a `GaiseVideoJob` whose `id` is the **invocation ARN** with status `queued`; [`get_video`](../gaise-provider-bedrock/src/bedrock_client.rs) calls **GetAsyncInvoke** with that ARN. **Amazon Nova Reel (`amazon.nova-reel-v1:0` / `v1:1`) reached end of life on 2026-09-30**; GAISe rejects it with an error pointing at Luma Ray.
+
+`output_uri` is **required**: Bedrock writes the MP4 to S3 (`outputDataConfig.s3OutputDataConfig.s3Uri`). A missing or non-`s3://` value fails before any AWS call. The bucket must be in the same region and writable by the caller's role.
+
+Request mapping ([`luma_model_input`](../gaise-provider-bedrock/src/media.rs)):
+
+| GAISe field | `modelInput` field |
+|---|---|
+| `prompt` (required, 1-5,000 characters; Luma also caps it at 300 tokens) | `prompt` |
+| `aspect_ratio` (`1:1`, `16:9`, `9:16`, `4:3`, `3:4`, `21:9`, `9:21`) | `aspect_ratio` |
+| `duration_seconds` (5 or 9) | `duration` (`"5s"` / `"9s"`) |
+| `resolution` (`540p`, `720p`) | `resolution` |
+| `image` / `last_frame` (JPEG or PNG bytes, or a base64 `data:` URL) | `keyframes.frame0` / `keyframes.frame1` = `{ "type": "image", "source": { "type": "base64", "media_type", "data" } }` |
+| `provider_options` (for example `{"loop": true}`) | merged into `modelInput` |
+
+Rejected with an error: `reference_images`, `video`, `generate_audio: true`, `n > 1`, `negative_prompt`, `seed`, other durations, resolutions, or ratios, and keyframe URLs that are not `data:` URLs.
+
+Status mapping ([`map_async_invoke`](../gaise-provider-bedrock/src/media.rs)): `InProgress` → `running`, `Completed` → `completed`, `Failed` → `failed` with `error` = `failureMessage` (a content-filter message also sets `filtered: 1`). A completed job carries one video with `mime_type: video/mp4` and `url` = `<s3Uri>/output.mp4`, where `<s3Uri>` is the invocation folder reported by `GetAsyncInvoke` (Bedrock writes each async invocation into a folder named after its invocation id; if the reported URI does not already end in that id, GAISe appends it). The file name `output.mp4` follows the Nova Reel documentation for the same async-invoke API; AWS's Luma page only says the MP4 is written to the configured bucket, so list the folder if the object is missing. GAISe does not download the video; fetch it with the S3 SDK.
+
 ## Live / realtime
 
 Not supported. `amazon.nova-2-sonic-v1:0` requires `InvokeModelWithBidirectionalStream`, which this crate does not wrap; the `live` feature of `gaise-client` covers OpenAI Realtime and Gemini Live only.
@@ -307,6 +351,10 @@ From the 2026-09-12 registry audit; advisory only. Dates are AWS Bedrock lifecyc
 | `amazon.nova-sonic-v1:0` | — | `retired` | shutdown 2026-09-14 | unknown | unknown | — | — | — | EOL date passed; AWS's legacy table still listed it on 2026-10-01. Replacement `amazon.nova-2-sonic-v1:0`. |
 | `amazon.nova-reel-v1:*` | — | `retired` | shutdown 2026-09-30 | unknown | unknown | — | — | — | EOL date passed; AWS's legacy table still listed it on 2026-10-01. |
 | `amazon.nova-canvas-v1:0` | — | `retired` | shutdown 2026-09-30 | unknown | unknown | — | — | — | EOL date passed; AWS's legacy table still listed it on 2026-10-01. |
+| `stability.sd3-5-large-v1:0` | — | `active` | — | image | image | image_generation | — | generate_images: InvokeModel (text-to-image, or image-to-image with one input image and strength); n loops sequential calls | Stability AI Stable Diffusion 3.5 Large, us-west-2. Aspect ratios 16:9, 1:1, 21:9, 2:3, 3:2, 4:5, 5:4, 9:16, 9:21; png, jpeg, or webp; promp… |
+| `stability.stable-image-ultra-v1:1` | — | `active` | — | image | image | image_generation | — | generate_images: InvokeModel (text-to-image, or image-to-image with strength) | Stability AI Stable Image Ultra 1.0, us-west-2; png or jpeg output. |
+| `stability.stable-image-core-v1:1` | — | `active` | — | unknown | image | image_generation | — | generate_images: InvokeModel (text-to-image only) | Stability AI Stable Image Core 1.0, us-west-2; png or jpeg output. The model id was not confirmed on its model card (assumed to follow Ultra… |
+| `luma.ray-v2:0` | — | `active` | — | image | video | video_generation | — | start_video / get_video: StartAsyncInvoke and GetAsyncInvoke; output_uri (s3://) is required; first and last frame keyframes as base64 | Luma Ray 2, us-west-2, async invoke only; 5 s or 9 s at 540p or 720p; 2-8 minutes per job. The output object path ({s3Uri}/output.mp4) is in… |
 | `cohere.command-r-*` | — | `retired` | shutdown 2026-08-19 | unknown | unknown | — | — | — | cohere.command-r-v1:0 and cohere.command-r-plus-v1:0. |
 
 Third-party Converse families (OpenAI GPT-6 Astra, GPT-5.6, and gpt-oss, xAI Grok 4.6, DeepSeek V3.2, Mistral Large 3, Llama 4 Maverick, Qwen3 Coder Next, GLM 5, Kimi K2.5, Nemotron 3 Super, MiniMax M2.5) were added on 2026-09-04 with the limits printed on their model cards; their `tools` flag reflects the family's documented function calling, not a per-card Converse matrix, because AWS no longer publishes one. The adapter's own reasoning rules also recognize `amazon.nova-lite-1-5` and `amazon.nova-pro-1-5`, which have no registry entry. Lifecycle rows past their EOL date (Cohere Command R/R+, Claude 3.5 Haiku) are kept as `retired` so old ids keep resolving.
@@ -325,6 +373,7 @@ Third-party Converse families (OpenAI GPT-6 Astra, GPT-5.6, and gpt-oss, xAI Gro
 - `stopReason`, `external_id`, and streamed `MessageStop` metadata are not surfaced.
 - `thinking_tokens` on adaptive-only Claude families is silently converted to adaptive thinking with no budget.
 - Temperature and top-p are dropped for fixed-sampling Claude, any Claude request with a `thinking` object, and Nova at `high` effort; `max_tokens` is always kept.
+- Image generation covers the Stability AI models only and video generation Luma Ray 2 only; Nova Canvas, Nova Reel, and Titan Image ids are rejected (end of life). Masks/inpainting, Stability's other edit operations, and video download are not mapped.
 - No live adapter: Nova Sonic and other bidirectional-stream models are not routable.
 - Region must be supplied via `GaiseClientConfig.bedrock_region` or the SDK's own resolution; the adapter never sets `AWS_REGION`.
 
@@ -397,6 +446,7 @@ All tests are hermetic; none constructs an AWS client or loads credentials, and 
 |---|---|
 | [`src/bedrock_client.rs#L1234-L1468`](../gaise-provider-bedrock/src/bedrock_client.rs#L1234-L1468) | Adaptive Claude effort → `thinking.type: adaptive` + `output_config.effort` for `low`/`medium`/`high`/`max`; Nova `reasoningConfig`; manual Claude `budget_tokens`; Titan receives no reasoning fields; Fable 5 `thinking_tokens` → adaptive without budget; `thinking.display` `summarized`/`omitted`; Opus 5 follows Opus 4.7/4.8 rules; sampling omission for fixed-sampling Claude, manual thinking, and Nova `high` (but not `low`); empty tool schema gains `type: object` + `properties: {}`; nested system `Parts` flatten; image MIME → `ImageFormat` with `jpeg` default; redacted reasoning bytes; document format case-insensitivity and name sanitization (`quarterly.report (final).pdf` → `quarterly-report (final)`, `...pdf` → `document`); usage mapping including `effective_input_tokens`, `cache_write_1h_input_tokens`, and no fabricated modality counters; Titan `inputTextTokenCount` parsing without estimation |
 | [`src/catalog.rs#L219-L351`](../gaise-provider-bedrock/src/catalog.rs#L219-L351) | `TEXT`/`IMAGE`/`EMBEDDING` modality mapping; `Instruct`/`InstructStream`/`Embeddings` operation derivation; `ACTIVE`/`LEGACY` status; `PROVISIONED`-only note; `include_raw`; inference profiles inherit foundation capabilities, take the profile name, get the `cross-region inference profile` note, skip `INACTIVE` profiles, and list unknown base models with identity only; `model_id_from_arn` |
+| [`tests/media_tests.rs`](../gaise-provider-bedrock/tests/media_tests.rs) | SD3.5 text-to-image and image-to-image bodies, Ultra image-to-image without `mode`, `data:` URL input, `size` to aspect ratio, rejections (mask, Core image input, ratio with image input, webp on Ultra, seed range, `resolution`, remote URLs, Nova Canvas EOL), per-call seed offset, image/seed/filter mapping and `Inference error`, merged `n > 1` responses; Luma text-to-video input with `provider_options`, `frame0`/`frame1` keyframes, rejections (duration, resolution, ratio, seed, audio, Nova Reel EOL), `output_uri` validation, `GetAsyncInvoke` status mapping and `output.mp4` location, failure and filter mapping |
 | [`tests/mapping_tests.rs`](../gaise-provider-bedrock/tests/mapping_tests.rs) | Serializes a `GaiseInstructRequest` for `amazon.titan-text-express-v1` without initializing the SDK (guards against credential-chain probing in CI) |
 | [`gaise-core/src/registry.rs#L659-L896`](../gaise-core/src/registry.rs#L659-L896) | Bedrock lookups through inference-profile prefixes, `-vN:M` suffixes, dated snapshots, and `*` globs (`us.anthropic.claude-opus-5-v1:0`, `global.amazon.nova-2-lite-v1:0`, `amazon.nova-reel-v1:1`, `cohere.embed-english-v3`) |
 
@@ -408,13 +458,21 @@ Official documentation:
 - Model lifecycle: <https://docs.aws.amazon.com/bedrock/latest/userguide/model-lifecycle.html>
 - API compatibility by model: <https://docs.aws.amazon.com/bedrock/latest/userguide/models-api-compatibility.html>
 - `FoundationModelSummary` reference: <https://docs.aws.amazon.com/bedrock/latest/APIReference/API_FoundationModelSummary.html>
+- Stable Diffusion 3.5 Large: <https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-diffusion-3-5-large.html>
+- Stable Image Ultra: <https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-diffusion-stable-ultra-text-image-request-response.html>
+- Stable Image Core: <https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-diffusion-stable-image-core-text-image-request-response.html>
+- Luma AI (Ray 2): <https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-luma.html>
+- Async invocation output layout (Nova Reel page): <https://docs.aws.amazon.com/nova/latest/userguide/video-gen-access.html>
+- Model lifecycle (legacy; Nova Canvas and Nova Reel EOL 2026-09-30): <https://docs.aws.amazon.com/bedrock/latest/userguide/model-lifecycle-legacy.html>
 - Discovery APIs named in the registry: `ListFoundationModels`, `GetFoundationModel`, `ListInferenceProfiles`
 
 Source files:
 
 - [`../gaise-provider-bedrock/src/bedrock_client.rs`](../gaise-provider-bedrock/src/bedrock_client.rs)
 - [`../gaise-provider-bedrock/src/catalog.rs`](../gaise-provider-bedrock/src/catalog.rs)
+- [`../gaise-provider-bedrock/src/media.rs`](../gaise-provider-bedrock/src/media.rs)
 - [`../gaise-provider-bedrock/src/lib.rs`](../gaise-provider-bedrock/src/lib.rs)
+- [`../gaise-provider-bedrock/tests/media_tests.rs`](../gaise-provider-bedrock/tests/media_tests.rs)
 - [`../gaise-provider-bedrock/tests/mapping_tests.rs`](../gaise-provider-bedrock/tests/mapping_tests.rs)
 - [`../gaise-provider-bedrock/Cargo.toml`](../gaise-provider-bedrock/Cargo.toml)
 - [`../gaise-provider-bedrock/README.md`](../gaise-provider-bedrock/README.md)

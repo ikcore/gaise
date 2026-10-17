@@ -2,7 +2,7 @@
 
 > Part of the [GAISe wiki](README.md) · [Models](models.md#gemini) · [Capabilities](capabilities.md) · [HTTP API](api.md) · [Rust SDK](sdk.md) · [Flows](flows.md) · [Examples](examples.md)
 
-The `gemini` adapter drives the Google AI Gemini API (`generativelanguage.googleapis.com`, `v1beta`). `instruct` posts to `models/{model}:generateContent`, `instruct_stream` to `models/{model}:streamGenerateContent?alt=sse`, `embeddings` to `models/{model}:batchEmbedContents`, and `list_models` pages through `GET /models`. Behind the crate's `live` feature, a second client opens the `BidiGenerateContent` WebSocket for Live sessions. The adapter deliberately does not wrap `predict`/`predictLongRunning` (Imagen, Veo), `cachedContents`, `countTokens`, file uploads, or text-to-speech. Enable it in `gaise-client` with the `gemini` feature (on by default) and add `live` for the WebSocket client.
+The `gemini` adapter drives the Google AI Gemini API (`generativelanguage.googleapis.com`, `v1beta`). `instruct` posts to `models/{model}:generateContent`, `instruct_stream` to `models/{model}:streamGenerateContent?alt=sse`, `embeddings` to `models/{model}:batchEmbedContents`, and `list_models` pages through `GET /models`. `transcribe` (`gemini-3.5-transcribe`) and `generate_images` (Nano Banana) also post to `models/{model}:generateContent` ([Transcription](#transcription), [Image generation](#image-generation)). Behind the crate's `live` feature, a second client opens the `BidiGenerateContent` WebSocket for Live sessions. The adapter deliberately does not wrap `predict`/`predictLongRunning` (Imagen is shut down; Veo previews shut down on 2026-10-22, see [Video generation](#video-generation)), the Interactions API, `cachedContents`, `countTokens`, file uploads, or text-to-speech. Enable it in `gaise-client` with the `gemini` feature (on by default) and add `live` for the WebSocket client.
 
 ## At a glance
 
@@ -196,6 +196,57 @@ Live sessions use [`map_live_usage`](../gaise-provider-gemini/src/gemini_live_cl
 - `taskType`, `title`, and `outputDimensionality` are not mapped.
 - `usage` is `None`; `batchEmbedContents` returns no token counts. `external_id` is `None`.
 
+## Transcription
+
+[`transcribe`](../gaise-provider-gemini/src/gemini_client.rs) posts the body from [`gemini_transcription_request`](../gaise-provider-gemini/src/gemini_media.rs) to `models/{model}:generateContent?key=…` and maps the reply with [`map_gemini_transcription_response`](../gaise-provider-gemini/src/gemini_media.rs). The model is `gemini-3.5-transcribe` (GA 2026-08-26). Google's transcription guide shows the Interactions API, but the `generateContent` reference carries the same `generationConfig.audioTranscriptionConfig`, which is what GAISe sends.
+
+| `GaiseTranscriptionRequest` | Wire |
+|---|---|
+| `audio` bytes / `data:` URL | `contents[0].parts[0].inlineData{mimeType, data}`; the MIME type comes from the source, then `format`, then magic-byte sniffing, then `audio/wav` |
+| `audio` URL | `fileData{fileUri, mimeType}` (Files API URIs; the MIME type comes from the source, then the extension) |
+| `format` (headerless audio) | `pcm` → `audio/pcm;rate={sample_rate}` (a sample rate is required); container names map to their `audio/*` type |
+| `languages` | `audioTranscriptionConfig.languageCodes` (empty = auto-detect) |
+| `keyterms` | `customVocabulary` |
+| `timestamps: word` | `wordTimestamp: true` (`segment` and `none` send nothing; `character` is an error) |
+| `diarize` | `diarization: true` |
+| `mode` | `mode: VERBATIM` / `SMART` |
+| `provider_options` | merged into `generationConfig`; `safetySettings`, `systemInstruction`, `tools`, `toolConfig`, `cachedContent`, `labels` go to the body root |
+
+Client-side errors, so the request never reaches the API:
+
+- `SMART` with `diarize` or word timestamps (the API rejects both combinations).
+- `keyterms` with `diarize` or word timestamps (the API rejects both combinations).
+- `prompt`, `max_speakers`, `multichannel`, `temperature`: the API has no field for them.
+
+Response: every `candidates[].content.parts[].audioTranscription` part is one segment. With diarization there is one part per speaker turn, carrying `speakerLabel` (`spk_1`, …). `words[{word, startOffset, endOffset}]` become `GaiseTranscriptWord`s. The offsets are Duration strings such as `"0.100s"`, converted to seconds, and each word takes its segment's speaker. `segments` are returned only when a part has a speaker label or words, and a segment's `start`/`end` are its first and last word times. `text` joins the segments with newlines when speakers are labelled and with spaces otherwise. Without `audioTranscription` parts, the plain `text` parts are concatenated. `usage` goes through the same mapper as `instruct` (audio input shows up as `audio_tokens`), and `external_id` is `responseId`. `language` and `duration_seconds` are `None` because the API reports neither. A `promptFeedback.blockReason`, or a safety finish reason with no text, is an error.
+
+Limits (transcription guide, 2026-10-17): audio up to 1 hour per request, or 30 minutes with diarization or word timestamps. Up to 1,000 custom vocabulary terms (about 100 works best). Inline audio counts against the request size limit, so upload larger files through the Files API and pass the file URI.
+
+## Image generation
+
+[`generate_images`](../gaise-provider-gemini/src/gemini_client.rs) posts the body from [`gemini_image_request`](../gaise-provider-gemini/src/gemini_media.rs) to `models/{model}:generateContent?key=…`. **Imagen (`:predict`) is shut down on the Gemini API**: `imagen-4.0-generate-001`, `-ultra-` and `-fast-` were shut down on 2026-08-17, and Google recommends `gemini-nano-banana-2.1` as the replacement. Image generation therefore only uses the Nano Banana `generateContent` models: `gemini-nano-banana-2.1` (GA 2026-10-06), `gemini-3-pro-image`, `gemini-3.1-flash-image` (deprecated), `gemini-3.1-flash-lite-image` (1K only), and `gemini-2.5-flash-image` (shutdown 2027-03-15).
+
+| `GaiseImageRequest` | Wire |
+|---|---|
+| `prompt` | `contents[0].parts[0].text` |
+| `images` (edits / references, up to 14) | further parts after the prompt: bytes and `data:` URLs as `inlineData`, other URLs as `fileData{fileUri}` |
+| — | `generationConfig.responseModalities: ["TEXT", "IMAGE"]` |
+| `aspect_ratio` | `generationConfig.imageConfig.aspectRatio`, checked against 1:1, 1:4, 4:1, 1:8, 8:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9 |
+| `resolution` | `imageConfig.imageSize`, normalised to `512`, `1K`, `2K`, `4K` (uppercase K is required; `512` exists only on `gemini-3.1-flash-image`) |
+| `seed` | `generationConfig.seed` on `gemini-2.5-flash-image`; an error on Gemini 3-generation image models, which reject it |
+| `quality: auto` | ignored |
+| `provider_options` | as for transcription (for example `{"thinkingConfig": {"thinkingLevel": "HIGH"}}`) |
+
+The adapter sends `imageConfig`, not the newer enum-typed `responseFormat.image` that `instruct` uses: the reference still lists `imageConfig` (with string values) as a supported field, and the image-generation guide's REST samples use it.
+
+Errors: `n > 1` (the image models have no candidate count, so send separate requests rather than have the adapter fan out), `size` (no exact pixel sizes), `mask`, `negative_prompt`, any `quality` other than `auto`, `output_format`, more than 14 input images, unknown aspect ratios or sizes.
+
+Response: every non-thought `inlineData` part becomes a `GaiseGeneratedMedia { data, mime_type }`. Interim "thought" images (`thought: true`) are skipped. Non-thought text parts are concatenated into `text`. A safety finish reason (`SAFETY`, `IMAGE_SAFETY`, `PROHIBITED_CONTENT`, …) with no images gives `filtered: Some(1)` and an empty `images`. A `promptFeedback.blockReason` is an error. `usage` uses the shared mapper (generated images count as `image_tokens` output), and `external_id` is `responseId`.
+
+## Video generation
+
+Not implemented; `start_video` and `get_video` return the trait's default "not supported" error. Veo on the Gemini API is being retired. The GA-era `veo-3.0-*` and `veo-2.0-generate-001` models were shut down on 2026-06-30, and the remaining previews (`veo-3.1-generate-preview`, `veo-3.1-fast-generate-preview`, `veo-3.1-lite-generate-preview`) shut down on **2026-10-22**. Google's replacement, `gemini-omni-1.1-flash`, is served only through the Interactions API, which GAISe does not wrap. Use `vertexai::veo-3.1-generate-001` (see [vendor-vertexai.md](vendor-vertexai.md#video-generation)).
+
 ## Live / realtime
 
 Feature `live` compiles [`gemini_live_client.rs`](../gaise-provider-gemini/src/gemini_live_client.rs) and [`contracts/live_models.rs`](../gaise-provider-gemini/src/contracts/live_models.rs). [`live_connect`](../gaise-provider-gemini/src/gemini_live_client.rs#L298) converts the configured HTTP base URL to `wss://{host}/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=…` (`ws://` when the base URL is not `https`), connects with `tokio-tungstenite`, sends one `setup` frame from [`build_setup_message`](../gaise-provider-gemini/src/gemini_live_client.rs#L158), and blocks until `setupComplete` arrives; an `error` frame or socket close before that fails the call. It then spawns a send loop and a receive loop joined by `mpsc` channels of depth 256 and returns a `GaiseLiveSession { tx, rx }`.
@@ -285,22 +336,25 @@ From the bundled registry (audited 2026-10-16), entries with `provider = "gemini
 | `gemini-3.8-live-extended-thinking` | — | `stable` | — | text, image, audio, video | text, audio | live | `low`, `medium`, `high` | native Live API transport (thinking_level low, medium, or high) | GA 2026-09-15. Background reasoning during live sessions: turnComplete no longer means idle (watch interaction_status IN_PROGRESS / IDLE). t… |
 | `gemini-3.1-flash-live-preview` | — | `deprecated` | shutdown 2026-11-17 | text, image, audio, video | text, audio | live | `minimal`, `low`, `medium`, `high` | native Live API transport | Released 2026-03-11. The deprecations page names gemini-3.8-live as its replacement (2026-10-01) and a 2026-11-17 shutdown (2026-10-09). Replacement `gemini-3.8-live`. |
 | `gemini-2.5-flash-native-audio-preview-12-2025` | — | `deprecated` | shutdown 2026-11-17 | text, audio, video | text, audio | live | supported | Live transport; migration recommended | Live guide still documents thinkingBudget (0 disables) for this model. Shutdown 2026-11-17 per the deprecations table (2026-10-09). Replacement `gemini-3.8-live`. |
-| `gemini-nano-banana-2.1` | — | `stable` | — | text, image, video, file | text, image | instruct, instruct_stream | `minimal`, `medium`, `high` | native image output through generateContent | Nano Banana 2.1, GA 2026-10-06; replaces gemini-3.1-flash-image. Text, image, video, and PDF input; image and text output; 1K (default), 2K,… |
-| `gemini-3.1-flash-image` | — | `deprecated` | — | text, image, video, file | text, image | instruct, instruct_stream | `minimal`, `high` | native image output through generateContent | Released 2026-05-28. Function calling and structured outputs are not supported. Video-to-image input is exclusive to this model; output size… |
-| `gemini-3.1-flash-lite-image` | — | `stable` | — | text, image | text, image | instruct, instruct_stream | `minimal`, `high` | native image output through generateContent | GA 2026-06-30 (Nano Banana 2 Lite); 1K output only. The model page now lists function calling, structured outputs, caching, and search groun… |
-| `gemini-3-pro-image` | — | `stable` | — | text, image | text, image | instruct, instruct_stream | supported | native image output through generateContent | Released 2026-05-28. Function calling is not supported. |
+| `gemini-nano-banana-2.1` | — | `stable` | — | text, image, video, file | text, image | instruct, instruct_stream, image_generation | `minimal`, `medium`, `high` | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output | Nano Banana 2.1, GA 2026-10-06; replaces gemini-3.1-flash-image. Text, image, video, and PDF input; image and text output; 1K (default), 2K,… |
+| `gemini-3.1-flash-image` | — | `deprecated` | — | text, image, video, file | text, image | instruct, instruct_stream, image_generation | `minimal`, `high` | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output | Released 2026-05-28. Function calling and structured outputs are not supported. Video-to-image input is exclusive to this model; output size… |
+| `gemini-3.1-flash-lite-image` | — | `stable` | — | text, image | text, image | instruct, instruct_stream, image_generation | `minimal`, `high` | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output | GA 2026-06-30 (Nano Banana 2 Lite); 1K output only. The model page now lists function calling, structured outputs, caching, and search groun… |
+| `gemini-3-pro-image` | — | `stable` | — | text, image | text, image | instruct, instruct_stream, image_generation | supported | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output | Released 2026-05-28. Function calling is not supported. |
 | `gemini-embedding-2` | `gemini-embedding-2-preview` | `stable` | — | text, image, audio, video | embedding | embeddings | — | native; images, audio, video, and PDF through embed_contents (POST /v1/embeddings/contents) | Released 2026-04-22. Text, image, video, audio, and PDF input. The catalog table still shows the -preview endpoint name; the model page uses… |
 | `gemini-3.8-flash-tts` | — | `stable` | — | text | text, audio | — | — | text-to-speech is outside the instruct surface | GA 2026-09-22; 130+ languages with automatic language detection. Batch, Flex, and Priority inference supported; thinking and function callin… |
 | `gemini-3.8-flash-lite-tts` | — | `stable` | — | text | text, audio | — | — | text-to-speech is outside the instruct surface | GA 2026-09-22; 100+ languages with automatic language detection. Batch, Flex, and Priority inference supported; thinking and function callin… |
 | `gemini-3.1-flash-tts-preview` | — | `deprecated` | shutdown 2026-11-17 | text | text, audio | — | — | text-to-speech is outside the instruct surface | Released 2026-04-13; replacement for the 2.5 TTS previews (gemini-2.5-flash-preview-tts and gemini-2.5-pro-preview-tts, no shutdown date). s… |
-| `gemini-3.5-transcribe` | `gemini-3.5-transcribe-live` | `stable` | — | text, audio | text | — | — | not supported: speech-to-text has no GAISe surface | GA 2026-08-26. gemini-3.5-transcribe is unary generateContent (audio up to 1 hour, word annotations); gemini-3.5-transcribe-live is the Live… |
+| `gemini-3.5-transcribe` | `gemini-3.5-transcribe-live` | `stable` | — | text, audio | text | transcription | — | transcribe: generateContent with audioTranscriptionConfig (languageCodes, customVocabulary, wordTimestamp, diarization, VERBATIM or SMART); the -live variant is not driven | GA 2026-08-26. gemini-3.5-transcribe is unary generateContent (audio up to 1 hour, word annotations); gemini-3.5-transcribe-live is the Live… |
+| `veo-3.1-generate-preview` | `veo-3.1-fast-generate-preview`, `veo-3.1-lite-generate-preview` | `deprecated` | shutdown 2026-10-22 | image | video | — | — | not supported: the Veo previews shut down on 2026-10-22 and the replacement, gemini-omni-1.1-flash, is served by the Interactions API, which GAISe does not use (use vertexai::veo-3.1-generate-001) | predictLongRunning with polling; videos are kept for 2 days and downloads need the API key. Replacement `gemini-omni-1.1-flash`. |
+| `veo-3.0-*` | `veo-2.0-generate-001` | `retired` | shutdown 2026-06-30 | unknown | video | — | — | — | Veo 3.0 and Veo 2 were shut down on the Gemini API on 2026-06-30. Replacement `gemini-omni-1.1-flash`. |
+| `imagen-*` | — | `retired` | shutdown 2026-08-17 | unknown | image | — | — | — | imagen-4.0-generate-001, -ultra-generate-001, and -fast-generate-001 shut down on 2026-08-17; earlier Imagen 3 and Imagen 4 previews before… |
 | `gemini-3.5-live-translate-preview` | — | `preview` | — | audio | audio | — | — | not supported: speech-to-speech translation uses translationConfig on the Live API, which the live transport does not expose | Released June 2026; no shutdown date announced. |
 | `gemini-omni-1.1-flash` | — | `stable` | — | text, image, video | text | — | — | not supported: video generation is served by the Interactions API only | GA 2026-08-27; conversational video generation and editing (3-10 s clips up to 4K). Replaces gemini-omni-flash-preview. |
 | `gemini-omni-flash-preview` | — | `deprecated` | shutdown 2026-10-22 | unknown | unknown | — | — | — | Released 2026-06-30; deprecated 2026-08-27. Reported shut down 2026-09-30 at the last audit, but the deprecations table (2026-10-09) lists a… |
 | `gemini-2.5-pro` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | No shutdown date announced on the Gemini API deprecations page; the 2026-10 date circulating online is the Vertex AI retirement and must not… |
 | `gemini-2.5-flash` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | No shutdown date announced on the Gemini API deprecations page. Since 2026-09-18 access is limited to users who have used the 2.5 models bef… |
 | `gemini-2.5-flash-lite` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | Released 2025-07-22; thinking is off by default. No shutdown date announced. Since 2026-09-18 access is limited to users who have used the 2… |
-| `gemini-2.5-flash-image` | — | `deprecated` | shutdown 2027-03-15 | unknown | unknown | — | — | — | As of 2026-10-09 the Gemini API deprecations table shows a 2027-03-15 shutdown and gemini-3.1-flash-lite-image as the replacement (previousl… |
+| `gemini-2.5-flash-image` | — | `deprecated` | shutdown 2027-03-15 | unknown | unknown | image_generation | — | generate_images: generateContent with responseModalities TEXT+IMAGE and imageConfig (aspectRatio, imageSize); up to 14 input images; n>1 is rejected; also instruct with image output | As of 2026-10-09 the Gemini API deprecations table shows a 2027-03-15 shutdown and gemini-3.1-flash-lite-image as the replacement (previousl… |
 | `gemini-embedding-001` | — | `deprecated` | shutdown 2028-05-14 | text | embedding | embeddings | — | native | Still listed as callable; the earlier registry date (2026-07-14) was the release date. Replacement `gemini-embedding-2`. |
 | `embedding-2-preview` | — | `retired` | shutdown 2026-08-10 | unknown | unknown | — | — | — | Replacement `gemini-embedding-2`. |
 | `gemini-2.0-flash` | — | `retired` | shutdown 2026-06-01 | unknown | unknown | — | — | — | Replacement `gemini-3.6-flash`. |
@@ -324,6 +378,7 @@ The registry is advisory: the adapter accepts any model ID and applies the famil
 - Embeddings report no usage. Images, audio, video, and PDFs need `embed_contents`, and only `gemini-embedding-2` accepts them.
 - Live: `ClearAudio` and `CancelResponse` emit an `Error` event; `clientContent` history seeding, `goAway.timeLeft`, `generationComplete`, and `tool_config` are not mapped; the `session_id` is generated locally.
 - No retries, backoff, or timeout configuration; HTTP errors propagate as `Gemini API error: {body}`.
+- Media: no video generation (Veo previews end 2026-10-22; Omni needs the Interactions API). Image requests reject `n > 1`, `size`, `mask`, `negative_prompt`, `quality`, and `output_format`. Transcription rejects `prompt`, `max_speakers`, `multichannel`, `temperature`, and character timestamps, and reports no `language` or `duration_seconds`.
 
 ## Flow
 
@@ -380,6 +435,7 @@ All tests are hermetic; no test in this crate calls the network and none is mark
 - Unit tests in [`gemini_client.rs`](../gaise-provider-gemini/src/gemini_client.rs#L919): stream mapping of reasoning signature, generated image, and tool `thoughtSignature` ([L924](../gaise-provider-gemini/src/gemini_client.rs#L924)); usage totals with modality, cache, tool, and reasoning breakdowns ([L978](../gaise-provider-gemini/src/gemini_client.rs#L978)).
 - Catalog unit test in [`catalog.rs`](../gaise-provider-gemini/src/contracts/catalog.rs#L168): method-to-operation mapping, preview status, live audio modalities, image heuristic, and `predict`-only models with no operations.
 - [`tests/live_mapping_tests.rs`](../gaise-provider-gemini/tests/live_mapping_tests.rs) (`#![cfg(feature = "live")]`): setup frames for audio defaults ([L13](../gaise-provider-gemini/tests/live_mapping_tests.rs#L13)), tools ([L37](../gaise-provider-gemini/tests/live_mapping_tests.rs#L37)), VAD ([L79](../gaise-provider-gemini/tests/live_mapping_tests.rs#L79)), transcription ([L104](../gaise-provider-gemini/tests/live_mapping_tests.rs#L104)), text modality ([L122](../gaise-provider-gemini/tests/live_mapping_tests.rs#L122)); `realtimeInput` audio ([L139](../gaise-provider-gemini/tests/live_mapping_tests.rs#L139)), video frame and activity markers ([L165](../gaise-provider-gemini/tests/live_mapping_tests.rs#L165)), `toolResponse` ([L202](../gaise-provider-gemini/tests/live_mapping_tests.rs#L202)); server frames for `toolCall` ([L221](../gaise-provider-gemini/tests/live_mapping_tests.rs#L221)), `turnComplete` ([L246](../gaise-provider-gemini/tests/live_mapping_tests.rs#L246)), `interrupted` ([L259](../gaise-provider-gemini/tests/live_mapping_tests.rs#L259)), transcripts ([L272](../gaise-provider-gemini/tests/live_mapping_tests.rs#L272)), and `toolCallCancellation` ([L293](../gaise-provider-gemini/tests/live_mapping_tests.rs#L293)). The Live usage mapper has a unit test at [`gemini_live_client.rs#L726`](../gaise-provider-gemini/src/gemini_live_client.rs#L726).
+- [`tests/media_tests.rs`](../gaise-provider-gemini/tests/media_tests.rs): image request shape (inline, file-URI and `data:` inputs, `imageConfig`, `provider_options` routing), seed handling, rejected options, size normalisation; image response mapping (thought images skipped, text, usage, `responseId`), safety filtering and errors; transcription request shape, vocabulary/URL/PCM inputs, rejected combinations; diarized word-level and plain response mapping; helpers; and two local HTTP round trips (a one-shot `tokio` TCP server) for `generate_images` and `transcribe`, plus the unsupported `start_video` error.
 - Gap: there is no split-frame SSE fixture for `instruct_stream`; the buffering logic is covered only by inspection.
 
 ## Sources
@@ -391,6 +447,10 @@ Official documentation (from the registry's `providers` entry and the lifecycle 
 - Thinking guide: <https://ai.google.dev/gemini-api/docs/thinking>
 - Changelog: <https://ai.google.dev/gemini-api/docs/changelog>
 - `models.list` reference: <https://ai.google.dev/api/models>
+- `generateContent` reference (`imageConfig`, `audioTranscriptionConfig`, `AudioTranscription`): <https://ai.google.dev/api/generate-content>
+- Image generation (Nano Banana): <https://ai.google.dev/gemini-api/docs/image-generation>
+- Transcription: <https://ai.google.dev/gemini-api/docs/transcribe>
+- Veo (retiring) and Omni: <https://ai.google.dev/gemini-api/docs/veo>, <https://ai.google.dev/gemini-api/docs/omni>
 
 Source files cited on this page:
 
@@ -398,11 +458,14 @@ Source files cited on this page:
 - [`../gaise-provider-gemini/README.md`](../gaise-provider-gemini/README.md)
 - [`../gaise-provider-gemini/src/gemini_client.rs`](../gaise-provider-gemini/src/gemini_client.rs)
 - [`../gaise-provider-gemini/src/gemini_live_client.rs`](../gaise-provider-gemini/src/gemini_live_client.rs)
+- [`../gaise-provider-gemini/src/gemini_media.rs`](../gaise-provider-gemini/src/gemini_media.rs)
 - [`../gaise-provider-gemini/src/contracts/models.rs`](../gaise-provider-gemini/src/contracts/models.rs)
 - [`../gaise-provider-gemini/src/contracts/live_models.rs`](../gaise-provider-gemini/src/contracts/live_models.rs)
 - [`../gaise-provider-gemini/src/contracts/catalog.rs`](../gaise-provider-gemini/src/contracts/catalog.rs)
 - [`../gaise-provider-gemini/tests/mapping_tests.rs`](../gaise-provider-gemini/tests/mapping_tests.rs)
 - [`../gaise-provider-gemini/tests/live_mapping_tests.rs`](../gaise-provider-gemini/tests/live_mapping_tests.rs)
+- [`../gaise-provider-gemini/tests/media_tests.rs`](../gaise-provider-gemini/tests/media_tests.rs)
+- [`../gaise-core/src/contracts/gaise_media.rs`](../gaise-core/src/contracts/gaise_media.rs)
 - [`../gaise-core/src/contracts/gaise_content.rs`](../gaise-core/src/contracts/gaise_content.rs)
 - [`../gaise-core/src/contracts/gaise_generation_config.rs`](../gaise-core/src/contracts/gaise_generation_config.rs)
 - [`../gaise-core/src/registry.rs`](../gaise-core/src/registry.rs)

@@ -177,6 +177,9 @@ Figures are the vendor-documented limits recorded in [`model-registry.toml`](../
 | `gemini-3.8-flash-lite-tts` | active | — | 8,192 | 16,384 | — | — | — |  |
 | `gemini-3.1-flash-tts-preview` | deprecated | — | 8,192 | 16,384 | — | — | — |  |
 | `gemini-3.5-transcribe` (`gemini-3.5-transcribe-live`) | active | — | — | — | — | — | — |  |
+| `veo-3.1-generate-preview` (`veo-3.1-fast-generate-preview`, `veo-3.1-lite-generate-preview`) | deprecated | — | — | — | — | — | — |  |
+| `veo-3.0-*` (`veo-2.0-generate-001`) | retired | — | — | — | — | — | — |  |
+| `imagen-*` | retired | — | — | — | — | — | — |  |
 | `gemini-3.5-live-translate-preview` | preview | — | 131,072 | 65,536 | — | — | — |  |
 | `gemini-omni-1.1-flash` | active | — | 1,048,576 | — | — | — | — |  |
 | `gemini-omni-flash-preview` | deprecated | — | — | — | — | — | — |  |
@@ -217,6 +220,12 @@ Figures are the vendor-documented limits recorded in [`model-registry.toml`](../
 | `multimodalembedding@001` | active | — | — | — | 32 | 1,408 | — |  |
 | `gemini-live-2.5-flash-native-audio` | active | — | 131,072 | 65,536 | — | — | — | Documented as a 128K context window and 64K output. |
 | `gemini-3.5-transcribe-preview` (`gemini-3.5-transcribe-live-preview`) | preview | — | — | — | — | — | — |  |
+| `gemini-3.5-transcribe` (`gemini-3.5-transcribe-live`) | active | — | — | — | — | — | — |  |
+| `veo-3.1-generate-001` | active | — | — | — | — | — | — |  |
+| `veo-3.1-fast-generate-001` | active | — | — | — | — | — | — |  |
+| `veo-3.1-lite-generate-001` | preview | — | — | — | — | — | — |  |
+| `veo-3.0-*` | retired | — | — | — | — | — | — |  |
+| `imagen-*` (`imagegeneration@*`) | retired | — | — | — | — | — | — |  |
 | `gemini-omni-1.1-flash-preview` | preview | — | 131,072 | 57,920 | — | — | — |  |
 | `gemini-omni-flash-preview` | preview | — | 131,072 | 57,920 | — | — | — |  |
 | `gemini-3.5-live-translate-preview` | preview | — | — | — | — | — | — | Text transcript output; no thinking, tools, or system instructions. |
@@ -298,6 +307,10 @@ Figures are the vendor-documented limits recorded in [`model-registry.toml`](../
 | `amazon.nova-sonic-v1:0` | retired | — | 300,000 | — | — | — | — |  |
 | `amazon.nova-reel-v1:*` | retired | — | — | — | — | — | — |  |
 | `amazon.nova-canvas-v1:0` | retired | — | — | — | — | — | — |  |
+| `stability.sd3-5-large-v1:0` | active | — | — | — | — | — | — | Aspect ratios 16:9, 1:1, 21:9, 2:3, 3:2, 4:5, 5:4, 9:16, 9:21; png, jpeg, or webp; prompts up to 10,000 characters; seed 0-4294967294. Filtered outputs are reported through finish_reasons. |
+| `stability.stable-image-ultra-v1:1` | active | — | — | — | — | — | — | Stability AI Stable Image Ultra 1.0, us-west-2; png or jpeg output. |
+| `stability.stable-image-core-v1:1` | active | — | — | — | — | — | — | Stability AI Stable Image Core 1.0, us-west-2; png or jpeg output. |
+| `luma.ray-v2:0` | active | — | — | — | — | — | — | The output object path ({s3Uri}/output.mp4) is inferred from the Nova Reel docs, not confirmed for Luma. |
 | `cohere.command-r-*` | retired | — | 128,000 | 4,096 | — | — | — |  |
 
 ### Ollama
@@ -365,8 +378,9 @@ Figures are the vendor-documented limits recorded in [`model-registry.toml`](../
 | `eleven_turbo_v2_5` | deprecated | VL | — | — | — | — | 40,000 | Character limit as for the functionally equivalent eleven_flash_v2_5. |
 | `eleven_turbo_v2` | deprecated | VL | — | — | — | — | 30,000 | Character limit as for the functionally equivalent eleven_flash_v2. |
 | `eleven_multilingual_sts_v2` (`eleven_english_sts_v2`) | active | — | — | — | — | — | — |  |
-| `scribe_v2` (`scribe_v2_realtime`) | active | — | — | — | — | — | — |  |
+| `scribe_v2` | active | — | — | — | — | — | — |  |
 | `scribe_v2_medical` | active | — | — | — | — | — | — |  |
+| `scribe_v2_realtime` | active | — | — | — | — | — | — |  |
 | `eleven_ttv_v3` (`eleven_multilingual_ttv_v2`) | active | — | — | — | — | — | — | Text-to-voice design models; the endpoint defaults to eleven_multilingual_ttv_v2 and takes 100-1,000 characters of description. |
 | `music_v2` | active | — | — | — | — | — | — |  |
 | `music_v2_5` | active | — | — | — | — | — | — |  |

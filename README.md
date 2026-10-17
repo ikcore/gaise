@@ -9,6 +9,29 @@ GAISe is a Rust abstraction over OpenAI, Anthropic, Google Gemini, Vertex AI, Am
 
 Written by Ian Knowles. Project page: [BadAI](https://badai.company/open-source/gaise).
 
+## What's new in 5.5
+
+Three new media operations, with one contract that works across providers:
+
+| Operation | Rust / HTTP | Providers and models |
+|---|---|---|
+| **Speech-to-text** | `transcribe` · `POST /v1/transcriptions` | OpenAI `gpt-transcribe` (also `whisper-1`, `gpt-4o-transcribe-diarize`), Gemini and Vertex `gemini-3.5-transcribe`, ElevenLabs `scribe_v2` and `scribe_v2_medical`, xAI `grok-voice-transcribe-2.0` |
+| **Streaming speech-to-text** | `transcribe_connect` · `GET /v1/transcriptions/live` (WebSocket, feature `live`) | ElevenLabs `scribe_v2_realtime`, xAI `grok-voice-transcribe-2.0` |
+| **Image generation and editing** | `generate_images` · `POST /v1/images` | OpenAI `gpt-image-2`, `gpt-image-2.5-sunburst` and `-flare`; Gemini and Vertex Nano Banana 2.1, Pro, Lite, 3.1 Flash Image and 2.5 Flash Image; Bedrock Stability SD3.5 Large and Stable Image Ultra and Core; xAI Grok Imagine Image 2.0 |
+| **Video generation** (async jobs) | `start_video` / `get_video` / `generate_video_and_wait` · `POST /v1/videos`, `GET /v1/videos/{id}` | Vertex `veo-3.1-generate-001`, `-fast-` and `-lite-`; Bedrock Luma Ray 2; xAI Grok Imagine Video 1.5, 1.5 Lite and 1.0 (generate, edit, extend) |
+
+**Transcription returns** words with timings, confidence and speaker labels, as well as segments, per-channel text, detected language, and usage (tokens or audio duration).
+
+**Every media request takes a `provider_options` object** for vendor-only settings. Adapters return an error for any field the provider cannot honour; they never drop it silently.
+
+**Registry:** new capability terms `transcription`, `live_transcription`, `image_generation` and `video_generation`, read with `RegistryModel::media_operations()`. The update also adds these rows:
+- Bedrock Stability and Luma;
+- Vertex Veo 3.1 and the GA `gemini-3.5-transcribe`;
+- ElevenLabs `scribe_v2_realtime`, now its own row;
+- retired Imagen and Veo 3.0 rows, and the Gemini API Veo previews, which shut down 2026-10-22.
+
+**Fully additive:** the new methods have defaults, and nothing existing changed shape. The [media guide](wiki/media.md) has the contracts and per-provider rules.
+
 ## What's new in 5.0
 
 - **xAI (Grok) provider** in the new [`gaise-provider-xai`](https://crates.io/crates/gaise-provider-xai) crate, on by default in `gaise-client` (feature `xai`):
@@ -37,6 +60,7 @@ Written by Ian Knowles. Project page: [BadAI](https://badai.company/open-source/
 - Generated-image output for Gemini, Vertex AI, and supported Bedrock response shapes.
 - Bidirectional OpenAI Realtime, Gemini Live, and xAI speech-to-speech transports, plus ElevenLabs realtime voice.
 - Text-to-speech through `GaiseSpeechClient` (ElevenLabs and xAI), as a full clip or streamed.
+- Speech-to-text (batch and streaming), image generation and editing, and asynchronous video generation; see [wiki/media.md](wiki/media.md).
 - Hermetic mapping and parser tests; live or credentialed checks are opt-in and ignored by default.
 
 ## Provider coverage
@@ -290,6 +314,9 @@ The Axum service exposes:
 - `POST /v1/embeddings` and `POST /v1/embeddings/contents`
 - `POST /v1/decision` (alias `/v1/systemone`)
 - `POST /v1/speech`, `POST /v1/speech/stream` (SSE), `POST /v1/speech/audio` (ElevenLabs and xAI)
+- `POST /v1/transcriptions`, `GET /v1/transcriptions/live` (WebSocket; `live` feature)
+- `POST /v1/images`
+- `POST /v1/videos`, `GET /v1/videos/{id}?model=provider::model`
 - `GET /v1/live` (WebSocket; `live` feature)
 - `GET /v1/models`, `GET /v1/models/limits`, `GET /v1/models/{provider}::{id}`
 
@@ -337,6 +364,49 @@ let clip = service
 ```
 
 For speech-to-speech, enable the `live` feature and call `live_connect` with `model: "xai::grok-voice-latest"`. See [wiki/vendor-xai.md](wiki/vendor-xai.md) for the full mapping.
+
+## Transcription, images, and video
+
+```rust
+use gaise_core::GaiseClient;
+use gaise_core::contracts::*;
+
+// Speech-to-text with speakers and word timings.
+let transcript = service
+    .transcribe(&GaiseTranscriptionRequest {
+        model: "elevenlabs::scribe_v2".into(),
+        audio: Some(GaiseMediaSource::bytes(std::fs::read("meeting.mp3")?, "audio/mpeg")),
+        diarize: true,
+        timestamps: Some(GaiseTimestampGranularity::Word),
+        ..Default::default()
+    })
+    .await?;
+
+// Image generation (pass `images` to edit instead).
+let picture = service
+    .generate_images(&GaiseImageRequest {
+        model: "gemini::gemini-nano-banana-2.1".into(),
+        prompt: "A lighthouse at dusk, watercolour".into(),
+        aspect_ratio: Some("16:9".into()),
+        resolution: Some("2K".into()),
+        ..Default::default()
+    })
+    .await?;
+
+// Video: start a job and poll until it finishes.
+let video = service
+    .generate_video_and_wait(
+        &GaiseVideoRequest {
+            model: "vertexai::veo-3.1-fast-generate-001".into(),
+            prompt: Some("Waves rolling onto a beach at sunrise".into()),
+            output_uri: Some("gs://my-bucket/videos/".into()),
+            ..Default::default()
+        },
+        std::time::Duration::from_secs(10),
+        std::time::Duration::from_secs(900),
+    )
+    .await?;
+```
 
 ## Development and tests
 

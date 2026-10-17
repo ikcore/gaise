@@ -81,6 +81,11 @@ GAISe does not restrict IDs to an allowlist. Use [`GET /v1/models`](#get-v1model
 | `POST` | `/v1/speech` | `GaiseSpeechRequest` | `GaiseSpeechResponse` | [`handle_speech`](../gaise-api/src/lib.rs) (`elevenlabs` or `xai` feature, both default) |
 | `POST` | `/v1/speech/stream` | `GaiseSpeechRequest` | SSE of `GaiseSpeechStreamResponse` | [`handle_speech_stream`](../gaise-api/src/lib.rs) |
 | `POST` | `/v1/speech/audio` | `GaiseSpeechRequest` | raw audio bytes | [`handle_speech_audio`](../gaise-api/src/lib.rs) |
+| `POST` | `/v1/transcriptions` | `GaiseTranscriptionRequest` | `GaiseTranscriptionResponse` | [`handle_transcribe`](../gaise-api/src/lib.rs) |
+| `GET` | `/v1/transcriptions/live` | WebSocket | `GaiseTranscriptionEvent` frames | [`handle_transcription_ws`](../gaise-api/src/lib.rs) (`live` feature) |
+| `POST` | `/v1/images` | `GaiseImageRequest` | `GaiseImageResponse` | [`handle_images`](../gaise-api/src/lib.rs) |
+| `POST` | `/v1/videos` | `GaiseVideoRequest` | `202` + `GaiseVideoJob` | [`handle_start_video`](../gaise-api/src/lib.rs) |
+| `GET` | `/v1/videos/{id}?model=provider::model` | query | `GaiseVideoJob` | [`handle_get_video`](../gaise-api/src/lib.rs) |
 
 ## `POST /v1/instruct`
 
@@ -528,6 +533,41 @@ data: {"chunk":{"usage":{"input":{"characters":17},"total":{"character_cost":17}
 Same body; the response is the raw audio as it is rendered (chunked transfer), with `Content-Type` set to the resolved MIME type and `X-Gaise-Sample-Rate` for PCM/WAV. Alignment and usage chunks are dropped — use `/v1/speech/stream` when you need them. Errors before the first audio chunk return 500; a provider that returns no audio returns 502.
 
 Realtime text-in/audio-out voice uses [`GET /v1/live`](#get-v1live) with `model: "elevenlabs::eleven_flash_v2_5"` and `voice` set: send `text` frames, receive `audio`/`transcript` frames, send `audio_stream_end` to flush.
+
+## Media
+
+The media routes are summarised here. [media.md](media.md) has the full contracts and the per-provider rules.
+
+`POST /v1/transcriptions` takes audio as a media source and returns text, words, segments and speakers:
+
+```json
+{
+  "model": "xai::grok-voice-transcribe-2.0",
+  "audio": {"type": "url", "url": "https://example.com/call.mp3"},
+  "languages": ["en"],
+  "diarize": true,
+  "timestamps": "word"
+}
+```
+
+`POST /v1/images` generates images, or edits them when `images` is non-empty. Images come back as byte arrays in `images[].data`, or as `images[].url`:
+
+```json
+{"model": "gemini::gemini-nano-banana-2.1", "prompt": "A lighthouse at dusk, watercolour", "aspect_ratio": "16:9", "resolution": "2K"}
+```
+
+`POST /v1/videos` answers `202` with a job. Poll `GET /v1/videos/{id}?model=…` with the URL-encoded id until `status` is `completed` or `failed`:
+
+```json
+{"model": "vertexai::veo-3.1-generate-001", "prompt": "Waves rolling onto a beach at sunrise", "duration_seconds": 8, "aspect_ratio": "16:9", "output_uri": "gs://my-bucket/videos/"}
+```
+
+`GET /v1/transcriptions/live` is a WebSocket:
+1. The first text frame is a `GaiseTranscriptionSessionConfig`.
+2. After that, binary frames carry audio in the configured format, and text frames carry `{"type":"commit"}` or `{"type":"close"}`.
+3. Events come back as JSON (`started`, `transcript` with `is_final`, `ended`).
+
+Validation failures return `400`. A provider that does not support the operation returns `500` with "… is not supported by this client".
 
 ## Per-request connection overrides
 

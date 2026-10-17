@@ -14,7 +14,8 @@ use gaise_core::{
     GaiseClient,
     contracts::{
         GaiseContent, GaiseContentEmbeddingsRequest, GaiseDecisionRequest, GaiseEmbeddingsRequest,
-        GaiseInstructRequest, GaiseListModelsRequest, GaiseOperation,
+        GaiseImageRequest, GaiseInstructRequest, GaiseListModelsRequest, GaiseOperation,
+        GaiseTranscriptionRequest, GaiseVideoJobRequest, GaiseVideoRequest,
     },
     registry,
 };
@@ -49,10 +50,19 @@ pub fn create_app(state: Arc<AppState>) -> Router {
         .route("/v1/embeddings/contents", post(handle_content_embeddings))
         .route("/v1/models", get(handle_list_models))
         .route("/v1/models/limits", get(handle_model_limits))
-        .route("/v1/models/:model", get(handle_get_model));
+        .route("/v1/models/:model", get(handle_get_model))
+        .route("/v1/transcriptions", post(handle_transcribe))
+        .route("/v1/images", post(handle_images))
+        .route("/v1/videos", post(handle_start_video))
+        .route("/v1/videos/:id", get(handle_get_video));
 
     #[cfg(feature = "live")]
-    let router = router.route("/v1/live", axum::routing::get(handle_live_ws));
+    let router = router
+        .route("/v1/live", axum::routing::get(handle_live_ws))
+        .route(
+            "/v1/transcriptions/live",
+            axum::routing::get(handle_transcription_ws),
+        );
 
     #[cfg(any(feature = "elevenlabs", feature = "xai"))]
     let router = router
@@ -152,6 +162,89 @@ async fn handle_content_embeddings(
             error!("Embeddings error: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
         }
+    }
+}
+
+// ── Media endpoints ────────────────────────────────────────────────
+
+/// Validation failures are the caller's (400); everything else is a
+/// provider or routing failure (500).
+fn media_error(
+    what: &str,
+    e: Box<dyn std::error::Error + Send + Sync>,
+) -> axum::response::Response {
+    error!("{what} error: {e}");
+    (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+}
+
+/// `POST /v1/transcriptions` — `GaiseTranscriptionRequest` (audio as a
+/// `bytes` or `url` media source) to `GaiseTranscriptionResponse`.
+async fn handle_transcribe(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<GaiseTranscriptionRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = request.validate() {
+        return (StatusCode::BAD_REQUEST, e).into_response();
+    }
+    match state.client_service.transcribe(&request).await {
+        Ok(response) => Json(response).into_response(),
+        Err(e) => media_error("Transcription", e),
+    }
+}
+
+/// `POST /v1/images` — generate or edit images.
+async fn handle_images(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<GaiseImageRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = request.validate() {
+        return (StatusCode::BAD_REQUEST, e).into_response();
+    }
+    match state.client_service.generate_images(&request).await {
+        Ok(response) => Json(response).into_response(),
+        Err(e) => media_error("Image generation", e),
+    }
+}
+
+/// `POST /v1/videos` — start a video job; returns `202` with the job.
+async fn handle_start_video(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<GaiseVideoRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = request.validate() {
+        return (StatusCode::BAD_REQUEST, e).into_response();
+    }
+    match state.client_service.start_video(&request).await {
+        Ok(job) => (StatusCode::ACCEPTED, Json(job)).into_response(),
+        Err(e) => media_error("Video generation", e),
+    }
+}
+
+/// Query for `GET /v1/videos/{id}`.
+#[derive(Debug, serde::Deserialize)]
+pub struct VideoJobQuery {
+    /// The `provider::model` the job was started with.
+    pub model: String,
+    pub correlation_id: Option<String>,
+}
+
+/// `GET /v1/videos/{id}?model=provider::model` — poll a video job. The id is
+/// the job id returned by `POST /v1/videos`, URL-encoded (Google operation
+/// names and Bedrock ARNs contain `/` and `:`).
+async fn handle_get_video(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    Query(query): Query<VideoJobQuery>,
+) -> impl IntoResponse {
+    let request = GaiseVideoJobRequest {
+        model: query.model,
+        id,
+        correlation_id: query.correlation_id,
+        connection: None,
+    };
+    match state.client_service.get_video(&request).await {
+        Ok(job) => Json(job).into_response(),
+        Err(e) => media_error("Video status", e),
     }
 }
 
@@ -499,4 +592,89 @@ async fn handle_live_session(socket: WebSocket, state: Arc<AppState>) {
     // Cleanup
     let _ = input_tx.send(GaiseLiveInput::Close).await;
     send_handle.abort();
+}
+
+// ── Streaming transcription WebSocket ──────────────────────────────
+
+#[cfg(feature = "live")]
+async fn handle_transcription_ws(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_transcription_session(socket, state))
+}
+
+/// First text frame: `GaiseTranscriptionSessionConfig`. Then binary frames
+/// are audio in the configured format, and text frames are
+/// `GaiseTranscriptionInput` (`commit`, `close`). Every event goes back as a
+/// JSON text frame.
+#[cfg(feature = "live")]
+async fn handle_transcription_session(socket: WebSocket, state: Arc<AppState>) {
+    use futures_util::SinkExt;
+    use gaise_core::contracts::{GaiseTranscriptionInput, GaiseTranscriptionSessionConfig};
+
+    let (mut ws_sink, mut ws_source) = socket.split();
+    let config: GaiseTranscriptionSessionConfig = loop {
+        match ws_source.next().await {
+            Some(Ok(Message::Text(text))) => match serde_json::from_str(&text) {
+                Ok(cfg) => break cfg,
+                Err(e) => {
+                    let err = serde_json::json!({"type": "error", "message": format!("Invalid config: {e}")});
+                    let _ = ws_sink.send(Message::Text(err.to_string())).await;
+                    return;
+                }
+            },
+            Some(Ok(Message::Close(_))) | None => return,
+            _ => continue,
+        }
+    };
+
+    let session = match state.client_service.transcribe_connect(&config).await {
+        Ok(s) => s,
+        Err(e) => {
+            let err =
+                serde_json::json!({"type": "error", "message": format!("Connect error: {e}")});
+            let _ = ws_sink.send(Message::Text(err.to_string())).await;
+            return;
+        }
+    };
+    let input_tx = session.tx;
+    let mut event_rx = session.rx;
+
+    let send_handle = tokio::spawn(async move {
+        while let Some(event) = event_rx.next().await {
+            let text = match event {
+                Ok(event) => match serde_json::to_string(&event) {
+                    Ok(json) => json,
+                    Err(_) => continue,
+                },
+                Err(e) => {
+                    serde_json::json!({"type": "error", "message": e.to_string()}).to_string()
+                }
+            };
+            if ws_sink.send(Message::Text(text)).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    while let Some(Ok(msg)) = ws_source.next().await {
+        let input = match msg {
+            Message::Binary(data) => GaiseTranscriptionInput::Audio {
+                data: data.to_vec(),
+            },
+            Message::Text(text) => match serde_json::from_str::<GaiseTranscriptionInput>(&text) {
+                Ok(input) => input,
+                Err(_) => continue,
+            },
+            Message::Close(_) => break,
+            _ => continue,
+        };
+        if input_tx.send(input).await.is_err() {
+            break;
+        }
+    }
+    let _ = input_tx.send(GaiseTranscriptionInput::Close).await;
+    // Let the provider deliver the final transcript before tearing down.
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(10), send_handle).await;
 }

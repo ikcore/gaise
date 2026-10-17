@@ -67,6 +67,36 @@ muse!(gaise_speech, {
     GaiseVoiceSettings
 });
 
+muse!(gaise_media, {
+    GaiseAudioFormat,
+    GaiseGeneratedMedia,
+    GaiseImageRequest,
+    GaiseImageResponse,
+    GaiseJobStatus,
+    GaiseMediaOperation,
+    GaiseMediaSource,
+    GaiseTimestampGranularity,
+    GaiseTranscriptSegment,
+    GaiseTranscriptTokenKind,
+    GaiseTranscriptWord,
+    GaiseTranscriptionChannel,
+    GaiseTranscriptionMode,
+    GaiseTranscriptionRequest,
+    GaiseTranscriptionResponse,
+    GaiseVideoJob,
+    GaiseVideoJobRequest,
+    GaiseVideoRequest
+});
+muse!(gaise_transcription_session, {
+    GaiseCommitStrategy,
+    GaiseLiveTranscript,
+    GaiseTranscriptionEvent,
+    GaiseTranscriptionEventStream,
+    GaiseTranscriptionInput,
+    GaiseTranscriptionSession,
+    GaiseTranscriptionSessionConfig
+});
+
 muse!(gaise_live_config, {GaiseLiveConfig, GaiseLiveModality, GaiseVadConfig, GaiseTranscriptionConfig});
 muse!(gaise_live_event, { GaiseLiveEvent });
 muse!(gaise_live_input, { GaiseLiveInput });

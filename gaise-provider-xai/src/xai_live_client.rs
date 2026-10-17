@@ -5,14 +5,24 @@
 //! xAI's own session fields: top-level `turn_detection`, `reasoning.effort`
 //! limited to `high` or `none`, flat function tools, and the `grok-transcribe`
 //! input-transcription model.
+//!
+//! Streaming speech-to-text (`transcribe_connect`) uses `wss://api.x.ai/v1/stt`:
+//! configuration in the query string, raw audio as binary frames, and
+//! `transcript.*` JSON events back.
 
+use crate::xai_media::{
+    XaiSttWord, audio_duration_usage, map_xai_stt_word, option_values, xai_raw_codec,
+};
 use async_trait::async_trait;
 use base64::Engine;
 use futures_util::{SinkExt, StreamExt};
 use gaise_core::GaiseLiveClient;
 use gaise_core::contracts::{
-    GaiseFunctionCall, GaiseLiveConfig, GaiseLiveEvent, GaiseLiveEventStream, GaiseLiveInput,
-    GaiseLiveSession, GaiseReasoningEffort, GaiseTool, GaiseToolParameter, GaiseUsage,
+    GaiseCommitStrategy, GaiseFunctionCall, GaiseLiveConfig, GaiseLiveEvent, GaiseLiveEventStream,
+    GaiseLiveInput, GaiseLiveSession, GaiseLiveTranscript, GaiseReasoningEffort, GaiseTool,
+    GaiseToolParameter, GaiseTranscriptionEvent, GaiseTranscriptionEventStream,
+    GaiseTranscriptionInput, GaiseTranscriptionSession, GaiseTranscriptionSessionConfig,
+    GaiseUsage,
 };
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -221,18 +231,173 @@ pub fn map_xai_live_event(event: &Value) -> Vec<GaiseLiveEvent> {
     }
 }
 
-/// `wss://…/v1/realtime?model=…` from an `https://…` API URL with or without `/v1`.
-pub fn realtime_url(api_url: &str, model: &str) -> String {
+/// `wss://…/v1` from an `https://…` API URL with or without `/v1`.
+fn ws_root(api_url: &str) -> String {
     let base = api_url
         .trim_end_matches('/')
         .replacen("https://", "wss://", 1)
         .replacen("http://", "ws://", 1);
-    let root = if base.ends_with("/v1") {
+    if base.ends_with("/v1") {
         base
     } else {
         format!("{base}/v1")
+    }
+}
+
+/// `wss://…/v1/realtime?model=…` from an `https://…` API URL with or without `/v1`.
+pub fn realtime_url(api_url: &str, model: &str) -> String {
+    format!("{}/realtime?model={model}", ws_root(api_url))
+}
+
+/// Smart Turn threshold sent for [`GaiseCommitStrategy::TurnPrediction`]
+/// ("balanced" in the xAI guide); override with `provider_options.smart_turn`.
+pub const DEFAULT_SMART_TURN: f64 = 0.5;
+
+/// Streaming speech-to-text URL (`wss://…/v1/stt?…`) for a session config.
+///
+/// Audio defaults to 16 kHz PCM16. `audio_format.channels` ≥ 2 turns on
+/// `multichannel`. `provider_options` keys become query parameters and
+/// replace mapped ones.
+pub fn build_xai_stt_url(
+    api_url: &str,
+    config: &GaiseTranscriptionSessionConfig,
+) -> Result<String, String> {
+    if config.prompt.is_some() {
+        return Err("xAI streaming speech-to-text does not accept a prompt; use keyterms".into());
+    }
+    let format = config.audio_format_or_default();
+    let encoding = match format.codec.trim().to_ascii_lowercase().as_str() {
+        "opus" | "audio/opus" => "opus",
+        codec => xai_raw_codec(codec).ok_or_else(|| {
+            format!(
+                "xAI streaming speech-to-text takes pcm, mulaw, alaw, or opus audio; '{}' is not supported",
+                format.codec
+            )
+        })?,
     };
-    format!("{root}/realtime?model={model}")
+    let mut query: Vec<(String, String)> = Vec::new();
+    let mut push = |k: &str, v: String| query.push((k.to_string(), v));
+    if !config.model.trim().is_empty() {
+        push("model", config.model.clone());
+    }
+    push("encoding", encoding.to_string());
+    if encoding != "opus" {
+        push(
+            "sample_rate",
+            format.sample_rate.unwrap_or(16_000).to_string(),
+        );
+    }
+    if let Some(channels) = format.channels.filter(|c| *c > 1) {
+        if encoding == "opus" {
+            return Err("xAI streaming speech-to-text supports only mono Opus".into());
+        }
+        push("multichannel", "true".into());
+        push("channels", channels.to_string());
+    }
+    push("interim_results", config.interim_results.to_string());
+    if let Some(language) = config.languages.iter().find(|l| !l.trim().is_empty()) {
+        push("language", language.clone());
+    }
+    if config.diarize {
+        push("diarize", "true".into());
+    }
+    for term in &config.keyterms {
+        push("keyterm", term.clone());
+    }
+    if let Some(ms) = config.silence_duration_ms {
+        push("endpointing", ms.min(5000).to_string());
+    }
+    match config.commit_strategy {
+        Some(GaiseCommitStrategy::TurnPrediction) => {
+            push("smart_turn", DEFAULT_SMART_TURN.to_string())
+        }
+        Some(GaiseCommitStrategy::Manual) => {
+            return Err(
+                "xAI streaming speech-to-text always endpoints on silence; manual-only commits are not supported (Commit still finalizes immediately under VAD)"
+                    .into(),
+            );
+        }
+        _ => {}
+    }
+    if let Some(Value::Object(options)) = &config.provider_options {
+        for (key, value) in options {
+            query.retain(|(k, _)| k != key);
+            for v in option_values(value) {
+                query.push((key.clone(), v));
+            }
+        }
+    }
+    let mut url = reqwest::Url::parse(&format!("{}/stt", ws_root(api_url)))
+        .map_err(|e| format!("invalid xAI API URL '{api_url}': {e}"))?;
+    url.query_pairs_mut().extend_pairs(query);
+    Ok(url.into())
+}
+
+/// The JSON control frame for a non-audio input: `Commit` → `finalize`,
+/// `Close` → `audio.done`.
+pub fn xai_stt_control_frame(input: &GaiseTranscriptionInput) -> Option<Value> {
+    match input {
+        GaiseTranscriptionInput::Commit => Some(json!({"type": "finalize"})),
+        GaiseTranscriptionInput::Close => Some(json!({"type": "audio.done"})),
+        _ => None,
+    }
+}
+
+/// Map one streaming speech-to-text server event (pure; used by tests).
+/// `transcript.created` is consumed by the handshake and `transcript.done`
+/// becomes usage; the session's `Ended` is emitted when the socket closes.
+pub fn map_xai_stt_event(event: &Value) -> Vec<GaiseTranscriptionEvent> {
+    match event["type"].as_str().unwrap_or_default() {
+        "transcript.partial" => {
+            let channel = event["channel_index"].as_u64().map(|c| c as u32);
+            let words: Vec<_> = event["words"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|w| serde_json::from_value::<XaiSttWord>(w.clone()).ok())
+                .map(|w| map_xai_stt_word(&w, channel))
+                .collect();
+            let start = event["start"].as_f64();
+            let end = match (start, event["duration"].as_f64()) {
+                (Some(s), Some(d)) => Some(s + d),
+                _ => None,
+            };
+            // One speaker label for the segment when every word agrees.
+            let speaker = words
+                .first()
+                .and_then(|w| w.speaker.clone())
+                .filter(|first| {
+                    words
+                        .iter()
+                        .all(|w| w.speaker.as_deref() == Some(first.as_str()))
+                });
+            vec![GaiseTranscriptionEvent::Transcript(GaiseLiveTranscript {
+                text: event["text"].as_str().unwrap_or_default().to_string(),
+                is_final: event["is_final"].as_bool().unwrap_or(false),
+                utterance_end: event["speech_final"].as_bool().unwrap_or(false),
+                start,
+                end,
+                speaker,
+                language: event["language"].as_str().map(str::to_string),
+                channel,
+                words,
+            })]
+        }
+        "transcript.done" => event["duration"]
+            .as_f64()
+            .map(|d| GaiseTranscriptionEvent::Usage(audio_duration_usage(d)))
+            .into_iter()
+            .collect(),
+        "error" => vec![GaiseTranscriptionEvent::Error {
+            message: event["message"]
+                .as_str()
+                .or(event["error"]["message"].as_str())
+                .or(event["error"].as_str())
+                .unwrap_or("Unknown xAI speech-to-text error")
+                .to_string(),
+        }],
+        _ => Vec::new(),
+    }
 }
 
 pub struct GaiseClientXaiLive {
@@ -271,6 +436,7 @@ where
                 Some("error") => {
                     let message = event["error"]["message"]
                         .as_str()
+                        .or(event["message"].as_str())
                         .unwrap_or("xAI realtime session setup failed");
                     return Err(std::io::Error::other(message.to_string()).into());
                 }
@@ -441,6 +607,134 @@ impl GaiseLiveClient for GaiseClientXaiLive {
         let stream: GaiseLiveEventStream =
             Box::pin(tokio_stream::wrappers::ReceiverStream::new(event_rx));
         Ok(GaiseLiveSession {
+            tx: input_tx,
+            rx: stream,
+        })
+    }
+
+    /// Streaming speech-to-text over `wss://…/v1/stt`. Audio is forwarded as
+    /// binary frames once the server sends `transcript.created`; `Commit`
+    /// sends `finalize`, `Close` sends `audio.done` and the session ends after
+    /// the server's `transcript.done` and close.
+    async fn transcribe_connect(
+        &self,
+        config: &GaiseTranscriptionSessionConfig,
+    ) -> Result<GaiseTranscriptionSession, BoxError> {
+        let ws_url = build_xai_stt_url(&self.api_url, config)?;
+        let host = http::Uri::try_from(&ws_url)?
+            .host()
+            .unwrap_or("api.x.ai")
+            .to_string();
+        let request = http::Request::builder()
+            .uri(&ws_url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Sec-WebSocket-Version", "13")
+            .header(
+                "Sec-WebSocket-Key",
+                tungstenite::handshake::client::generate_key(),
+            )
+            .header("Connection", "Upgrade")
+            .header("Upgrade", "websocket")
+            .header("Host", host)
+            .body(())?;
+
+        let (ws_stream, _response) = tokio_tungstenite::connect_async(request).await?;
+        let (mut ws_sink, mut ws_source) = ws_stream.split();
+        // The ASR backend is ready once `transcript.created` arrives; audio
+        // sent earlier may be lost.
+        wait_for(&mut ws_source, "transcript.created").await?;
+
+        let (input_tx, mut input_rx) = mpsc::channel::<GaiseTranscriptionInput>(256);
+        let (event_tx, event_rx) = mpsc::channel::<Result<GaiseTranscriptionEvent, BoxError>>(256);
+        let _ = event_tx
+            .send(Ok(GaiseTranscriptionEvent::Started {
+                session_id: session_id(),
+                model: config.model.clone(),
+            }))
+            .await;
+
+        let send_events = event_tx.clone();
+        tokio::spawn(async move {
+            let mut done_sent = false;
+            while let Some(input) = input_rx.recv().await {
+                let message = match &input {
+                    GaiseTranscriptionInput::Audio { data } => Message::Binary(data.clone().into()),
+                    other => match xai_stt_control_frame(other) {
+                        Some(frame) => Message::Text(frame.to_string().into()),
+                        None => continue,
+                    },
+                };
+                if let Err(e) = ws_sink.send(message).await {
+                    let _ = send_events
+                        .send(Ok(GaiseTranscriptionEvent::Error {
+                            message: format!("Send error: {e}"),
+                        }))
+                        .await;
+                    return;
+                }
+                if matches!(input, GaiseTranscriptionInput::Close) {
+                    // The server flushes, sends transcript.done, and closes.
+                    done_sent = true;
+                    break;
+                }
+            }
+            if !done_sent {
+                // Input dropped without Close: end the session now.
+                let _ = ws_sink.close().await;
+            }
+        });
+
+        tokio::spawn(async move {
+            let mut saw_done = false;
+            let mut reason = None;
+            while let Some(msg) = ws_source.next().await {
+                let text = match msg {
+                    Ok(Message::Text(t)) => t,
+                    Ok(Message::Close(frame)) => {
+                        reason = frame
+                            .map(|f| f.reason.to_string())
+                            .filter(|r| !r.is_empty());
+                        break;
+                    }
+                    Ok(_) => continue,
+                    Err(e) => {
+                        let _ = event_tx
+                            .send(Ok(GaiseTranscriptionEvent::Error {
+                                message: format!("WebSocket error: {e}"),
+                            }))
+                            .await;
+                        break;
+                    }
+                };
+                let event: Value = match serde_json::from_str(&text) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        let _ = event_tx
+                            .send(Ok(GaiseTranscriptionEvent::Error {
+                                message: format!("Parse error: {e}"),
+                            }))
+                            .await;
+                        continue;
+                    }
+                };
+                if event["type"] == "transcript.done" {
+                    saw_done = true;
+                }
+                for mapped in map_xai_stt_event(&event) {
+                    if event_tx.send(Ok(mapped)).await.is_err() {
+                        return;
+                    }
+                }
+            }
+            let reason = reason.or_else(|| saw_done.then(|| "completed".to_string()));
+            let _ = event_tx
+                .send(Ok(GaiseTranscriptionEvent::Ended { reason }))
+                .await;
+        });
+
+        let stream: GaiseTranscriptionEventStream =
+            Box::pin(tokio_stream::wrappers::ReceiverStream::new(event_rx));
+        Ok(GaiseTranscriptionSession {
             tx: input_tx,
             rx: stream,
         })

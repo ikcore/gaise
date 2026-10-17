@@ -99,6 +99,45 @@ pub trait GaiseClient: Send + Sync {
         let _ = request;
         Err("model listing is not supported by this client".into())
     }
+
+    /// Transcribe recorded audio (speech-to-text). Unsupported by default.
+    async fn transcribe(
+        &self,
+        request: &contracts::GaiseTranscriptionRequest,
+    ) -> Result<contracts::GaiseTranscriptionResponse, Box<dyn std::error::Error + Send + Sync>>
+    {
+        let _ = request;
+        Err("Transcription is not supported by this client".into())
+    }
+
+    /// Generate images, or edit the request's input images. Unsupported by
+    /// default.
+    async fn generate_images(
+        &self,
+        request: &contracts::GaiseImageRequest,
+    ) -> Result<contracts::GaiseImageResponse, Box<dyn std::error::Error + Send + Sync>> {
+        let _ = request;
+        Err("Image generation is not supported by this client".into())
+    }
+
+    /// Start an asynchronous video generation job; poll it with
+    /// [`GaiseClient::get_video`]. Unsupported by default.
+    async fn start_video(
+        &self,
+        request: &contracts::GaiseVideoRequest,
+    ) -> Result<contracts::GaiseVideoJob, Box<dyn std::error::Error + Send + Sync>> {
+        let _ = request;
+        Err("Video generation is not supported by this client".into())
+    }
+
+    /// Current state of a video job started by [`GaiseClient::start_video`].
+    async fn get_video(
+        &self,
+        request: &contracts::GaiseVideoJobRequest,
+    ) -> Result<contracts::GaiseVideoJob, Box<dyn std::error::Error + Send + Sync>> {
+        let _ = request;
+        Err("Video generation is not supported by this client".into())
+    }
 }
 
 #[async_trait]
@@ -107,6 +146,16 @@ pub trait GaiseLiveClient: Send + Sync {
         &self,
         config: &GaiseLiveConfig,
     ) -> Result<GaiseLiveSession, Box<dyn std::error::Error + Send + Sync>>;
+
+    /// Open a streaming speech-to-text session. Unsupported by default.
+    async fn transcribe_connect(
+        &self,
+        config: &contracts::GaiseTranscriptionSessionConfig,
+    ) -> Result<contracts::GaiseTranscriptionSession, Box<dyn std::error::Error + Send + Sync>>
+    {
+        let _ = config;
+        Err("Streaming transcription is not supported by this client".into())
+    }
 }
 
 /// Text-to-speech. Realtime text-in/audio-out streaming uses

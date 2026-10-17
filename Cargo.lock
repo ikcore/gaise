@@ -537,6 +537,7 @@ dependencies = [
  "matchit",
  "memchr",
  "mime",
+ "multer",
  "percent-encoding",
  "pin-project-lite",
  "rustversion",
@@ -1006,9 +1007,10 @@ dependencies = [
 
 [[package]]
 name = "gaise"
-version = "5.0.0"
+version = "5.5.0"
 dependencies = [
  "async-trait",
+ "base64",
  "futures-util",
  "mockall",
  "serde",
@@ -1020,7 +1022,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-api"
-version = "5.0.0"
+version = "5.5.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1041,7 +1043,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-chatbot"
-version = "5.0.0"
+version = "5.5.0"
 dependencies = [
  "futures-util",
  "gaise",
@@ -1055,7 +1057,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-client"
-version = "5.0.0"
+version = "5.5.0"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -1076,7 +1078,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-anthropic"
-version = "5.0.0"
+version = "5.5.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -1089,7 +1091,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-bedrock"
-version = "5.0.0"
+version = "5.5.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -1110,7 +1112,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-elevenlabs"
-version = "5.0.0"
+version = "5.5.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -1130,7 +1132,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-gemini"
-version = "5.0.0"
+version = "5.5.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -1147,7 +1149,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-ollama"
-version = "5.0.0"
+version = "5.5.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1163,7 +1165,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-openai"
-version = "5.0.0"
+version = "5.5.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1183,7 +1185,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-typesafe"
-version = "5.0.0"
+version = "5.5.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1198,7 +1200,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-vertexai"
-version = "5.0.0"
+version = "5.5.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -1215,7 +1217,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-xai"
-version = "5.0.0"
+version = "5.5.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1819,6 +1821,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
+name = "mime_guess"
+version = "2.0.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7c44f8e672c00fe5308fa235f821cb4198414e1c77935c1ab6948d3fd78550e"
+dependencies = [
+ "mime",
+ "unicase",
+]
+
+[[package]]
 name = "mio"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2326,6 +2338,7 @@ dependencies = [
  "js-sys",
  "log",
  "mime",
+ "mime_guess",
  "native-tls",
  "percent-encoding",
  "pin-project-lite",
@@ -3301,6 +3314,12 @@ name = "typenum"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
+
+[[package]]
+name = "unicase"
+version = "2.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "357cc3acc6a036009fd6c973ed009037c732d60d0b4f6c673e9041497482a28f"
 
 [[package]]
 name = "unicode-ident"

@@ -2,10 +2,13 @@
 
 > Part of the [GAISe wiki](README.md) · [Models](models.md#xai) · [Capabilities](capabilities.md) · [HTTP API](api.md) · [Rust SDK](sdk.md) · [Flows](flows.md) · [Examples](examples.md)
 
-The `gaise-provider-xai` crate drives xAI's Grok models through four surfaces:
+The `gaise-provider-xai` crate drives xAI's Grok models through these surfaces:
 
 - **Chat:** `instruct` and `instruct_stream` on Chat Completions, with function tools, image input, and reasoning traces.
 - **Text to speech:** `speech` and `speech_stream` on `POST /v1/tts`.
+- **Speech to text:** `transcribe` on `POST /v1/stt`, and `transcribe_connect` on the streaming `wss://api.x.ai/v1/stt` endpoint (crate feature `live`).
+- **Image generation:** `generate_images` on `/v1/images/generations` and `/v1/images/edits`.
+- **Video generation:** `start_video` and `get_video` on the asynchronous Videos API.
 - **Speech to speech:** `live_connect` over the realtime WebSocket (crate feature `live`).
 - **Model discovery:** `list_models` on `GET /v1/models`.
 
@@ -13,9 +16,9 @@ It is enabled by the `xai` feature of [`gaise-client`](../gaise-client/Cargo.tom
 
 ## At a glance
 
-| Crate | Feature flag | Client types | Instruct surface | Speech surface | Live surface | Model listing surface |
-|---|---|---|---|---|---|---|
-| [`gaise-provider-xai`](../gaise-provider-xai/Cargo.toml) | `xai` in [`gaise-client`](../gaise-client/Cargo.toml); crate-level `live` for WebSockets | [`GaiseClientXai`](../gaise-provider-xai/src/xai_client.rs) (`GaiseClient` + `GaiseSpeechClient`), [`GaiseClientXaiLive`](../gaise-provider-xai/src/xai_live_client.rs) | `POST /v1/chat/completions` (SSE streaming) | `POST /v1/tts` | `wss://api.x.ai/v1/realtime?model=…` | `GET /v1/models` (+ `GET /v1/tts/voices` helper) |
+| Crate | Feature flag | Client types | Instruct surface | Speech surface | Media surface | Live surface | Model listing surface |
+|---|---|---|---|---|---|---|---|
+| [`gaise-provider-xai`](../gaise-provider-xai/Cargo.toml) | `xai` in [`gaise-client`](../gaise-client/Cargo.toml); crate-level `live` for WebSockets | [`GaiseClientXai`](../gaise-provider-xai/src/xai_client.rs) (`GaiseClient` + `GaiseSpeechClient`), [`GaiseClientXaiLive`](../gaise-provider-xai/src/xai_live_client.rs) | `POST /v1/chat/completions` (SSE streaming) | `POST /v1/tts` | `POST /v1/stt`, `/v1/images/{generations,edits}`, `/v1/videos/{generations,edits,extensions}` + `GET /v1/videos/{id}` | `wss://api.x.ai/v1/realtime?model=…`, `wss://api.x.ai/v1/stt?…` | `GET /v1/models` (+ `GET /v1/tts/voices` helper) |
 
 ## Configuration
 
@@ -101,6 +104,104 @@ The model is routed as `xai::tts`. `POST /v1/tts` has no model field, so the nam
 
 `speech_stream` forwards the response body chunk by chunk. When alignment is requested it emits the whole clip and then the alignment, because xAI returns a single JSON envelope in that case.
 
+## Transcription (speech to text)
+
+`transcribe` sends `POST /v1/stt` as `multipart/form-data`. The fields are built by [`build_xai_stt_parts`](../gaise-provider-xai/src/xai_media.rs), and the audio `file` is always the last part, because xAI ignores fields that come after it. The default model is `grok-voice-transcribe-2.0`. A multipart form cannot be cloned, so it is rebuilt for each retry of a 429 or 5xx.
+
+| `GaiseTranscriptionRequest` | xAI form field | Notes |
+|---|---|---|
+| `model` | `model` | Sent as given. |
+| `audio` (bytes) | `file` | The file name and MIME type come from `mime_type` or are sniffed (`wav`, `mp3`, `ogg`, `flac`, `mp4`, `webm`). Raw audio is named `audio.pcm`, `audio.mulaw`, or `audio.alaw`. |
+| `audio` (URL) | `url` | xAI downloads the file itself. |
+| `languages[0]` | `language` | Only the first language is used. |
+| `mode: smart` | `format=true` | Inverse text normalization. It needs a language, so it is skipped when none is given. |
+| `mode: verbatim` | `filler_words=true` | xAI removes fillers by default. |
+| `diarize` | `diarize=true` | |
+| `keyterms` | `keyterm`, repeated | At most 100 terms upstream. |
+| `multichannel` | `multichannel=true` | |
+| `format` with codec `pcm`/`mulaw`/`alaw` | `audio_format` + `sample_rate` (+ `channels` when > 1) | `sample_rate` is required for raw audio. Container codecs are auto-detected and not sent. |
+| `prompt`, `temperature`, `max_speakers` | — | Rejected with an error. |
+| `provider_options` | extra form fields | Strings as-is, arrays repeated, other values as JSON text. They replace mapped fields with the same name (for example `vad_threshold`). |
+
+The response maps `text`, `language`, `duration` (as `duration_seconds`), `words` (with `confidence`, and `speaker` turned from an integer into a string label), and `channels` (with each word tagged with its channel). Usage is `input.audio_milliseconds`, taken from `duration`.
+
+## Image generation
+
+`generate_images` builds its body with [`build_xai_image_request`](../gaise-provider-xai/src/xai_media.rs). With no input images it posts to `/v1/images/generations`. With one input image it posts to `/v1/images/edits` with `image: {url}`, and with several it sends `images: [{url}, …]` (refer to them as `<IMAGE_0>`, `<IMAGE_1>`, … in the prompt). Inline bytes become data URLs.
+
+| `GaiseImageRequest` | xAI | Notes |
+|---|---|---|
+| `model`, `prompt`, `n` | same | `n` is 1–10 upstream. |
+| `aspect_ratio` | `aspect_ratio` | Passed through (`1:1`, `16:9`, …, `auto`). |
+| `resolution` | `resolution` | `1K`/`1.5K`/`2K` (any case, or `1024`/`1536`/`2048`) become `1k`/`1.5k`/`2k`. Other values are rejected. |
+| `quality` | `quality` | `low`, `medium`, or `auto`; anything else is rejected. Only `grok-imagine-image-2.0` accepts it. |
+| — | `response_format: b64_json` | Always sent, so images come back as bytes. |
+| `mask`, `negative_prompt`, `seed`, `size`, `output_format` | — | Rejected with an error that names the field. |
+| `provider_options` | merged into the body | For example `user`, `storage_options`, or `output.upload_urls`. |
+
+`data[].b64_json` is decoded into `GaiseGeneratedMedia.data`, and `url` and `mime_type` are kept when present. Items with `respect_moderation: false` are counted in `filtered`. Usage keeps `input_tokens`, `output_tokens` and their details, and puts `total_tokens` and `cost_in_usd_ticks` under `total`.
+
+## Video generation
+
+Video is asynchronous: `start_video` returns a `GaiseVideoJob` with the xAI `request_id` as its `id` and status `queued`, and `get_video` polls `GET /v1/videos/{id}`. [`build_xai_video_request`](../gaise-provider-xai/src/xai_media.rs) picks the endpoint:
+
+| Request | Endpoint | Body |
+|---|---|---|
+| No `video` | `/v1/videos/generations` | `model`, `prompt`, `image{url}` (first frame), `last_frame{url}`, `reference_images[{url}]`, `duration` (1–15 s), `aspect_ratio`, `resolution` (`480p`/`720p`/`1080p`; others are rejected), `generate_audio` |
+| `video`, no `duration_seconds` | `/v1/videos/edits` | `model`, `prompt`, `video{url}` (the output keeps the input's length, aspect ratio, and resolution) |
+| `video` with `duration_seconds` | `/v1/videos/extensions` | `model`, `prompt`, `video{url}`, `duration` (2–10 s of continuation) |
+
+- Edits and extensions need a prompt. They reject `image`, `last_frame`, `reference_images`, `aspect_ratio`, `resolution`, and `generate_audio`.
+- `n` other than 1, `negative_prompt`, and `seed` are rejected.
+- An http(s) `output_uri` becomes `output.upload_url`, a signed URL that xAI uploads the result to with HTTP PUT. Other schemes are rejected.
+- `provider_options` are merged into the body (for example `keyframes`, `reference_audios`, or `storage_options`).
+- Only `grok-imagine-video` supports edits and extensions. `last_frame` needs `grok-imagine-video-1.5`.
+
+[`map_xai_video_job`](../gaise-provider-xai/src/xai_media.rs) maps the poll response:
+
+| xAI `status` | `GaiseJobStatus` | Fields |
+|---|---|---|
+| `pending` | `running` | `progress` (0–99) |
+| `done` | `completed` | `videos[0]` with `url`, `duration_seconds`, and `video/mp4`; `progress` 100. If `video.respect_moderation` is `false`, `filtered` is 1 and there is no video. |
+| `failed`, `expired` | `failed` | `error` from `error.message` |
+
+Usage is mapped the same way as for images, including `cost_in_usd_ticks`. Video URLs are temporary, so download them promptly.
+
+## Streaming transcription
+
+[`GaiseClientXaiLive::transcribe_connect`](../gaise-provider-xai/src/xai_live_client.rs) (feature `live`) dials the URL from [`build_xai_stt_url`](../gaise-provider-xai/src/xai_live_client.rs) with a Bearer key. It waits for `transcript.created` before it returns the session, so no audio is sent before the ASR backend is ready.
+
+| `GaiseTranscriptionSessionConfig` | Query parameter |
+|---|---|
+| `model` | `model` (omitted when empty; xAI defaults to `grok-voice-transcribe-2.0`) |
+| `audio_format.codec` | `encoding`: `pcm` (default), `mulaw`, `alaw`, or `opus`. Other codecs are rejected. |
+| `audio_format.sample_rate` | `sample_rate` (default 16000; not sent for Opus) |
+| `audio_format.channels` ≥ 2 | `multichannel=true&channels=N` (interleaved; not with Opus) |
+| `interim_results` | `interim_results` |
+| `languages[0]` | `language` |
+| `diarize` | `diarize=true` |
+| `keyterms` | `keyterm`, repeated and URL-encoded |
+| `silence_duration_ms` | `endpointing` (capped at 5000) |
+| `commit_strategy: turn_prediction` | `smart_turn=0.5` |
+| `commit_strategy: manual` | Rejected, because xAI always endpoints on silence |
+| `prompt` | Rejected |
+| `provider_options` | Extra query parameters that replace mapped ones (for example `format=true`, `filler_words`, `smart_turn=0.7`, `smart_turn_timeout`, `vad_threshold`) |
+
+| Input | Frame |
+|---|---|
+| `Audio { data }` | A binary frame of raw bytes (no base64). With Opus, send one packet per `Audio` input. |
+| `Commit` | `{"type": "finalize"}` |
+| `Close` | `{"type": "audio.done"}`. The server flushes, sends `transcript.done`, and closes. |
+
+| Server event | `GaiseTranscriptionEvent` |
+|---|---|
+| `transcript.created` | `Started` (sent once the handshake completes) |
+| `transcript.partial` | `Transcript`: `is_final`, `speech_final` → `utterance_end`, `start`, `end` = `start + duration`, `channel_index` → `channel`, `words` (and a segment `speaker` when every word has the same one) |
+| `transcript.done` | `Usage` with `input.audio_milliseconds` from `duration` |
+| `error` | `Error` (most xAI errors then close the socket) |
+| socket close | `Ended`, with `reason` `completed` after a `transcript.done` |
+
+
 ## Live / realtime (speech to speech)
 
 [`GaiseClientXaiLive`](../gaise-provider-xai/src/xai_live_client.rs) dials `wss://api.x.ai/v1/realtime?model=<model>` with a Bearer key. It waits for `session.created`, sends [`build_xai_session_update`](../gaise-provider-xai/src/xai_live_client.rs), and then waits for `session.updated`.
@@ -164,27 +265,29 @@ Ephemeral client secrets (`POST /v1/realtime/client_secrets`), Opus/G.711 codecs
 | `grok-voice-3.0` | `grok-voice-latest` | `active` | — | text, audio | text, audio | live | `none`, `high` | realtime transport (wss://api.x.ai/v1/realtime, feature live): 24 kHz PCM16, server VAD or manual turns, function tools, input transcription | Speech-to-speech, released October 2026; grok-voice-latest points here. OpenAI Realtime-compatible protocol with xAI session fields. reasoni… |
 | `grok-voice-2.0` | — | `deprecated` | — | text, audio | text, audio | live | `none`, `high` | realtime transport (feature live) | Deprecated October 2026 when Grok Voice 3.0 shipped with the same endpoint, session parameters, events, and price. No shutdown date publishe… |
 | `tts` | — | `active` | — | text | audio | speech | — | speech and speech_stream via POST /v1/tts (mp3, wav, pcm, mulaw, alaw; 8-48 kHz); alignment from with_timestamps | xAI text-to-speech has no model id: POST /v1/tts takes text, language (auto by default), voice_id (default eve), output_format, and speed (0… |
-| `grok-voice-transcribe-2.0` | — | `active` | — | text, audio | text | — | — | not supported: speech-to-text has no GAISe surface | Default speech-to-text model since September 2026 (POST /v1/stt and wss://api.x.ai/v1/stt); diarization, keyterms, multichannel. $0.10 per h… |
-| `grok-voice-transcribe-1.0` | — | `retired` | shutdown 2026-10-02 | text, audio | text | — | — | not supported: speech-to-text has no GAISe surface | End of life 2026-10-02; requests to the slug are routed to grok-voice-transcribe-2.0. Replacement `grok-voice-transcribe-2.0`. |
-| `grok-imagine-image-2.0` | — | `active` | — | image | image | — | — | not yet native: Images API (/v1/images/generations and /edits) | Recommended image model; quality low, medium, or auto; resolutions 1k, 1.5k, 2k; up to 5 source images for edits. $0.04 per image. |
-| `grok-imagine-image` | — | `active` | — | image | image | — | — | not yet native: Images API | Grok Imagine Image 1.0 (snapshot grok-imagine-image-2026-03-02). $0.02 per image. |
-| `grok-imagine-image-quality` | `grok-imagine-image-quality-20260403`, `grok-imagine-image-quality-latest`, `grok-imagine-image-pro` | `deprecated` | shutdown 2026-11-02 | image | image | — | — | not yet native: Images API | Retires 2026-11-02; requests to the slug will then be served by grok-imagine-image-2.0 with quality low. grok-imagine-image-pro was retired… |
-| `grok-imagine-video-1.5` | `grok-imagine-video-1.5-preview` | `active` | — | image | video | — | — | not yet native: asynchronous Videos API (/v1/videos/generations) | Text or image to video (snapshot grok-imagine-video-1.5-2026-05-30); 1-15 s, 480p/720p/1080p. $0.080 per second. |
-| `grok-imagine-video-1.5-lite` | — | `active` | — | image | video | — | — | not yet native: asynchronous Videos API | Lower-cost Grok Imagine Video 1.5. $0.020 per second. |
-| `grok-imagine-video` | — | `active` | — | image, video | video | — | — | not yet native: asynchronous Videos API (generations, edits, extensions) | Grok Imagine Video 1.0; also edits and extends videos. $0.050 per second. |
+| `grok-voice-transcribe-2.0` | — | `active` | — | text, audio | text | transcription, live_transcription | — | transcribe: POST /v1/stt (diarization, word timestamps, keyterms, multichannel); transcribe_connect: wss://api.x.ai/v1/stt (feature live) | Default speech-to-text model since September 2026 (POST /v1/stt and wss://api.x.ai/v1/stt); diarization, keyterms, multichannel. $0.10 per h… |
+| `grok-voice-transcribe-1.0` | — | `retired` | shutdown 2026-10-02 | text, audio | text | transcription, live_transcription | — | redirected upstream to grok-voice-transcribe-2.0 | End of life 2026-10-02; requests to the slug are routed to grok-voice-transcribe-2.0. Replacement `grok-voice-transcribe-2.0`. |
+| `grok-imagine-image-2.0` | — | `active` | — | image | image | image_generation | — | generate_images: /v1/images/generations or /edits (multi-image references); quality low, medium, auto; resolution 1k, 1.5k, 2k | Recommended image model; quality low, medium, or auto; resolutions 1k, 1.5k, 2k; up to 5 source images for edits. $0.04 per image. |
+| `grok-imagine-image` | — | `active` | — | image | image | image_generation | — | generate_images: /v1/images/generations or /edits; quality is not accepted | Grok Imagine Image 1.0 (snapshot grok-imagine-image-2026-03-02). $0.02 per image. |
+| `grok-imagine-image-quality` | `grok-imagine-image-quality-20260403`, `grok-imagine-image-quality-latest`, `grok-imagine-image-pro` | `deprecated` | shutdown 2026-11-02 | image | image | image_generation | — | generate_images: /v1/images/generations or /edits; served by grok-imagine-image-2.0 at low quality after 2026-11-02 | Retires 2026-11-02; requests to the slug will then be served by grok-imagine-image-2.0 with quality low. grok-imagine-image-pro was retired… |
+| `grok-imagine-video-1.5` | `grok-imagine-video-1.5-preview` | `active` | — | image | video | video_generation | — | start_video / get_video: /v1/videos/generations (first and last frame, references, 1-15 s, 480p-1080p) | Text or image to video (snapshot grok-imagine-video-1.5-2026-05-30); 1-15 s, 480p/720p/1080p. $0.080 per second. |
+| `grok-imagine-video-1.5-lite` | — | `active` | — | image | video | video_generation | — | start_video / get_video: /v1/videos/generations | Lower-cost Grok Imagine Video 1.5. $0.020 per second. |
+| `grok-imagine-video` | — | `active` | — | image, video | video | video_generation | — | start_video / get_video: generations, edits (source video), and extensions (source video plus duration) | Grok Imagine Video 1.0; also edits and extends videos. $0.050 per second. |
 
 ## Limitations and explicit fallbacks
 
 - The Responses API is not used for xAI. That means no encrypted reasoning round-trip, no server-side tools (web search, X search, code execution, collections, MCP), no stateful `previous_response_id`, and no multi-agent model.
 - Embeddings return an error, because xAI lists no public embedding model.
-- Image generation (`/v1/images/*`), video generation (`/v1/videos/*`), and speech to text (`/v1/stt`) have no GAISe surface. Their models are registered with no operations.
+- Images: masks, negative prompts, seeds, exact `size`, and `output_format` are rejected (xAI has no such fields). Deferred image requests (`deferred: true`), Files API inputs (`file_id`), and `storage_options` are not mapped; pass them through `provider_options` if needed (a deferred request returns no images to `generate_images`).
+- Video: `n` > 1, negative prompts, and seeds are rejected. `keyframes`, `reference_audios`, Files API inputs, and `storage_options` are reachable only through `provider_options`.
+- Speech to text: `prompt`, `temperature`, and `max_speakers` are rejected. Streaming sessions reject `GaiseCommitStrategy::Manual`, because xAI always endpoints on silence (`Commit` still sends `finalize`).
 - Deferred completions, `service_tier`, `search_parameters`, and the Batch API are not sent.
 
 ## Tests
 
 - [`tests/parameter_matrix_tests.rs`](../gaise-provider-xai/tests/parameter_matrix_tests.rs): the per-family effort rules.
-- [`tests/mapping_tests.rs`](../gaise-provider-xai/tests/mapping_tests.rs): request, response, streaming, and TTS mapping, against a local HTTP server.
-- [`tests/live_mapping_tests.rs`](../gaise-provider-xai/tests/live_mapping_tests.rs): `session.update` and the event mapping (feature `live`).
+- [`tests/mapping_tests.rs`](../gaise-provider-xai/tests/mapping_tests.rs): request, response, streaming, TTS, speech-to-text (multipart field order with the file last), image (generation/edit path selection, base64 decoding, rejected fields), and video (start, poll, moderation) mapping, against a local HTTP server.
+- [`tests/live_mapping_tests.rs`](../gaise-provider-xai/tests/live_mapping_tests.rs): `session.update`, the realtime event mapping, the streaming STT URL builder and event mapping, and a `transcribe_connect` round trip against a local WebSocket server (feature `live`).
 - [`gaise-client/tests/xai_routing_tests.rs`](../gaise-client/tests/xai_routing_tests.rs): routing through the client.
 
 None of these has run against the live xAI API.
@@ -194,6 +297,8 @@ None of these has run against the live xAI API.
 - Models: <https://docs.x.ai/developers/models>
 - Chat Completions: <https://docs.x.ai/developers/rest-api-reference/inference/chat-completions>
 - Reasoning: <https://docs.x.ai/developers/model-capabilities/text/reasoning>
-- Voice (realtime, TTS, STT): <https://docs.x.ai/developers/rest-api-reference/inference/voice> and <https://docs.x.ai/developers/model-capabilities/audio/speech-to-speech>
+- Voice (realtime, TTS, STT): <https://docs.x.ai/developers/rest-api-reference/inference/voice>, <https://docs.x.ai/developers/model-capabilities/audio/speech-to-speech>, and <https://docs.x.ai/developers/model-capabilities/audio/speech-to-text>
+- Images: <https://docs.x.ai/developers/rest-api-reference/inference/images> and <https://docs.x.ai/developers/model-capabilities/images/generation>
+- Videos: <https://docs.x.ai/developers/rest-api-reference/inference/videos> and <https://docs.x.ai/developers/model-capabilities/video/generation>
 - Release notes: <https://docs.x.ai/developers/release-notes>
 - May 15 retirement: <https://docs.x.ai/developers/migration/may-15-retirement>

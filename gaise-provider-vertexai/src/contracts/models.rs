@@ -29,7 +29,7 @@ fn insert_google_modality_usage(
     }
 }
 
-fn map_google_usage(usage: &GoogleUsageMetadata) -> GaiseUsage {
+pub(crate) fn map_google_usage(usage: &GoogleUsageMetadata) -> GaiseUsage {
     let mut input = HashMap::new();
     if let Some(value) = usage.prompt_token_count {
         input.insert("prompt_tokens".to_string(), value);

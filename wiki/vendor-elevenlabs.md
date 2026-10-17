@@ -2,13 +2,15 @@
 
 > Part of the [GAISe wiki](README.md) · [Models](models.md#elevenlabs) · [Capabilities](capabilities.md) · [HTTP API](api.md) · [Rust SDK](sdk.md) · [Flows](flows.md) · [Examples](examples.md)
 
-The `gaise-provider-elevenlabs` crate drives ElevenLabs **text-to-speech**: complete clips (`speech`), chunked audio as it is rendered (`speech_stream`), realtime voice over WebSocket (`live_connect`, feature `live`), and model discovery (`list_models`). It deliberately has no chat or embeddings surface — `instruct` and `embeddings` return explicit "not supported" errors — and it does not wrap speech-to-text, speech-to-speech, music, or Agents. Enabled by the `elevenlabs` feature of [`gaise-client`](../gaise-client/Cargo.toml) (on by default).
+The `gaise-provider-elevenlabs` crate drives ElevenLabs **text-to-speech**: complete clips (`speech`), chunked audio as it is rendered (`speech_stream`), realtime voice over WebSocket (`live_connect`, feature `live`), and model discovery (`list_models`). Since 5.5.0 it also wraps **Scribe speech-to-text**: recorded audio through `transcribe` (`POST /v1/speech-to-text`) and streaming audio through `transcribe_connect` (`wss://…/v1/speech-to-text/realtime`, feature `live`). It deliberately has no chat or embeddings surface — `instruct` and `embeddings` return explicit "not supported" errors — and it does not wrap speech-to-speech, music, or Agents. Enabled by the `elevenlabs` feature of [`gaise-client`](../gaise-client/Cargo.toml) (on by default).
 
 ## At a glance
 
 | Crate | Feature flag | Client type | Speech surface | Streaming surface | Live surface | Model listing surface |
 |---|---|---|---|---|---|---|
 | [`gaise-provider-elevenlabs`](../gaise-provider-elevenlabs/Cargo.toml) | `elevenlabs` in [`gaise-client`](../gaise-client/Cargo.toml); crate-level `live` for WebSockets | [`GaiseClientElevenLabs`](../gaise-provider-elevenlabs/src/elevenlabs_client.rs) | `POST /v1/text-to-speech/{voice_id}` and `/with-timestamps` | `POST …/stream` (chunked bytes) and `…/stream/with-timestamps` (NDJSON) | `wss://…/v1/text-to-speech/{voice_id}/stream-input`; `wss://…/v1/text-to-dialogue/stream-input` for `eleven_v3*` | `GET /v1/models` (+ `GET /v2/voices` helper) |
+
+Speech-to-text: `transcribe` → `POST /v1/speech-to-text` (multipart); `transcribe_connect` (feature `live`) → `wss://…/v1/speech-to-text/realtime`.
 
 ## Configuration
 
@@ -128,6 +130,80 @@ Not supported — `embeddings` returns "ElevenLabs does not offer text embedding
 
 Mapping functions: [`stream_input_events`](../gaise-provider-elevenlabs/src/elevenlabs_client.rs), [`dialogue_events`](../gaise-provider-elevenlabs/src/elevenlabs_client.rs), URL construction in [`live_url`](../gaise-provider-elevenlabs/src/elevenlabs_client.rs). The first frame carries `chunk_length_schedule: [120, 160, 250, 290]` (stream-input) or `voices: [voice]` (dialogue). Conversational agents (audio in) are not wrapped.
 
+## Transcription
+
+`transcribe` ([`GaiseClient::transcribe`](sdk.md)) posts a `multipart/form-data` body to `POST /v1/speech-to-text` with the `xi-api-key` header. The form is built by the pure [`build_transcription_form`](../gaise-provider-elevenlabs/src/contracts/transcription.rs) and encoded without extra dependencies by [`ElevenLabsTranscriptionForm::encode`](../gaise-provider-elevenlabs/src/contracts/transcription.rs). The call is always synchronous; `webhook=true` (HTTP 202, result delivered later) is never sent and is rejected when it appears in `provider_options`.
+
+| `GaiseTranscriptionRequest` | Form field | Notes |
+|---|---|---|
+| `model` | `model_id` | `scribe_v2`, `scribe_v2_medical`; `scribe_v1` is deprecated |
+| `audio` = `Bytes` | `file` | Filename and `Content-Type` from `mime_type`, else sniffed (wav, mp3, ogg, flac, webm, m4a) |
+| `audio` = `Url` (`https://`) | `source_url` | `cloud_storage_url` is deprecated and never sent; `data:` URLs are decoded and uploaded as `file`; `gs://` / `s3://` are rejected |
+| `languages[0]` | `language_code` | The API takes one language; the rest are ignored. Empty = auto-detect |
+| `diarize` | `diarize=true` | Words carry `speaker_id` (`speaker_0`, …) |
+| `max_speakers` | `num_speakers` | 1–32, validated client-side |
+| `timestamps` | `timestamps_granularity` | `word` / `segment` → `word`, `character` → `character`; `none` or unset → omitted |
+| `format` (raw PCM) | `file_format=pcm_s16le_16` | Only 16-bit 16 kHz mono PCM; other raw rates, μ-law and A-law are rejected with a clear error. Container codecs send nothing |
+| `temperature` | `temperature` | 0.0–2.0 |
+| `multichannel` | `use_multi_channel=true` | Up to 5 channels, each billed at full duration |
+| `keyterms` | `keyterms` (repeated once per term) | +20% surcharge on ElevenLabs' side |
+| `mode` = `smart` | `no_verbatim=true` | `scribe_v2` only; rejected for `scribe_v2_medical` |
+| `prompt` | — | Rejected: the batch API has no context field (`previous_text` is realtime-only) |
+| `provider_options` | one field per top-level key | Strings as-is, arrays repeat the field, other values JSON-stringified; a key replaces the mapped field of the same name (e.g. `tag_audio_events`, `seed`, `entity_detection`, `diarization_threshold`, `multichannel_output_style`) |
+
+Response mapping ([`map_transcription_response`](../gaise-provider-elevenlabs/src/contracts/transcription.rs)):
+
+| ElevenLabs | `GaiseTranscriptionResponse` |
+|---|---|
+| `text` | `text` |
+| `language_code` | `language` (as reported, e.g. `eng`) |
+| `words[].type` `word` / `spacing` / `audio_event` | `words[].kind` `Word` / `Spacing` / `AudioEvent` |
+| `words[].logprob` | `words[].confidence` = `exp(logprob)` clamped to 0–1 |
+| `words[].speaker_id`, `channel_index` | `words[].speaker`, `words[].channel` |
+| consecutive words of one speaker | `segments` (only when diarized) |
+| `transcription_id` | `external_id` |
+| `audio_duration_secs` | `duration_seconds` and `usage.input.audio_milliseconds` |
+| multichannel `transcripts[]` | `channels[]` (index, text, language, words); top-level `text` joins channel texts with newlines and `words` interleaves all channels by start time |
+
+Per-character timings (`characters`) are not surfaced. Errors use the same `detail` envelope parser as text-to-speech.
+
+## Streaming transcription
+
+`transcribe_connect` (feature `live`) opens `wss://{host}/v1/speech-to-text/realtime` with the `xi-api-key` header; the host comes from `ELEVENLABS_API_URL` with `https://` → `wss://`. The URL is built by the pure [`build_realtime_transcription_setup`](../gaise-provider-elevenlabs/src/contracts/transcription.rs).
+
+| `GaiseTranscriptionSessionConfig` | Query parameter | Notes |
+|---|---|---|
+| `model` | `model_id` | Defaults to `scribe_v2_realtime` |
+| `audio_format` | `audio_format` | `pcm` at 8000 / 16000 / 22050 / 24000 / 44100 / 48000 Hz → `pcm_{rate}`; `mulaw` 8000 → `ulaw_8000`; anything else (and stereo) is rejected. Default `pcm_16000` |
+| `languages[0]` | `language_code` | |
+| `commit_strategy` | `commit_strategy` | `manual`, `vad`, `turn_prediction` |
+| `silence_duration_ms` | `vad_silence_threshold_secs` | Converted to seconds |
+| `timestamps` = word / character / segment | `include_timestamps=true` | Final transcripts then carry words |
+| `keyterms` | `keyterms` (repeated) | |
+| `prompt` | `previous_text` on the **first** audio chunk only | The API errors if it appears later |
+| `diarize` | — | Rejected: the realtime API has no diarization |
+| `interim_results` | — | Client-side: partial transcripts are forwarded only when set |
+| `provider_options` | one query parameter per top-level key | e.g. `no_verbatim`, `vad_threshold`, `include_language_detection`; `token` is refused (the client authenticates with the header) |
+
+| `GaiseTranscriptionInput` | Client frame |
+|---|---|
+| `Audio { data }` | `{"message_type":"input_audio_chunk","audio_base_64":…,"commit":false,"sample_rate":N}` |
+| `Commit` | Empty chunk with `"commit":true` |
+| `Close` | Commit any uncommitted audio, wait up to 5 s for the committed transcript, then close the socket |
+
+| Server `message_type` | `GaiseTranscriptionEvent` |
+|---|---|
+| `session_started` | `Started { session_id, model }` |
+| `partial_transcript` | `Transcript { is_final: false }` (when `interim_results`) |
+| `committed_transcript` | `Transcript { is_final: true, utterance_end: true }` |
+| `committed_transcript_with_timestamps` | Same, with `words`, `start`/`end`, `language`, `speaker`; when `include_timestamps` is on it replaces the plain commit so each segment is emitted once ([`ElevenLabsRealtimeMapper`](../gaise-provider-elevenlabs/src/contracts/transcription.rs)) |
+| `warning` and recoverable errors (`commit_throttled`, `input_error`, `chunk_size_exceeded`, `insufficient_audio_activity`, `transcriber_error`, `error`) | `Error { message }` |
+| `auth_error`, `quota_exceeded`, `unaccepted_terms`, `rate_limited`, `queue_overflow`, `resource_exhausted`, `session_time_limit_exceeded`, `invalid_request` | `Error`, then `Ended { reason: <type> }` |
+| `committed_transcript_entities`, `edited_transcript` | not mapped |
+| socket closed | `Ended` (reason = close frame for abnormal closes) |
+
+There are no speech-started / speech-stopped or usage frames on this API.
+
 ## Model discovery
 
 `GET /v1/models` → [`map_elevenlabs_model`](../gaise-provider-elevenlabs/src/contracts/models.rs). Provider-sourced: id, name, description, `can_do_text_to_speech` (→ input `text`, output `audio`, operations `speech` + `live`), `can_do_voice_conversion` (→ input `audio`), `requires_alpha_access` (→ `preview`), `maximum_text_length_per_request` (→ notes). Tools, reasoning, and structured output are `unsupported`. The registry overlay adds lifecycle notes and the `eleven_v3_conversational` live-only override.
@@ -148,8 +224,9 @@ Mapping functions: [`stream_input_events`](../gaise-provider-elevenlabs/src/elev
 | `eleven_turbo_v2_5` | — | `deprecated` | — | text | audio | speech, live | — | native while available | Functionally equivalent to eleven_flash_v2_5; no shutdown date published. Character limit as for the functionally equivalent eleven_flash_v2… |
 | `eleven_turbo_v2` | — | `deprecated` | — | text | audio | speech, live | — | native while available | Character limit as for the functionally equivalent eleven_flash_v2. Replacement `eleven_flash_v2`. |
 | `eleven_multilingual_sts_v2` | `eleven_english_sts_v2` | `active` | — | audio | audio | — | — | not supported: speech-to-speech has no GAISe surface | — |
-| `scribe_v2` | `scribe_v2_realtime` | `active` | — | text, audio | text | — | — | not supported: speech-to-text has no GAISe surface yet | scribe_v2_realtime is listed as its own model (~150 ms, 90+ languages); scribe_v1 is deprecated with no shutdown date. |
-| `scribe_v2_medical` | — | `active` | — | text, audio | text | — | — | not supported: speech-to-text has no GAISe surface yet | Speech recognition fine-tuned for clinical audio, 90+ languages; same Speech to Text API and price as Scribe v2. Listed on the models page b… |
+| `scribe_v2` | — | `active` | — | text, audio | text | transcription | — | transcribe: POST /v1/speech-to-text (diarization up to 32 speakers, word or character timestamps, audio events, keyterms, multichannel, no_verbatim for smart mode) | scribe_v2_realtime is listed as its own model (~150 ms, 90+ languages); scribe_v1 is deprecated with no shutdown date. scribe_v2_realtime mo… |
+| `scribe_v2_medical` | — | `active` | — | text, audio | text | transcription | — | transcribe: POST /v1/speech-to-text, same request shape as scribe_v2 (smart mode is rejected) | Speech recognition fine-tuned for clinical audio, 90+ languages; same Speech to Text API and price as Scribe v2. Listed on the models page b… |
+| `scribe_v2_realtime` | — | `active` | — | text, audio | text | live_transcription | — | transcribe_connect: wss://api.elevenlabs.io/v1/speech-to-text/realtime (feature live); partial and committed transcripts, manual, VAD, or turn-prediction commits, word timestamps; no diarization | Realtime Scribe (~150 ms partials), WebSocket only; PCM 8-48 kHz or u-law 8 kHz input. Was an alias of scribe_v2 until 2026-10-17. |
 | `eleven_ttv_v3` | `eleven_multilingual_ttv_v2` | `active` | — | text | text, audio | — | — | not supported: voice design (/v1/text-to-voice/design) has no GAISe surface | Text-to-voice design models; the endpoint defaults to eleven_multilingual_ttv_v2 and takes 100-1,000 characters of description. |
 | `music_v2` | — | `active` | — | text | text, audio | — | — | not supported: music generation (/v1/music) has no GAISe surface | Studio-grade music with composition plans, audio reference, and inpainting; superseded as the flagship by music_v2_5 (2026-09). Section dura… |
 | `music_v2_5` | — | `active` | — | text | text, audio | — | — | not supported: music generation (/v1/music) has no GAISe surface | Most advanced music model (listed by 2026-09-12; /v1/music/compose model_id enum music_v1, music_v2, music_v2_5). Section durations are alwa… |
@@ -163,7 +240,8 @@ Full generated table: [models.md#elevenlabs](models.md#elevenlabs).
 - No default voice; a missing `voice` is an error, never a silent pick.
 - `instructions` is not mapped (use v3 audio tags in the text).
 - Live sessions accept text only; audio/image/tool inputs and clear/cancel produce `error` events.
-- Speech-to-text, speech-to-speech, music, voice design, and Agents are out of scope.
+- Speech-to-speech, music, voice design, and Agents are out of scope.
+- Speech-to-text: webhook (asynchronous) mode, `transcript_edit`, `additional_formats`, entity output, and per-character timings are not surfaced; batch `prompt` and realtime `diarize` are rejected.
 - Alignment from `/stream/with-timestamps` is parsed defensively (`data:` prefix or bare JSON) because the framing is documented only through the official SDKs.
 - Plan-gated formats and concurrency limits surface as API errors (`429 rate_limit_error`).
 
@@ -211,11 +289,15 @@ sequenceDiagram
 
 - [`contracts/models.rs`](../gaise-provider-elevenlabs/src/contracts/models.rs) unit tests: output-format resolution, request body rules, timestamp-frame parsing, error envelopes, model mapping, WebSocket alignment conversion.
 - [`elevenlabs_client.rs`](../gaise-provider-elevenlabs/src/elevenlabs_client.rs) unit tests: NDJSON line buffering across chunk boundaries, frame → chunk mapping, voice requirement, base-URL normalization.
+- [`contracts/transcription.rs`](../gaise-provider-elevenlabs/src/contracts/transcription.rs) unit tests: multipart form fields and encoding, rejections (webhook, PCM rates, smart mode on medical), single- and multichannel response mapping with audio events, realtime URL/query building, audio chunk frames, and server-event mapping (duplicate commits, fatal errors).
+- [`tests/transcription_tests.rs`](../gaise-provider-elevenlabs/tests/transcription_tests.rs): `transcribe` against a local mock HTTP server (multipart body, `source_url`, multichannel, error envelopes).
+- [`tests/realtime_transcription_tests.rs`](../gaise-provider-elevenlabs/tests/realtime_transcription_tests.rs) (feature `live`): `transcribe_connect` against a local WebSocket server (URL, header, `previous_text` on the first chunk only, commit on close, one final transcript per segment).
 - Router and HTTP: [`gaise-client/tests/speech_tests.rs`](../gaise-client/tests/speech_tests.rs), [`gaise-api/tests/speech_route_tests.rs`](../gaise-api/tests/speech_route_tests.rs).
 - No live tests; nothing in the suite contacts ElevenLabs.
 
 ## Sources
 
 - API reference: <https://elevenlabs.io/docs/api-reference/text-to-speech/convert>, <https://elevenlabs.io/docs/api-reference/text-to-speech/stream>, <https://elevenlabs.io/docs/api-reference/text-to-speech/v-1-text-to-speech-voice-id-stream-input>, <https://elevenlabs.io/docs/api-reference/text-to-dialogue/ttd-websocket>, <https://elevenlabs.io/docs/api-reference/models/list>, <https://elevenlabs.io/docs/api-reference/voices/search>
+- Speech-to-text: <https://elevenlabs.io/docs/api-reference/speech-to-text/convert>, <https://elevenlabs.io/docs/api-reference/speech-to-text/v-1-speech-to-text-realtime> (audited 2026-10-17)
 - Models and limits: <https://elevenlabs.io/docs/overview/models>; errors: <https://elevenlabs.io/docs/eleven-api/resources/errors>
-- Source: [`elevenlabs_client.rs`](../gaise-provider-elevenlabs/src/elevenlabs_client.rs), [`contracts/models.rs`](../gaise-provider-elevenlabs/src/contracts/models.rs), [`gaise_speech.rs`](../gaise-core/src/contracts/gaise_speech.rs), [`gaise-client/src/lib.rs`](../gaise-client/src/lib.rs), [`gaise-api/src/lib.rs`](../gaise-api/src/lib.rs)
+- Source: [`elevenlabs_client.rs`](../gaise-provider-elevenlabs/src/elevenlabs_client.rs), [`contracts/models.rs`](../gaise-provider-elevenlabs/src/contracts/models.rs), [`contracts/transcription.rs`](../gaise-provider-elevenlabs/src/contracts/transcription.rs), [`gaise_speech.rs`](../gaise-core/src/contracts/gaise_speech.rs), [`gaise-client/src/lib.rs`](../gaise-client/src/lib.rs), [`gaise-api/src/lib.rs`](../gaise-api/src/lib.rs)
