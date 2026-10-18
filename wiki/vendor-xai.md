@@ -233,7 +233,7 @@ The server events map as follows:
 Other inputs:
 - Audio input must be 24 kHz PCM16.
 - Image input is answered with an `Error` event.
-- `ToolResponse` sends `function_call_output` and then `response.create`.
+- `ToolResponse` sends `function_call_output`. `response.create` is sent only once the response that issued the calls has finished and every call has an output, as xAI requires for parallel calls (`LiveToolCallGate`, since 5.5.1).
 
 Ephemeral client secrets (`POST /v1/realtime/client_secrets`), Opus/G.711 codecs, binary transport, session resumption, server-side tools (`web_search`, `x_search`, `file_search`, `mcp`), and SIP are not mapped.
 

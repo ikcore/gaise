@@ -436,3 +436,32 @@ fn gpt_live_models_are_refused_by_the_realtime_transport() {
     assert!(!realtime_model_uses_live_api("gpt-realtime-1.5"));
     assert!(!realtime_model_uses_live_api("gpt-4o-realtime-preview"));
 }
+
+#[test]
+fn tool_call_gate_waits_for_every_parallel_output() {
+    use gaise_provider_openai::openai_live_client::observe_tool_calls;
+    let mut gate = LiveToolCallGate::new();
+    assert!(!observe_tool_calls(&mut gate, "response.created", None));
+    assert!(!observe_tool_calls(
+        &mut gate,
+        "response.function_call_arguments.done",
+        Some("a")
+    ));
+    assert!(!observe_tool_calls(
+        &mut gate,
+        "response.function_call_arguments.done",
+        Some("b")
+    ));
+    assert!(!observe_tool_calls(&mut gate, "response.done", None));
+    assert!(!gate.output_submitted("a"), "b is still outstanding");
+    assert!(gate.output_submitted("b"));
+    // Outputs that arrive while the response is still streaming release on response.done.
+    assert!(!observe_tool_calls(&mut gate, "response.created", None));
+    assert!(!observe_tool_calls(
+        &mut gate,
+        "response.function_call_arguments.done",
+        Some("c")
+    ));
+    assert!(!gate.output_submitted("c"));
+    assert!(observe_tool_calls(&mut gate, "response.done", None));
+}

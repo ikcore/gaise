@@ -8,6 +8,23 @@ change, or an additive adapter feature is a minor release; a change to a public
 contract (removed or renamed items, new required fields, changed serialization)
 is a major release.
 
+## [5.5.1] - 2026-10-17
+
+### Fixed
+- Parallel function calls in speech-to-speech sessions (xAI `grok-voice-*`
+  and OpenAI Realtime). Before, each `ToolResponse` was followed by its own
+  `response.create`, so with two parallel calls the model could resume
+  speaking after the first result and before the second arrived. Now
+  `response.create` is sent once, after the response that issued the calls
+  has finished and every call has an output. That is what xAI requires
+  ("Do not send `response.create` until all function call outputs have been
+  submitted"). A single call behaves as before.
+
+### Added
+- `gaise_core::contracts::LiveToolCallGate`, the state machine both live
+  clients use for this. It also has `observe_tool_calls` helpers in the xAI
+  and OpenAI live modules.
+
 ## [5.5.0] - 2026-10-17
 
 Media operations: speech-to-text (batch and streaming), image generation and
@@ -363,6 +380,7 @@ request rules in advance.
   ElevenLabs speech, standardized embeddings, the model limits matrix
   (`/v1/models/limits`), and the wiki.
 
+[5.5.1]: https://github.com/ikcore/gaise/pull/23
 [5.5.0]: https://github.com/ikcore/gaise/pull/22
 [5.0.0]: https://github.com/ikcore/gaise/pull/21
 [4.5.0]: https://github.com/ikcore/gaise/pull/20

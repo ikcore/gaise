@@ -22,10 +22,11 @@ use gaise_core::contracts::{
     GaiseLiveInput, GaiseLiveSession, GaiseLiveTranscript, GaiseReasoningEffort, GaiseTool,
     GaiseToolParameter, GaiseTranscriptionEvent, GaiseTranscriptionEventStream,
     GaiseTranscriptionInput, GaiseTranscriptionSession, GaiseTranscriptionSessionConfig,
-    GaiseUsage,
+    GaiseUsage, LiveToolCallGate,
 };
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -241,6 +242,26 @@ fn ws_root(api_url: &str) -> String {
         base
     } else {
         format!("{base}/v1")
+    }
+}
+
+/// Feed one server event to the tool-call gate. Returns `true` when the
+/// session should send `response.create` now: the response that issued
+/// function calls has finished and every call already has an output.
+pub fn observe_tool_calls(gate: &mut LiveToolCallGate, event: &Value) -> bool {
+    match event["type"].as_str().unwrap_or_default() {
+        "response.created" => {
+            gate.response_started();
+            false
+        }
+        "response.function_call_arguments.done" => {
+            if let Some(call_id) = event["call_id"].as_str() {
+                gate.call_issued(call_id);
+            }
+            false
+        }
+        "response.done" => gate.response_finished(),
+        _ => false,
     }
 }
 
@@ -498,9 +519,31 @@ impl GaiseLiveClient for GaiseClientXaiLive {
 
         let manual_turns = config.vad_config.as_ref().is_some_and(|vad| !vad.enabled);
         let send_events = event_tx.clone();
+        // Parallel function calls: `response.create` waits until every call
+        // of the finished response has an output (see `LiveToolCallGate`).
+        let gate = Arc::new(Mutex::new(LiveToolCallGate::new()));
+        let send_gate = gate.clone();
+        let (continue_tx, mut continue_rx) = mpsc::unbounded_channel::<()>();
         tokio::spawn(async move {
             let response_create = json!({"type": "response.create"});
-            while let Some(input) = input_rx.recv().await {
+            loop {
+                let input = tokio::select! {
+                    input = input_rx.recv() => match input {
+                        Some(input) => input,
+                        None => break,
+                    },
+                    Some(()) = continue_rx.recv() => {
+                        if let Err(e) = send_json(&mut ws_sink, std::slice::from_ref(&response_create)).await {
+                            let _ = send_events
+                                .send(Ok(GaiseLiveEvent::Error {
+                                    message: format!("Send error: {e}"),
+                                }))
+                                .await;
+                            break;
+                        }
+                        continue;
+                    }
+                };
                 let frames: Vec<Value> = match input {
                     GaiseLiveInput::Audio { data, sample_rate } => {
                         if sample_rate != LIVE_SAMPLE_RATE {
@@ -532,13 +575,20 @@ impl GaiseLiveClient for GaiseClientXaiLive {
                     }
                     GaiseLiveInput::ToolResponse {
                         call_id, result, ..
-                    } => vec![
-                        json!({
+                    } => {
+                        let mut frames = vec![json!({
                             "type": "conversation.item.create",
                             "item": {"type": "function_call_output", "call_id": call_id, "output": result.to_string()}
-                        }),
-                        response_create.clone(),
-                    ],
+                        })];
+                        let release = send_gate
+                            .lock()
+                            .map(|mut g| g.output_submitted(&call_id))
+                            .unwrap_or(true);
+                        if release {
+                            frames.push(response_create.clone());
+                        }
+                        frames
+                    }
                     GaiseLiveInput::ActivityStart => continue,
                     GaiseLiveInput::ActivityEnd | GaiseLiveInput::AudioStreamEnd => {
                         if !manual_turns {
@@ -596,6 +646,13 @@ impl GaiseLiveClient for GaiseClientXaiLive {
                         continue;
                     }
                 };
+                let release = gate
+                    .lock()
+                    .map(|mut g| observe_tool_calls(&mut g, &event))
+                    .unwrap_or(false);
+                if release {
+                    let _ = continue_tx.send(());
+                }
                 for mapped in map_xai_live_event(&event) {
                     if event_tx.send(Ok(mapped)).await.is_err() {
                         return;

@@ -302,8 +302,8 @@ are returned without retrying. There is no Decision streaming endpoint.
 
 ```toml
 [dependencies]
-gaise-core = { package = "gaise", version = "5.5.0" }
-gaise-client = { version = "5.5.0", default-features = false, features = ["typesafe"] }
+gaise-core = { package = "gaise", version = "5.5.1" }
+gaise-client = { version = "5.5.1", default-features = false, features = ["typesafe"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```
