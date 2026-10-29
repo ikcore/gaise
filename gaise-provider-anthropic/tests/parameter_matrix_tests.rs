@@ -9,6 +9,9 @@
 use gaise_core::contracts::{
     GaiseContent, GaiseGenerationConfig, GaiseInstructRequest, GaiseMessage, OneOrMany,
 };
+use gaise_provider_anthropic::anthropic_client::{
+    api_version_rejects_sampling, strip_for_api_version,
+};
 use gaise_provider_anthropic::contracts::models::AnthropicRequest;
 
 fn approx(value: &serde_json::Value, expected: f64) -> bool {
@@ -374,4 +377,47 @@ fn auto_enables_thinking_with_provider_defaults() {
         2048,
         "adaptive families keep max_tokens"
     );
+}
+
+#[test]
+fn api_version_2026_10_21_drops_sampling_and_the_default_version_keeps_it() {
+    // Migration guide (2026-10-21): "a request that sends `temperature`,
+    // `top_p`, or `top_k` returns a 400 error, even at the parameter's
+    // default value." The client default stays 2023-06-01.
+    assert!(!api_version_rejects_sampling("2023-06-01"));
+    assert!(!api_version_rejects_sampling("2026-10-20"));
+    assert!(api_version_rejects_sampling("2026-10-21"));
+    assert!(api_version_rejects_sampling("2027-01-01"));
+    assert!(!api_version_rejects_sampling("latest"));
+    assert!(!api_version_rejects_sampling("2026-1x-21"));
+
+    // claude-sonnet-4-6 forwards sampling when thinking is off.
+    let gaise = GaiseInstructRequest {
+        model: "claude-sonnet-4-6".into(),
+        input: OneOrMany::One(GaiseMessage {
+            role: "user".into(),
+            content: Some(OneOrMany::One(GaiseContent::Text { text: "hi".into() })),
+            ..Default::default()
+        }),
+        generation_config: Some(GaiseGenerationConfig {
+            temperature: Some(0.3),
+            top_k: Some(20),
+            max_tokens: Some(1024),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut legacy = AnthropicRequest::from(&gaise);
+    strip_for_api_version(&mut legacy, "2023-06-01");
+    let json = serde_json::to_value(&legacy).unwrap();
+    assert!(approx(&json["temperature"], 0.3));
+    assert_eq!(json["top_k"], 20);
+
+    let mut pinned = AnthropicRequest::from(&gaise);
+    strip_for_api_version(&mut pinned, "2026-10-21");
+    let json = serde_json::to_value(&pinned).unwrap();
+    assert!(json.get("temperature").is_none());
+    assert!(json.get("top_p").is_none());
+    assert!(json.get("top_k").is_none());
+    assert_eq!(json["max_tokens"], 1024);
 }

@@ -79,7 +79,7 @@ Illustrative response (values are examples, not a live prediction):
 
 ```json
 {
-  "model": "jev-1.13.0",
+  "model": "jev-1.14.0",
   "answers": {
     "urgent": {
       "type": "noul",
@@ -214,8 +214,11 @@ lists installed decision tags.
 
 ### OpenAI Decisions (gpt-6-luna)
 
-OpenAI's Decisions API (`POST /v1/decisions`) has been in public beta since
-2026-10-06, and `gpt-6-luna` is the only model it accepts. GAISe routes
+OpenAI's Decisions API (`POST /v1/decisions`) entered public beta on 2026-10-06
+and has been generally available since 2026-10-22; `gpt-6-luna` is the only
+model it accepts. GA raised the limit to 400 questions per request and added
+hosted image URLs, image parts in question instructions, `input_json`, and
+prompt caching, none of which GAISe sends yet. GAISe routes
 `openai::gpt-6-luna` decisions there with the `OPENAI_API_KEY` configured for
 chat. It bills input tokens only ($0.10 per 1M at launch). OpenAI's shape differs
 from System One, so the adapter
@@ -280,7 +283,7 @@ a Choice description, call `GaiseClientTypeSafe::decision_with_assets` with a
 map from your own reference strings to images; every reference must appear in
 the request. TypeSafe accepts PNG and JPEG only; GAISe takes the format from
 `format` or the file signature and rejects anything else before sending. Box
-questions (Jev 1.14) are not mapped yet. `GaiseClientTypeSafe::with_long_context(true)`
+questions (Jev 1.14, which `jev-latest` now points to) are not mapped yet. `GaiseClientTypeSafe::with_long_context(true)`
 sends `TypeSafe-Danger-Zone-Long-Context: true` (262k tokens, slower and less
 accurate). OpenAI's guide says images must be inline base64 data URLs, while its
 API reference also allows public HTTPS URLs. `GaiseContent::Image` carries bytes,
@@ -309,8 +312,8 @@ are returned without retrying. There is no Decision streaming endpoint.
 
 ```toml
 [dependencies]
-gaise-core = { package = "gaise", version = "5.5.1" }
-gaise-client = { version = "5.5.1", default-features = false, features = ["typesafe"] }
+gaise-core = { package = "gaise", version = "5.6.0" }
+gaise-client = { version = "5.6.0", default-features = false, features = ["typesafe"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```

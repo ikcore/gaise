@@ -65,11 +65,11 @@ Three new media operations, with one contract that works across providers:
 
 ## Provider coverage
 
-Model registry audited **2026-10-16**; xAI was added on 2026-10-17. Newest additions: the xAI Grok 4.7, 4.6, 4.5, 4.3, and 4.20 models, Grok Build 0.1, and Grok Voice 3.0; TypeSafe Jev 1.14 with image input; the OpenAI Decisions API (beta, `gpt-6-luna`); Claude Haiku 5.5 at Anthropic and on Bedrock; Nano Banana 2.1 on the Gemini API and Vertex AI; GLM 5.3 and TwelveLabs Pegasus 1.5 on Bedrock; the Clef, Clef Flash, and Laya decision models, Mistral Large 4, and EmbeddingGemma 2 on Ollama. New model ids work before the registry is updated; the registry only adds limits, lifecycle dates, and per-family parameter rules.
+Model registry audited **2026-10-29**. Newest additions: OpenAI GPT-6.1 Terra (also on Bedrock); TypeSafe Jev 1.14, now behind `jev-latest`; Gemini 3.8 Flash TTS and Flash-Lite TTS on Vertex AI; Amazon Nova 2.5 Sonic on Bedrock; Flint, LFM3, Bonsai 2, and the d3 and d1-omni decision models on Ollama; the xAI Grok 4.7, 4.6, 4.5, 4.3, and 4.20 models, Grok Build 0.1, and Grok Voice 3.0; the OpenAI Decisions API (generally available since 2026-10-22, `gpt-6-luna`); Claude Haiku 5.5 at Anthropic and on Bedrock; Nano Banana 2.1 on the Gemini API and Vertex AI; GLM 5.3 and TwelveLabs Pegasus 1.5 on Bedrock; the Clef, Clef Flash, and Laya decision models, Mistral Large 4, and EmbeddingGemma 2 on Ollama. New model ids work before the registry is updated; the registry only adds limits, lifecycle dates, and per-family parameter rules.
 
 | Provider | crates.io | Main API surface | Current model examples |
 |---|---|---|---|
-| OpenAI | [`gaise-provider-openai`](https://crates.io/crates/gaise-provider-openai) | Chat Completions, Decisions, Embeddings, Realtime | GPT-6 Astra and GPT-6.1 Sol (text and images; tool calls are routed to the Responses API), GPT-6 Sol/Luna, GPT-5.6 Sol/Terra/Luna, GPT-5.5, GPT-5.4, Realtime 2.1, text-embedding-3; typed decisions on `gpt-6-luna` through the Decisions API (beta); older GPT-5.x and 4.x ids still resolve. GPT-Live 1, GPT Image 2.5, and GPT-Rosalind are catalogued but served by APIs outside the chat client |
+| OpenAI | [`gaise-provider-openai`](https://crates.io/crates/gaise-provider-openai) | Chat Completions, Decisions, Embeddings, Realtime | GPT-6 Astra, GPT-6.1 Sol, and GPT-6.1 Terra (text and images; tool calls are routed to the Responses API), GPT-6 Sol/Luna, GPT-5.6 Sol/Terra/Luna, GPT-5.5, GPT-5.4, Realtime 2.1, text-embedding-3; typed decisions on `gpt-6-luna` through the Decisions API (beta); older GPT-5.x and 4.x ids still resolve. GPT-Live 1, GPT Image 2.5, and GPT-Rosalind are catalogued but served by APIs outside the chat client |
 | Anthropic | [`gaise-provider-anthropic`](https://crates.io/crates/gaise-provider-anthropic) | Messages | Claude Fable 5.1 and Mythos 5.1 (2026-09-01), Opus 5.5, Sonnet 5.5, Haiku 5.5 (2026-10-07), Opus 5, Sonnet 5; Fable 5, Haiku 4.5, and the Opus/Sonnet 4.x line stay available as legacy |
 | Gemini | [`gaise-provider-gemini`](https://crates.io/crates/gaise-provider-gemini) | generateContent, Embeddings, Live | Gemini 4 Argon (GA 2026-10-13), Gemini 3.8 Flash (GA 2026-09-02), 3.6 Flash, 3.5 Flash-Lite, 3.1 Pro preview, Nano Banana 2.1 (2026-10-06), 3.1 Flash Live, gemini-embedding-2 (text, images, audio, video, and PDF through `embed_contents`) |
 | Vertex AI | [`gaise-provider-vertexai`](https://crates.io/crates/gaise-provider-vertexai) | generateContent, Embeddings | Gemini 4 Argon (GA 2026-10-13), Gemini 3.8 Flash through 3.1 Flash-Lite, 3.1 Pro preview, image-output models, gemini-embedding-001 and text-embedding-005 |
@@ -140,7 +140,7 @@ The router strips the provider prefix before calling the adapter. Direct provide
 Set `TYPESAFE_API_KEY` for the HTTP server, then send a request to
 `POST /v1/decision` (or its alias `POST /v1/systemone`) with model `typesafe::jev`.
 Local Ollama decision models use the same request with `ollama::nimble` or
-`ollama::tev1` and need Ollama 0.35 or later. OpenAI's Decisions API (beta)
+`ollama::tev1` and need Ollama 0.35 or later. OpenAI's Decisions API
 uses `openai::gpt-6-luna`. GAISe maps `jev` to TypeSafe's `jev-latest` and
 preserves typed `choice`, `score`, and `noul` answers. Add an `images` array, or
 call `GaiseClient::decision_with_images`, to share images with every question on
