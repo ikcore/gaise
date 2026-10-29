@@ -1007,7 +1007,7 @@ dependencies = [
 
 [[package]]
 name = "gaise"
-version = "5.5.1"
+version = "5.6.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -1022,7 +1022,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-api"
-version = "5.5.1"
+version = "5.6.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1043,7 +1043,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-chatbot"
-version = "5.5.1"
+version = "5.6.0"
 dependencies = [
  "futures-util",
  "gaise",
@@ -1057,7 +1057,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-client"
-version = "5.5.1"
+version = "5.6.0"
 dependencies = [
  "async-trait",
  "futures-util",
@@ -1078,7 +1078,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-anthropic"
-version = "5.5.1"
+version = "5.6.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -1091,7 +1091,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-bedrock"
-version = "5.5.1"
+version = "5.6.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -1112,7 +1112,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-elevenlabs"
-version = "5.5.1"
+version = "5.6.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -1132,7 +1132,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-gemini"
-version = "5.5.1"
+version = "5.6.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -1149,7 +1149,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-ollama"
-version = "5.5.1"
+version = "5.6.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1165,7 +1165,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-openai"
-version = "5.5.1"
+version = "5.6.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1185,7 +1185,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-typesafe"
-version = "5.5.1"
+version = "5.6.0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1200,7 +1200,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-vertexai"
-version = "5.5.1"
+version = "5.6.0"
 dependencies = [
  "async-trait",
  "base64",
@@ -1217,7 +1217,7 @@ dependencies = [
 
 [[package]]
 name = "gaise-provider-xai"
-version = "5.5.1"
+version = "5.6.0"
 dependencies = [
  "async-trait",
  "axum",

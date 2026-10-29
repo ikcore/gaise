@@ -116,7 +116,7 @@ MIME inference for files uses the shared [`file_media_type`](../gaise-core/src/c
 
 No rule gates image input, audio input, tools, or `responseModalities` by model; the API returns its own error for unsupported combinations.
 
-### Parameter compatibility (audited 2026-10-16)
+### Parameter compatibility (audited 2026-10-29)
 
 [`model_uses_fixed_sampling`](../gaise-provider-gemini/src/gemini_client.rs), [`thinking_levels_for`](../gaise-provider-gemini/src/gemini_client.rs), [`normalize_thinking_level`](../gaise-provider-gemini/src/gemini_client.rs), and [`thinking_budget_for`](../gaise-provider-gemini/src/gemini_client.rs) enforce the table; [`tests/parameter_matrix_tests.rs`](../gaise-provider-gemini/tests/parameter_matrix_tests.rs) pins it.
 
@@ -319,7 +319,7 @@ The router clears the operation filter before calling the provider and re-applie
 
 ## Models
 
-From the bundled registry (audited 2026-10-16), entries with `provider = "gemini"`. Dates are Gemini API dates only; Vertex AI has a separate lifecycle. "—" means none recorded.
+From the bundled registry (audited 2026-10-29), entries with `provider = "gemini"`. Dates are Gemini API dates only; Vertex AI has a separate lifecycle. "—" means none recorded.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
@@ -345,12 +345,12 @@ From the bundled registry (audited 2026-10-16), entries with `provider = "gemini
 | `gemini-3.8-flash-lite-tts` | — | `stable` | — | text | text, audio | — | — | text-to-speech is outside the instruct surface | GA 2026-09-22; 100+ languages with automatic language detection. Batch, Flex, and Priority inference supported; thinking and function callin… |
 | `gemini-3.1-flash-tts-preview` | — | `deprecated` | shutdown 2026-11-17 | text | text, audio | — | — | text-to-speech is outside the instruct surface | Released 2026-04-13; replacement for the 2.5 TTS previews (gemini-2.5-flash-preview-tts and gemini-2.5-pro-preview-tts, no shutdown date). s… |
 | `gemini-3.5-transcribe` | `gemini-3.5-transcribe-live` | `stable` | — | text, audio | text | transcription | — | transcribe: generateContent with audioTranscriptionConfig (languageCodes, customVocabulary, wordTimestamp, diarization, VERBATIM or SMART); the -live variant is not driven | GA 2026-08-26. gemini-3.5-transcribe is unary generateContent (audio up to 1 hour, word annotations); gemini-3.5-transcribe-live is the Live… |
-| `veo-3.1-generate-preview` | `veo-3.1-fast-generate-preview`, `veo-3.1-lite-generate-preview` | `deprecated` | shutdown 2026-10-22 | image | video | — | — | not supported: the Veo previews shut down on 2026-10-22 and the replacement, gemini-omni-1.1-flash, is served by the Interactions API, which GAISe does not use (use vertexai::veo-3.1-generate-001) | predictLongRunning with polling; videos are kept for 2 days and downloads need the API key. Replacement `gemini-omni-1.1-flash`. |
+| `veo-3.1-generate-preview` | `veo-3.1-fast-generate-preview`, `veo-3.1-lite-generate-preview` | `retired` | shutdown 2026-10-22 | image | video | — | — | not supported: the Veo previews shut down on 2026-10-22 and the replacement, gemini-omni-1.1-flash, is served by the Interactions API, which GAISe does not use (use vertexai::veo-3.1-generate-001) | predictLongRunning with polling; videos are kept for 2 days and downloads need the API key. Replacement `gemini-omni-1.1-flash`. |
 | `veo-3.0-*` | `veo-2.0-generate-001` | `retired` | shutdown 2026-06-30 | unknown | video | — | — | — | Veo 3.0 and Veo 2 were shut down on the Gemini API on 2026-06-30. Replacement `gemini-omni-1.1-flash`. |
 | `imagen-*` | — | `retired` | shutdown 2026-08-17 | unknown | image | — | — | — | imagen-4.0-generate-001, -ultra-generate-001, and -fast-generate-001 shut down on 2026-08-17; earlier Imagen 3 and Imagen 4 previews before… |
 | `gemini-3.5-live-translate-preview` | — | `preview` | — | audio | audio | — | — | not supported: speech-to-speech translation uses translationConfig on the Live API, which the live transport does not expose | Released June 2026; no shutdown date announced. |
 | `gemini-omni-1.1-flash` | — | `stable` | — | text, image, video | text | — | — | not supported: video generation is served by the Interactions API only | GA 2026-08-27; conversational video generation and editing (3-10 s clips up to 4K). Replaces gemini-omni-flash-preview. |
-| `gemini-omni-flash-preview` | — | `deprecated` | shutdown 2026-10-22 | unknown | unknown | — | — | — | Released 2026-06-30; deprecated 2026-08-27. Reported shut down 2026-09-30 at the last audit, but the deprecations table (2026-10-09) lists a… |
+| `gemini-omni-flash-preview` | — | `retired` | shutdown 2026-10-22 | unknown | unknown | — | — | — | Released 2026-06-30; deprecated 2026-08-27; shut down 2026-10-22 (the deprecations page greys the row). Replacement `gemini-omni-1.1-flash`. |
 | `gemini-2.5-pro` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | No shutdown date announced on the Gemini API deprecations page; the 2026-10 date circulating online is the Vertex AI retirement and must not… |
 | `gemini-2.5-flash` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | No shutdown date announced on the Gemini API deprecations page. Since 2026-09-18 access is limited to users who have used the 2.5 models bef… |
 | `gemini-2.5-flash-lite` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | Released 2025-07-22; thinking is off by default. No shutdown date announced. Since 2026-09-18 access is limited to users who have used the 2… |

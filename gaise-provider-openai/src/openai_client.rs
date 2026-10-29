@@ -294,6 +294,21 @@ pub fn openai_chat_rules(model: &str) -> OpenAIChatRules {
         // only at `none`, and function tools work only at `none`.
         return gpt5_rules(EFFORT_56, "medium", true);
     }
+    if base == "gpt-6.1-terra" || starts("gpt-6.1-terra-") {
+        // GPT-6.1 Terra (released 2026-10-26) shares the Astra tool routing
+        // (tool calling requires Responses) but documents `none` through
+        // `max` with `medium` as the default. Sampling at `none` is not
+        // documented, so it is never sent.
+        return OpenAIChatRules {
+            chat_supported: true,
+            reasoning: true,
+            effort_levels: EFFORT_56,
+            default_effort: Some("medium"),
+            sampling_requires_none: false,
+            sampling_never: true,
+            original_image_detail: true,
+        };
+    }
     if starts("gpt-6") {
         // GPT-6 Astra (released 2026-09-03) and GPT-6.1 Sol (2026-09-29).
         // Chat Completions is served, but
@@ -434,11 +449,12 @@ pub fn gpt6_follows_gpt56_rules(model: &str) -> bool {
     })
 }
 
-/// GPT-6 Astra and GPT-6.1 Sol are served by Chat Completions without function calling:
+/// GPT-6 Astra, GPT-6.1 Sol, and GPT-6.1 Terra are served by Chat Completions without function calling:
 /// "tool calling requires Responses" (latest-model guide, 2026-09-03), and
-/// unlike GPT-5.6 there is no `reasoning_effort: "none"` escape hatch because
-/// `none` itself returns 400. The instruct client sends tool-bearing requests
-/// for these models to the Responses API instead (see [`crate::responses`]).
+/// unlike GPT-5.6 there is no `reasoning_effort: "none"` escape hatch (Astra
+/// and 6.1 Sol reject `none`; Terra accepts it but still needs Responses for
+/// tools). The instruct client sends tool-bearing requests for these models
+/// to the Responses API instead (see [`crate::responses`]).
 pub fn chat_tools_require_responses(model: &str) -> bool {
     let m = model.to_ascii_lowercase();
     let m = m.strip_prefix("ft:").unwrap_or(&m);
@@ -945,7 +961,7 @@ impl GaiseClientOpenAI {
 #[async_trait]
 impl GaiseClient for GaiseClientOpenAI {
     /// Typed decisions through the Decisions API (`POST /v1/decisions`,
-    /// public beta, `gpt-6-luna`). See [`crate::decisions`] for the mapping.
+    /// generally available since 2026-10-22, `gpt-6-luna`). See [`crate::decisions`] for the mapping.
     async fn decision(
         &self,
         request: &GaiseDecisionRequest,

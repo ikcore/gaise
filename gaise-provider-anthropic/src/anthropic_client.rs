@@ -360,6 +360,33 @@ pub fn resolve_output_budget(
     (max_tokens, budget)
 }
 
+/// Claude API version `2026-10-21` (released 2026-10-21) returns 400 for
+/// `temperature`, `top_p`, or `top_k`, even at their default values. Dated
+/// versions compare as `YYYY-MM-DD`, so this is true for that version and any
+/// later one, and false for the client default `2023-06-01`.
+pub fn api_version_rejects_sampling(api_version: &str) -> bool {
+    let v = api_version.trim().as_bytes();
+    v.len() == 10
+        && v[4] == b'-'
+        && v[7] == b'-'
+        && v.iter()
+            .enumerate()
+            .all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit())
+        && v >= b"2026-10-21".as_slice()
+}
+
+/// Drop what the pinned `anthropic-version` rejects. Requests built with
+/// [`AnthropicRequest::from`] are version-agnostic; the client applies this
+/// with its own version, so callers who opt in through
+/// [`GaiseClientAnthropic::with_version`] keep working.
+pub fn strip_for_api_version(request: &mut AnthropicRequest, api_version: &str) {
+    if api_version_rejects_sampling(api_version) {
+        request.temperature = None;
+        request.top_p = None;
+        request.top_k = None;
+    }
+}
+
 fn anthropic_reasoning_config(
     model: &str,
     config: Option<&gaise_core::contracts::GaiseGenerationConfig>,
@@ -960,6 +987,7 @@ impl GaiseClient for GaiseClientAnthropic {
 
         let mut anthropic_request = AnthropicRequest::from(request);
         anthropic_request.stream = Some(true);
+        strip_for_api_version(&mut anthropic_request, &self.api_version);
 
         let response = self
             .client
@@ -1016,7 +1044,8 @@ impl GaiseClient for GaiseClientAnthropic {
     ) -> Result<GaiseInstructResponse, Box<dyn std::error::Error + Send + Sync>> {
         let url = format!("{}/messages", self.api_url);
 
-        let anthropic_request = AnthropicRequest::from(request);
+        let mut anthropic_request = AnthropicRequest::from(request);
+        strip_for_api_version(&mut anthropic_request, &self.api_version);
 
         let response = self
             .client

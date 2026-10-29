@@ -1113,6 +1113,61 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
             .classified()
             .unwrap();
         assert!(nano.features.iter().any(|f| f == "image_generation"));
+        // Audit 2026-10-29.
+        let status = |provider: &str, id: &str| registry.find(provider, id).unwrap().status.clone();
+        assert_eq!(find("openai", "gpt-6.1-terra"), "gpt-6.1-terra");
+        assert_eq!(find("openai", "gpt-5.4-nano-2026-03-17"), "gpt-5.4-nano");
+        for id in [
+            "o1-pro",
+            "o4-mini",
+            "gpt-4-0613",
+            "gpt-3.5-turbo",
+            "gpt-image-1",
+        ] {
+            assert_eq!(status("openai", id), "retired", "{id}");
+        }
+        assert_eq!(status("typesafe", "jev-1.14.0"), "active");
+        assert_eq!(
+            find("typesafe", "jev-1.13.0"),
+            "jev",
+            "the alias stays on the jev row"
+        );
+        assert_eq!(status("gemini", "veo-3.1-lite-generate-preview"), "retired");
+        assert_eq!(status("gemini", "gemini-omni-flash-preview"), "retired");
+        assert_eq!(
+            find("vertexai", "gemini-3.8-flash-tts"),
+            "gemini-3.8-flash-tts"
+        );
+        assert_eq!(
+            find("vertexai", "gemini-3.8-flash-lite-tts"),
+            "gemini-3.8-flash-lite-tts"
+        );
+        assert_eq!(
+            find("bedrock", "us.openai.gpt-6.1-terra"),
+            "openai.gpt-6.1-terra"
+        );
+        assert_eq!(
+            find("bedrock", "amazon.nova-2-5-sonic"),
+            "amazon.nova-2-5-sonic",
+            "not the amazon.nova-* family row"
+        );
+        assert_eq!(
+            status("bedrock", "anthropic.claude-sonnet-4-20250514-v1:0"),
+            "retired"
+        );
+        for (id, family) in [
+            ("flint:40b", "flint:*"),
+            ("lfm3:1.7b", "lfm3:*"),
+            ("lfm3-vl:latest", "lfm3-vl:*"),
+            ("bonsai-2:27b", "bonsai-2:*"),
+            ("beam:cloud", "beam:*"),
+            ("minimax-m3.1-flash:cloud", "minimax-m3.1-flash:*"),
+            ("d3:9b", "d3:*"),
+            ("d1-omni:2b", "d1-omni:*"),
+            ("d1:2b", "d1:*"),
+        ] {
+            assert_eq!(find("ollama", id), family, "{id}");
+        }
         // xAI, added 2026-10-17.
         assert_eq!(find("xai", "grok-4.7"), "grok-4.7");
         assert_eq!(find("xai", "grok-4.6"), "grok-4.6");

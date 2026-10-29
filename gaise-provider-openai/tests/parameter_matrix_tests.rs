@@ -10,7 +10,8 @@ use gaise_core::contracts::{
 };
 use gaise_provider_openai::contracts::models::OpenAIChatRequest;
 use gaise_provider_openai::openai_client::{
-    chat_tools_require_responses, normalize_chat_effort, openai_chat_rules,
+    chat_tools_require_responses, gpt6_follows_gpt56_rules, normalize_chat_effort,
+    openai_chat_rules,
 };
 
 fn approx(value: &serde_json::Value, expected: f64) -> bool {
@@ -373,6 +374,40 @@ fn gpt6_1_sol_shares_the_astra_profile() {
     assert_eq!(json["reasoning_effort"], "low");
     assert!(json.get("temperature").is_none());
     assert!(chat_tools_require_responses("gpt-6.1-sol"));
+}
+
+#[test]
+fn gpt6_1_terra_keeps_astra_tool_routing_but_accepts_none() {
+    // Model page and changelog (2026-10-26): "`reasoning.effort` supports
+    // `none`, `low`, `medium` (default), `high`, `xhigh`, and `max`" and
+    // "Tool calling requires the Responses API".
+    let rules = openai_chat_rules("gpt-6.1-terra");
+    assert_eq!(
+        rules.effort_levels,
+        &["none", "low", "medium", "high", "xhigh", "max"]
+    );
+    assert_eq!(rules.default_effort, Some("medium"));
+    assert_eq!(openai_chat_rules("gpt-6.1-terra-2026-10-26"), rules);
+    assert_eq!(openai_chat_rules("ft:gpt-6.1-terra:acme::abc"), rules);
+
+    let json = build("gpt-6.1-terra", sink(Some("none")), false);
+    assert_eq!(json["reasoning_effort"], "none", "none is not clamped");
+    assert!(
+        json.get("temperature").is_none(),
+        "sampling at none is undocumented"
+    );
+    assert!(json.get("top_p").is_none());
+    assert_eq!(image_detail(&json), "original");
+    let json = build("gpt-6.1-terra", sink(Some("max")), false);
+    assert_eq!(json["reasoning_effort"], "max");
+
+    assert!(chat_tools_require_responses("gpt-6.1-terra"));
+    assert!(!gpt6_follows_gpt56_rules("gpt-6.1-terra"));
+    // GPT-6.1 Sol and GPT-6 Astra keep their profile.
+    assert_eq!(
+        openai_chat_rules("gpt-6.1-sol"),
+        openai_chat_rules("gpt-6-astra")
+    );
 }
 
 #[test]

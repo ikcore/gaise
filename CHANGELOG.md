@@ -8,6 +8,56 @@ change, or an additive adapter feature is a minor release; a change to a public
 contract (removed or renamed items, new required fields, changed serialization)
 is a major release.
 
+## [5.6.0] - 2026-10-29
+
+Model audit of every provider, xAI included. All changes are additive. No
+model id was removed, and requests for existing ids are unchanged at the
+default API versions.
+
+### Added
+- OpenAI `gpt-6.1-terra` (released 2026-10-26): its own family rule in
+  `openai_chat_rules`. `reasoning_effort` accepts `none` through `max`
+  (default `medium`), sampling is never sent, and tool conversations go to
+  the Responses API like GPT-6 Astra and GPT-6.1 Sol. Also on Bedrock as
+  `openai.gpt-6.1-terra` (`us.` and `global.` profiles).
+- `gaise_provider_anthropic::anthropic_client::api_version_rejects_sampling`
+  and `strip_for_api_version`. Claude API version `2026-10-21` returns 400
+  for `temperature`, `top_p`, or `top_k`, even at their default values. A
+  client pinned to that version or a later one with `with_version` now omits
+  them. The default `2023-06-01` request is unchanged.
+- Vertex AI `gemini-3.8-flash-tts` and `gemini-3.8-flash-lite-tts` (GA
+  2026-10-26). Both are catalogued only; text-to-speech is outside the
+  adapter.
+- Bedrock `amazon.nova-2-5-sonic` (InvokeModelWithBidirectionalStream only).
+  It now gets its own limits instead of the `amazon.nova-*` family row.
+- Ollama families:
+  - chat: `flint`, `lfm3`, `lfm3-vl`, `bonsai-2`, and the cloud-only `beam`
+    and `minimax-m3.1-flash`;
+  - decision: `d3` and `d1-omni`.
+- Alias `gpt-5.4-nano-2026-03-17` for `gpt-5.4-nano`.
+
+### Changed
+- TypeSafe `jev-latest` now points to Jev 1.14, so `typesafe::jev` is served
+  by Jev 1.14. `jev-1.14.0` is `active` (was `preview`). `jev-1.13.0` still
+  resolves and still selects Jev 1.13 upstream.
+- Bedrock `xai.grok-4.7`: 524,288-token context shared by input and output,
+  and client-side tools, per the current card.
+- OpenAI Decisions API notes and docs: generally available since 2026-10-22.
+- Notes refreshed:
+  - Bedrock: Claude 3 Haiku regional Legacy rows now end 2026-11-13;
+    TwelveLabs Marengo 3.0 is Legacy in ap-northeast-2.
+  - Ollama: `d1:2b` and the Nemotron 3.5 Bolt e4b size.
+  - Every re-audited provider has a dated audit note.
+
+### Deprecated
+- Retired after their vendor shutdown dates:
+  - OpenAI, shut down 2026-10-23: `o1` (with `o1-pro`), `o3-mini`, `o4-mini`,
+    `gpt-4o-2024-05-13`, `gpt-4-turbo`, `gpt-4` (with `gpt-4-0613` and
+    `gpt-4-1106-preview`), `gpt-3.5-turbo`, `gpt-4.1-nano`, and `gpt-image-1`.
+  - Gemini API, shut down 2026-10-22: `veo-3.1-generate-preview` (with its
+    fast and lite aliases) and `gemini-omni-flash-preview`.
+  - Bedrock, AWS EOL 2026-10-14: `anthropic.claude-sonnet-4-20250514-v1:0`.
+
 ## [5.5.1] - 2026-10-17
 
 ### Fixed
@@ -380,6 +430,7 @@ request rules in advance.
   ElevenLabs speech, standardized embeddings, the model limits matrix
   (`/v1/models/limits`), and the wiki.
 
+[5.6.0]: https://github.com/ikcore/gaise/pull/24
 [5.5.1]: https://github.com/ikcore/gaise/pull/23
 [5.5.0]: https://github.com/ikcore/gaise/pull/22
 [5.0.0]: https://github.com/ikcore/gaise/pull/21

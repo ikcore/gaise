@@ -1,4 +1,4 @@
-//! Decisions API (`POST /v1/decisions`, public beta since 2026-10-06) mapping
+//! Decisions API (`POST /v1/decisions`, beta from 2026-10-06, GA since 2026-10-22) mapping
 //! for [`GaiseClient::decision`](gaise_core::GaiseClient::decision).
 //!
 //! Sources (audited 2026-10-09): https://developers.openai.com/api/docs/guides/decisions
