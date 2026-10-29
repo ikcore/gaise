@@ -430,6 +430,7 @@ request rules in advance.
   ElevenLabs speech, standardized embeddings, the model limits matrix
   (`/v1/models/limits`), and the wiki.
 
+[5.6.0]: https://github.com/ikcore/gaise/pull/24
 [5.5.1]: https://github.com/ikcore/gaise/pull/23
 [5.5.0]: https://github.com/ikcore/gaise/pull/22
 [5.0.0]: https://github.com/ikcore/gaise/pull/21
