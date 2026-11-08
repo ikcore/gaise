@@ -8,6 +8,59 @@ change, or an additive adapter feature is a minor release; a change to a public
 contract (removed or renamed items, new required fields, changed serialization)
 is a major release.
 
+## [5.7.0] - 2026-11-08
+
+Model audit of every provider, xAI included. All changes are additive. No
+model id or alias was removed, and requests for registered ids are unchanged.
+
+### Added
+- Gemini API and Vertex AI `gemini-robotics-er-2-preview` (and, on the Gemini
+  API, `gemini-robotics-er-2-streaming-preview`). Both thinking pages now list
+  `thinkingLevel` MINIMAL, LOW, MEDIUM, HIGH (default HIGH). The Gemini and
+  Vertex adapters send `thinkingLevel` for any `gemini-robotics-er-2*` id and
+  omit sampling, as for the Gemini 3.x family the model is built on. Before
+  this release the id carried no version number and fell to the 2.5
+  `thinkingBudget` path.
+- Gemini API and Vertex AI `gemini-omni-1.2-flash` (GA 2026-11-05). It is
+  catalogued only; it is served by the Interactions API.
+- OpenAI `gpt-image-2.6-sunburst` and `gpt-image-2.6-flare` (2026-11-04),
+  driven by `generate_images`. Their new `complexity`, SVG and GIF output,
+  and markup edits are not mapped.
+- OpenAI `gpt-6-cyber` (2026-11-05) and `gpt-6-rosalind` (2026-10-30) as
+  `limited_availability` rows. `gpt-6-cyber` keeps failing fast in the
+  instruct client, like every cyber id: it needs Daybreak Red approval and
+  the `access_programs` field, which GAISe does not send.
+- OpenAI `gpt-5.5-cyber-preview` (deprecated 2026-11-05, removal 2027-02-01).
+- Bedrock `moonshotai.kimi-k3.1` (Kimi K3.1 Pro - Highspeed, launched
+  2026-11-04; `us.`, `in.`, and `global.` profiles).
+- ElevenLabs `eleven_text_to_sound_v3` (SFX v3), catalogued only.
+- Ollama families: chat `mimo-v2.6` and the cloud-only `kimi-k3.1-pro`;
+  decision `autotrust-jev` and `pplx-decider-flash`. None of them matches its
+  predecessor's glob.
+- Aliases: `gpt-image-1.5-2025-12-16` for `gpt-image-1.5`, and three xAI
+  `grok-4.20-multi-agent` beta aliases from the models catalog.
+
+### Changed
+- Gemini API `gemini-2.5-pro` and `gemini-2.5-flash` are deprecated
+  (2026-11-02). From 2026-12-01 requests route to `gemini-3.8-flash` and
+  `gemini-3.5-flash-lite`. `gemini-2.5-flash-lite` is not deprecated. The
+  adapter still sends `thinkingBudget` and sampling for these ids.
+- Gemini API `gemini-omni-1.1-flash` is deprecated and routes to
+  `gemini-omni-1.2-flash` from 2026-12-03. Omni 1.2 Flash is now the
+  replacement on the Veo rows.
+- Vertex AI `veo-3.1-generate-001` and `veo-3.1-fast-generate-001`: retirement
+  moved from 2026-11-17 to 2027-05-04 or later (replacement
+  `gemini-omni-1.2-flash`). `gemini-omni-flash-preview` and
+  `gemini-omni-1.1-flash-preview` are deprecated. The unpublished
+  2027-06-30 date on `gemini-omni-flash-preview` was dropped.
+- xAI `grok-imagine-image-quality` is retired (2026-11-02). The slug still
+  resolves and is served by `grok-imagine-image-2.0` at low quality.
+- ElevenLabs `eleven_text_to_sound_v2` is deprecated (removal 2027-03-01),
+  and `music_v1` now has a removal date (2027-01-31).
+- OpenAI `gpt-image-1.5`: the replacement is now the GPT Image 2.6 models.
+- Notes: Claude Opus 4.8 fast mode deprecation, Bedrock Claude 3 Haiku
+  regional dates, and a dated 2026-11-08 sentence for every provider.
+
 ## [5.6.0] - 2026-10-29
 
 Model audit of every provider, xAI included. All changes are additive. No
@@ -430,6 +483,7 @@ request rules in advance.
   ElevenLabs speech, standardized embeddings, the model limits matrix
   (`/v1/models/limits`), and the wiki.
 
+[5.7.0]: https://github.com/ikcore/gaise/pull/25
 [5.6.0]: https://github.com/ikcore/gaise/pull/24
 [5.5.1]: https://github.com/ikcore/gaise/pull/23
 [5.5.0]: https://github.com/ikcore/gaise/pull/22

@@ -1168,6 +1168,85 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
         ] {
             assert_eq!(find("ollama", id), family, "{id}");
         }
+        // Audit 2026-11-08.
+        assert_eq!(find("openai", "gpt-6-cyber"), "gpt-6-cyber");
+        assert_eq!(
+            find("openai", "gpt-5.5-cyber-preview"),
+            "gpt-5.5-cyber-preview"
+        );
+        assert_eq!(status("openai", "gpt-5.5-cyber-preview"), "deprecated");
+        assert_eq!(find("openai", "gpt-6-rosalind"), "gpt-6-rosalind");
+        assert_eq!(
+            find("openai", "gpt-image-2.6-sunburst"),
+            "gpt-image-2.6-sunburst"
+        );
+        assert_eq!(find("openai", "gpt-image-2.6-flare"), "gpt-image-2.6-flare");
+        assert_eq!(find("openai", "gpt-image-1.5-2025-12-16"), "gpt-image-1.5");
+        assert_eq!(status("gemini", "gemini-2.5-pro"), "deprecated");
+        assert_eq!(status("gemini", "gemini-2.5-flash"), "deprecated");
+        assert_eq!(status("gemini", "gemini-2.5-flash-lite"), "stable");
+        assert_eq!(status("gemini", "gemini-omni-1.1-flash"), "deprecated");
+        assert_eq!(
+            find("gemini", "gemini-omni-1.2-flash"),
+            "gemini-omni-1.2-flash"
+        );
+        assert_eq!(
+            find("gemini", "gemini-robotics-er-2-preview"),
+            "gemini-robotics-er-2-preview"
+        );
+        assert_eq!(
+            find("gemini", "gemini-robotics-er-2-streaming-preview"),
+            "gemini-robotics-er-2-streaming-preview"
+        );
+        assert_eq!(
+            find("vertexai", "gemini-omni-1.2-flash"),
+            "gemini-omni-1.2-flash"
+        );
+        assert_eq!(
+            find("vertexai", "gemini-robotics-er-2-preview"),
+            "gemini-robotics-er-2-preview"
+        );
+        assert_eq!(
+            status("vertexai", "gemini-omni-flash-preview"),
+            "deprecated"
+        );
+        assert_eq!(
+            registry
+                .find("vertexai", "veo-3.1-generate-001")
+                .unwrap()
+                .retirement_not_before
+                .as_deref(),
+            Some("2027-05-04")
+        );
+        assert_eq!(
+            find("bedrock", "global.moonshotai.kimi-k3.1"),
+            "moonshotai.kimi-k3.1",
+            "not the moonshotai.kimi-k3 row"
+        );
+        assert_eq!(find("bedrock", "moonshotai.kimi-k3"), "moonshotai.kimi-k3");
+        assert_eq!(
+            find("elevenlabs", "eleven_text_to_sound_v3"),
+            "eleven_text_to_sound_v3"
+        );
+        assert_eq!(
+            status("elevenlabs", "eleven_text_to_sound_v2"),
+            "deprecated"
+        );
+        for (id, family) in [
+            ("mimo-v2.6:9b", "mimo-v2.6:*"),
+            ("kimi-k3.1-pro:cloud", "kimi-k3.1-pro:*"),
+            ("kimi-k3:cloud", "kimi-k3:*"),
+            ("autotrust-jev:35b", "autotrust-jev:*"),
+            ("pplx-decider-flash:4b", "pplx-decider-flash:*"),
+            ("pplx-decider:27b", "pplx-decider:*"),
+        ] {
+            assert_eq!(find("ollama", id), family, "{id}");
+        }
+        assert_eq!(status("xai", "grok-imagine-image-quality"), "retired");
+        assert_eq!(
+            find("xai", "grok-4.20-multi-agent-experimental-beta-latest"),
+            "grok-4.20-multi-agent-0309"
+        );
         // xAI, added 2026-10-17.
         assert_eq!(find("xai", "grok-4.7"), "grok-4.7");
         assert_eq!(find("xai", "grok-4.6"), "grok-4.6");

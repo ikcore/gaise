@@ -264,7 +264,10 @@ pub fn openai_chat_rules(model: &str) -> OpenAIChatRules {
 
     // `-pro` variants, `gpt-5.6-cyber`, and the Daybreak program models
     // (`gpt-daybreak-red-latest`, `gpt-daybreak-blue-latest`) are served by
-    // the Responses API only.
+    // the Responses API only. `gpt-6-cyber` (2026-11-05) lists Chat
+    // Completions, but it requires Daybreak Red approval and the
+    // `access_programs` request field, which GAISe does not send, so every
+    // cyber id keeps failing fast.
     if has("-pro") && (starts("gpt-5") || starts("gpt-6") || starts("o1") || starts("o3"))
         || has("cyber")
         || has("daybreak")

@@ -307,6 +307,11 @@ fn responses_only_models_are_identified() {
         "gpt-5-pro-2025-10-06",
         "o3-pro",
         "gpt-5.6-cyber",
+        "gpt-5.5-cyber-preview",
+        // GPT-6-Cyber (2026-11-05) lists Chat Completions, but it needs
+        // Daybreak Red approval and the `access_programs` field GAISe does
+        // not send, so it stays unreachable like the other cyber models.
+        "gpt-6-cyber",
         "daybreak-red-latest",
         "gpt-daybreak-red-latest",
         "gpt-daybreak-blue-latest",
