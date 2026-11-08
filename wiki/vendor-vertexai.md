@@ -125,7 +125,7 @@ Not mapped: `safetySettings`, `responseMimeType`/`responseSchema` (structured ou
 
 No other model-name rules exist; arbitrary IDs (including `publishers/anthropic` Claude models via the template) are passed through.
 
-### Parameter compatibility (audited 2026-10-29)
+### Parameter compatibility (audited 2026-11-08)
 
 [`model_uses_fixed_sampling`](../gaise-provider-vertexai/src/contracts/models.rs), [`thinking_levels_for`](../gaise-provider-vertexai/src/contracts/models.rs), [`normalize_thinking_level`](../gaise-provider-vertexai/src/contracts/models.rs), and [`thinking_budget_for`](../gaise-provider-vertexai/src/contracts/models.rs) enforce the table; [`tests/parameter_matrix_tests.rs`](../gaise-provider-vertexai/tests/parameter_matrix_tests.rs) pins it.
 
@@ -135,6 +135,7 @@ No other model-name rules exist; arbitrary IDs (including `publishers/anthropic`
 | Gemini 4 and later (`gemini-<major>` with major ≥ 4; Gemini 4 Argon GA 2026-10-13) | never sent | `thinkingLevel` | LOW, MEDIUM, HIGH (`minimal` → LOW) | → LOW |
 | Gemini 3.6, 3.5, 3.5-Lite, 3.1-Lite, 3 Flash preview (deprecated on Vertex, no date) | never sent | `thinkingLevel` | MINIMAL, LOW, MEDIUM, HIGH | → MINIMAL |
 | Nano Banana 2.1 (`gemini-nano-banana-*`, 2026-10-06) | never sent (Vertex: seed, temperature, topP, topK, and logprobs return an error) | `thinkingLevel` | MINIMAL, MEDIUM, HIGH (LOW → MEDIUM) | → MINIMAL |
+| Gemini Robotics ER 2 (`gemini-robotics-er-2-*`, preview; levels documented 2026-11-08) | never sent (sampling rules unpublished; built on 3.5 Flash) | `thinkingLevel` | MINIMAL, LOW, MEDIUM, HIGH (default HIGH) | → MINIMAL |
 | 3.1 Flash Image, 3.1 Flash-Lite Image | never sent | `thinkingLevel` | MINIMAL, HIGH (LOW → MINIMAL, MEDIUM → HIGH) | → MINIMAL |
 | 3 Pro Image | never sent | `thinkingLevel` | HIGH only | → HIGH |
 | Gemini 2.5 Pro | accepted | `thinkingBudget` | 128–32,768 (cannot disable: 0 → 128) | → 128 |
@@ -277,7 +278,7 @@ Tests: [`catalog.rs#L150`](../gaise-provider-vertexai/src/contracts/catalog.rs#L
 
 ## Models
 
-From `model-registry.toml` (audited 2026-10-29), `provider = "vertexai"` entries. Dates are Google Cloud dates only; Gemini API (`gemini`) lifecycle dates must never be copied here or vice versa. "Short-term" models retire 45 days after a designated replacement ships.
+From `model-registry.toml` (audited 2026-11-08), `provider = "vertexai"` entries. Dates are Google Cloud dates only; Gemini API (`gemini`) lifecycle dates must never be copied here or vice versa. "Short-term" models retire 45 days after a designated replacement ships.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
@@ -306,13 +307,15 @@ From `model-registry.toml` (audited 2026-10-29), `provider = "vertexai"` entries
 | `gemini-live-2.5-flash-native-audio` | — | `active` | shutdown 2026-12-13 | text, image, audio, video | text, audio | — | — | not supported: the Vertex AI adapter has no Live transport | GA 2025-12-12. Documented as a 128K context window and 64K output. Still the only GA Live model on Vertex; gemini-3.1-flash-live-preview is… |
 | `gemini-3.5-transcribe-preview` | `gemini-3.5-transcribe-live-preview` | `preview` | — | text, audio | text | transcription | — | transcribe: generateContent with audioTranscriptionConfig | Preview since August 2026, global region only; ids differ from the Gemini API GA ids (gemini-3.5-transcribe, gemini-3.5-transcribe-live). Au… |
 | `gemini-3.5-transcribe` | `gemini-3.5-transcribe-live` | `active` | — | text, audio | text | transcription | — | transcribe: generateContent with audioTranscriptionConfig (languageCodes, customVocabulary, wordTimestamp, diarization, VERBATIM or SMART); the -live variant is not driven | Dedicated speech-to-text model, supported in the global, us, and eu locations per the Agent Platform model card (checked 2026-10-17). Files… |
-| `veo-3.1-generate-001` | — | `active` | not before 2026-11-17 | image, video | video | video_generation | — | start_video / get_video: predictLongRunning and fetchPredictOperation (first and last frame, up to 3 asset references, extension, sampleCount 1-4, storageUri gs:// optional) | Veo 3.1, GA 2025-11-17 in us-central1; retirement November 17, 2026 or later. Without storageUri the video bytes come back in the operation… |
-| `veo-3.1-fast-generate-001` | — | `active` | not before 2026-11-17 | image, video | video | video_generation | — | start_video / get_video: predictLongRunning and fetchPredictOperation | Veo 3.1 Fast, GA 2025-11-17 in us-central1; retirement November 17, 2026 or later. |
+| `veo-3.1-generate-001` | — | `active` | not before 2027-05-04 | image, video | video | video_generation | — | start_video / get_video: predictLongRunning and fetchPredictOperation (first and last frame, up to 3 asset references, extension, sampleCount 1-4, storageUri gs:// optional) | Veo 3.1, GA 2025-11-17 in us-central1; the model-versions page moved retirement from November 17, 2026 to May 4, 2027 or later by 2026-11-08… |
+| `veo-3.1-fast-generate-001` | — | `active` | not before 2027-05-04 | image, video | video | video_generation | — | start_video / get_video: predictLongRunning and fetchPredictOperation | Veo 3.1 Fast, GA 2025-11-17 in us-central1; retirement moved from November 17, 2026 to May 4, 2027 or later by 2026-11-08 (replacement gemin… |
 | `veo-3.1-lite-generate-001` | — | `preview` | — | image | video | video_generation | — | start_video / get_video: predictLongRunning and fetchPredictOperation | Veo 3.1 Lite, preview since 2026-04-02; no extension or reference images. |
 | `veo-3.0-*` | — | `retired` | shutdown 2026-06-30 | unknown | video | — | — | — | Veo 3.0 endpoints were retired on 2026-06-30. Replacement `veo-3.1-generate-001`. |
 | `imagen-*` | `imagegeneration@*` | `retired` | shutdown 2026-06-30 | unknown | image | — | — | — | Every imagegeneration@00x, imagen-3.0-*, and imagen-4.0-* endpoint is listed as discontinued (migrate before 2026-06-30); the Agent Platform… |
-| `gemini-omni-1.1-flash-preview` | — | `preview` | — | text, image, video | text | — | — | not supported: video generation has no GAISe surface | Preview since 2026-08-27 (the Gemini API serves gemini-omni-1.1-flash as GA); fixed quota only. |
-| `gemini-omni-flash-preview` | — | `preview` | shutdown 2027-06-30 | text, image, video | text | — | — | not supported: video generation has no GAISe surface | Preview on Vertex since 2026-06-30 with a Vertex retirement date of 2027-06-30 (the Gemini API shuts the same id down on 2026-09-30; the dat… |
+| `gemini-omni-1.1-flash-preview` | — | `deprecated` | — | text, image, video | text | — | — | not supported: video generation has no GAISe surface | Preview since 2026-08-27 (the Gemini API serves gemini-omni-1.1-flash as GA); fixed quota only. Deprecated by 2026-11-08 (migrate to gemini-… |
+| `gemini-omni-1.2-flash` | — | `active` | not before 2027-11-05 | text, image, video | text | — | — | not supported: served by the Interactions API only (GenerateContent not supported) | GA 2026-11-05 (12-month table, retirement November 5, 2027 or later). Video generation and editing with seed, upscaling (task upscale), and… |
+| `gemini-robotics-er-2-preview` | — | `preview` | — | text, image, audio, video | text | instruct, instruct_stream | `minimal`, `low`, `medium`, `high` | native (thinkingLevel MINIMAL..HIGH, sampling omitted); global endpoint only | Preview since 2026-10-27, built on Gemini 3.5 Flash; global endpoint only. Thinking levels MINIMAL, LOW, MEDIUM, HIGH (default HIGH) per the… |
+| `gemini-omni-flash-preview` | — | `deprecated` | — | text, image, video | text | — | — | not supported: video generation has no GAISe surface | Preview on Vertex since 2026-06-30; deprecated on 2026-11-06 (migrate to gemini-omni-1.2-flash). The model page gives no retirement date, so… |
 | `gemini-3.5-live-translate-preview` | — | `preview` | — | audio | audio | — | — | not supported: speech-to-speech translation uses translationConfig on the Live API, and the Vertex AI adapter has no Live transport | Preview since 2026-08, global region only. Text transcript output; no thinking, tools, or system instructions. No retirement date announced. |
 | `gemini-2.5-pro` | — | `deprecated` | shutdown 2026-10-20 | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | Replacement `gemini-3.8-flash or gemini-3.5-flash`. |
 | `gemini-2.5-flash` | — | `deprecated` | shutdown 2026-10-20 | text, image, audio, video, file | text | instruct, instruct_stream | supported | native (thinkingBudget mapper path) | Replacement `gemini-3.8-flash or gemini-3.5-flash-lite or gemini-3.1-flash-lite`. |

@@ -331,3 +331,33 @@ fn gemini_4_argon_maps_a_token_budget_to_a_level() {
         assert!(cfg.temperature.is_none(), "{model}");
     }
 }
+
+#[test]
+fn gemini_robotics_er_2_uses_thinking_level_with_minimal_and_no_sampling() {
+    // Gemini Robotics ER 2 (preview; thinking pages audited 2026-11-08)
+    // accepts thinkingLevel MINIMAL, LOW, MEDIUM, HIGH. The id has no version
+    // number, so without its own rule it fell to the 2.5 budget path.
+    for model in [
+        "gemini-robotics-er-2-preview",
+        "gemini-robotics-er-2-streaming-preview",
+    ] {
+        let cfg = build(model, sink(Some("minimal"), None));
+        assert!(
+            cfg.temperature.is_none() && cfg.top_p.is_none() && cfg.top_k.is_none(),
+            "{model}"
+        );
+        let thinking = cfg.thinking_config.expect("thinking config");
+        assert_eq!(
+            thinking.thinking_level.as_deref(),
+            Some("MINIMAL"),
+            "{model}"
+        );
+        assert!(thinking.thinking_budget.is_none(), "{model}");
+
+        let cfg = build(model, sink(None, Some(30_000)));
+        let thinking = cfg.thinking_config.expect("thinking config");
+        assert!(thinking.thinking_budget.is_none(), "{model}");
+        assert_eq!(thinking.thinking_level.as_deref(), Some("HIGH"), "{model}");
+    }
+    assert_eq!(gemini_major_version("gemini-robotics-er-2-preview"), None);
+}

@@ -87,11 +87,28 @@ pub struct GaiseClientGemini {
 /// `thinkingLevel`, 2.5 uses `thinkingBudget`; sampling parameters are
 /// deprecated (ignored or rejected) on every Gemini 3.x model.
 pub fn model_uses_thinking_level(model: &str) -> bool {
-    gemini_major_version(model).is_some_and(|major| major >= 3) || is_nano_banana(model)
+    gemini_major_version(model).is_some_and(|major| major >= 3)
+        || is_nano_banana(model)
+        || is_robotics_er_2(model)
 }
 
 pub fn model_uses_fixed_sampling(model: &str) -> bool {
-    gemini_major_version(model).is_some_and(|major| major >= 3) || is_nano_banana(model)
+    gemini_major_version(model).is_some_and(|major| major >= 3)
+        || is_nano_banana(model)
+        || is_robotics_er_2(model)
+}
+
+/// `gemini-robotics-er-2-preview` and `gemini-robotics-er-2-streaming-preview`
+/// (preview; Gemini API 2026-07-30, Vertex AI 2026-10-27) are built on
+/// Gemini 3.5 Flash but carry no version number. The Gemini API and Vertex
+/// thinking pages (audited 2026-11-08) list thinkingLevel MINIMAL, LOW,
+/// MEDIUM, HIGH (default HIGH). Sampling rules are not published; the
+/// adapters treat it like the Gemini 3.x family it is built on and omit
+/// sampling.
+fn is_robotics_er_2(model: &str) -> bool {
+    model
+        .to_ascii_lowercase()
+        .starts_with("gemini-robotics-er-2")
 }
 
 /// `gemini-nano-banana-2.1` (GA 2026-10-06) is a Gemini 3-generation image
