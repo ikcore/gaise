@@ -123,8 +123,11 @@ fn is_nano_banana(model: &str) -> bool {
 ///
 /// Gemini 4 gets the Gemini 3 controls (`thinkingLevel`, no sampling) rather
 /// than the Gemini 2.5 `thinkingBudget` path. Gemini 4 Argon (GA 2026-10-13)
-/// documents exactly that: levels LOW / MEDIUM / HIGH (MINIMAL and
-/// `thinkingBudget` are rejected) and sampling parameters ignored.
+/// and Carbon (GA 2026-11-10) document exactly that: levels LOW / MEDIUM /
+/// HIGH, MINIMAL rejected, sampling parameters ignored. `thinkingBudget`
+/// returns 400 on Vertex AI and is deprecated on the Gemini API (mapped to
+/// the nearest level with a warning), so the adapters never send it.
+/// Gemini 4 Hydrogen (GA 2026-11-12) also accepts XHIGH.
 pub fn gemini_major_version(model: &str) -> Option<u32> {
     let m = model.to_ascii_lowercase();
     let rest = m.strip_prefix("gemini-")?;
@@ -142,6 +145,14 @@ const LEVELS_NO_MINIMAL: &[&str] = &["LOW", "MEDIUM", "HIGH"];
 const LEVELS_IMAGE: &[&str] = &["MINIMAL", "HIGH"];
 const LEVELS_NO_LOW: &[&str] = &["MINIMAL", "MEDIUM", "HIGH"];
 const LEVELS_HIGH_ONLY: &[&str] = &["HIGH"];
+const LEVELS_WITH_XHIGH: &[&str] = &["LOW", "MEDIUM", "HIGH", "XHIGH"];
+
+/// Gemini 4 Hydrogen (GA 2026-11-12) adds a fourth level: the Gemini API and
+/// Vertex AI thinking pages list LOW, MEDIUM, HIGH, XHIGH (default HIGH) and
+/// reject MINIMAL. The other Gemini 4 models (Argon, Carbon) stop at HIGH.
+fn is_gemini_4_hydrogen(model: &str) -> bool {
+    model.to_ascii_lowercase().starts_with("gemini-4-hydrogen")
+}
 
 /// Gemini 3.7 Flash (2026-08-13) and 3.8 Flash (2026-09-02) both reject
 /// `MINIMAL`; treat every `gemini-3.<minor>` with minor >= 7 the same way so a
@@ -168,6 +179,8 @@ pub fn thinking_levels_for(model: &str) -> &'static [&'static str] {
         LEVELS_NO_LOW
     } else if m.contains("-image") {
         LEVELS_IMAGE
+    } else if is_gemini_4_hydrogen(&m) {
+        LEVELS_WITH_XHIGH
     } else if gemini_3_minor_without_minimal(&m)
         || gemini_major_version(&m).is_some_and(|major| major >= 4)
         || m.contains("gemini-3.1-pro")
@@ -182,7 +195,8 @@ pub fn thinking_levels_for(model: &str) -> &'static [&'static str] {
 /// Resolve a provider-neutral effort onto the family's `thinkingLevel` set
 /// through the canonical vocabulary ([`GaiseReasoningEffort`]). Thinking
 /// cannot be disabled on Gemini 3.x, so `none` becomes the lowest level;
-/// `xhigh`/`max`/`ultra` become the highest; `auto` returns `None` (the
+/// `xhigh`/`max`/`ultra` become the highest (XHIGH on Gemini 4 Hydrogen,
+/// HIGH elsewhere); `auto` returns `None` (the
 /// thinking block is sent without a level so the model picks); custom
 /// strings are forwarded upper-cased.
 pub fn normalize_thinking_level(model: &str, effort: &str) -> Option<String> {

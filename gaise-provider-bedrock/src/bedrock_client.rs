@@ -410,7 +410,8 @@ impl GaiseClientBedrock {
     /// Claude-on-Bedrock family rules (same constraints as the direct Claude
     /// API, audited 2026-09-04; see `wiki/vendor-bedrock.md#model-family-rules`).
     /// Substring matching gives `anthropic.claude-fable-5-1` and
-    /// `anthropic.claude-mythos-5-1` (2026-09-01) the always-on Fable 5 profile.
+    /// `anthropic.claude-mythos-5-1` (2026-09-01), and the 5.2 pair launched
+    /// on Bedrock on 2026-11-09, the always-on Fable 5 profile.
     /// Returns `(adaptive_only, adaptive, always_on, effort_levels, fixed_sampling)`.
     fn claude_rules(model: &str) -> Option<(bool, bool, bool, &'static [&'static str], bool)> {
         const FIVE: &[&str] = &["low", "medium", "high", "xhigh", "max"];
@@ -1853,6 +1854,9 @@ mod tests {
         for (model, always_on) in [
             ("global.anthropic.claude-opus-5-5", true),
             ("global.anthropic.claude-sonnet-5-5", true),
+            // Fable 5.2 / Mythos 5.2 (2026-11-09): always-on, like Fable 5.1.
+            ("global.anthropic.claude-fable-5-2", true),
+            ("us.anthropic.claude-mythos-5-2", true),
             ("us.anthropic.claude-opus-5", false),
             ("us.anthropic.claude-sonnet-5", false),
             // Haiku 5.5 (2026-10-07) can turn thinking off, like Opus 5.

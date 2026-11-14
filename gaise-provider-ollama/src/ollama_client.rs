@@ -239,6 +239,8 @@ pub fn ollama_embed_request(
 ///   reasoning is always on, so a boolean loses the effort.
 /// - Granite 4.2 (2026-08) documents `reasoning_effort` `low` / `high`
 ///   (default `high`) and `"think": "high"` over REST.
+/// - Inkling 2 Small (cloud tag, 2026-11-12): `/api/show` on ollama.com
+///   reports `false`, `low`, `medium`, `high`, `max` (default `high`).
 pub fn ollama_think_levels(model: &str) -> Option<&'static [&'static str]> {
     let m = model.to_ascii_lowercase();
     if m.contains("gpt-oss") {
@@ -247,6 +249,8 @@ pub fn ollama_think_levels(model: &str) -> Option<&'static [&'static str]> {
         Some(&["low", "high", "max"])
     } else if m.starts_with("granite4.2") {
         Some(&["low", "high"])
+    } else if m.starts_with("inkling-2-small") {
+        Some(&["low", "medium", "high", "max"])
     } else {
         None
     }
@@ -275,7 +279,8 @@ pub fn ollama_think(
     config.thinking_tokens.map(|tokens| match levels {
         _ if tokens == 0 => OllamaThink::Enabled(false),
         // A token budget has no level equivalent; use the family's middle
-        // level (`medium` for GPT-OSS, `high` for GLM 5.3 and Granite 4.2).
+        // level (`medium` for GPT-OSS, `high` for GLM 5.3, Granite 4.2, and
+        // Inkling 2 Small).
         Some(levels) => OllamaThink::Level(levels[levels.len() / 2].into()),
         None => OllamaThink::Enabled(true),
     })

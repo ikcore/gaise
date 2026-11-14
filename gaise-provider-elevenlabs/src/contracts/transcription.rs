@@ -1,9 +1,10 @@
 //! Speech-to-text (Scribe) wire types and pure mapping helpers.
 //!
-//! Surfaces (API reference audited 2026-10-17):
-//! - `POST /v1/speech-to-text` (multipart; `scribe_v2`, `scribe_v2_medical`;
-//!   `scribe_v1` is deprecated)
-//! - `wss://…/v1/speech-to-text/realtime` (`scribe_v2_realtime`)
+//! Surfaces (API reference audited 2026-10-17; Scribe v3 added 2026-11-14):
+//! - `POST /v1/speech-to-text` (multipart; `scribe_v3`, `scribe_v2`,
+//!   `scribe_v2_medical`; `scribe_v1` is deprecated)
+//! - `wss://…/v1/speech-to-text/realtime` (`scribe_v2_realtime`,
+//!   `scribe_v3_live`)
 //!
 //! Webhook mode (`webhook=true`, HTTP 202) is never requested: GAISe
 //! transcription is synchronous.
@@ -263,9 +264,14 @@ pub fn transcription_file_format(
     }
 }
 
+/// `no_verbatim` (smart mode) is listed as supported by `scribe_v2`,
+/// `scribe_v2_medical`, and `scribe_v3` (convert reference, audited
+/// 2026-11-14). The realtime models and `scribe_v1` do not take it.
 fn model_supports_no_verbatim(model: &str) -> bool {
     let model = model.trim().to_ascii_lowercase();
-    model.starts_with("scribe_v2") && !model.contains("medical") && !model.contains("realtime")
+    (model.starts_with("scribe_v2") || model.starts_with("scribe_v3"))
+        && !model.contains("realtime")
+        && !model.contains("live")
 }
 
 /// Build the multipart form for `POST /v1/speech-to-text`.
@@ -372,7 +378,7 @@ pub fn build_transcription_form(
     if request.mode == Some(GaiseTranscriptionMode::Smart) {
         if !model_supports_no_verbatim(&request.model) {
             return Err(format!(
-                "ElevenLabs no_verbatim (smart mode) is supported by scribe_v2 only, not {}",
+                "ElevenLabs no_verbatim (smart mode) is supported by scribe_v2, scribe_v2_medical, and scribe_v3, not {}",
                 request.model
             ));
         }
@@ -730,7 +736,7 @@ pub fn build_realtime_transcription_setup(
 ) -> Result<ElevenLabsRealtimeSetup, String> {
     if config.diarize {
         return Err(
-            "ElevenLabs realtime speech-to-text has no diarization; use batch transcribe with diarize".into(),
+            "ElevenLabs realtime diarization (scribe_v3_live only) is not mapped by GAISe; use batch transcribe with diarize".into(),
         );
     }
     let model = if config.model.trim().is_empty() {
@@ -1194,12 +1200,26 @@ mod tests {
                 .unwrap_err()
                 .contains("webhook")
         );
-        let smart_medical = GaiseTranscriptionRequest {
-            model: "scribe_v2_medical".into(),
-            mode: Some(GaiseTranscriptionMode::Smart),
-            ..request()
-        };
-        assert!(build_transcription_form(&smart_medical).is_err());
+        // Smart mode: scribe_v2, scribe_v2_medical, and scribe_v3 take
+        // no_verbatim (convert reference, 2026-11-14); other models do not.
+        for model in ["scribe_v2_medical", "scribe_v3"] {
+            let smart = GaiseTranscriptionRequest {
+                model: model.into(),
+                mode: Some(GaiseTranscriptionMode::Smart),
+                ..request()
+            };
+            let form = build_transcription_form(&smart).unwrap();
+            assert_eq!(form.text("model_id"), Some(model));
+            assert_eq!(form.text("no_verbatim"), Some("true"), "{model}");
+        }
+        for model in ["scribe_v1", "scribe_v2_realtime", "scribe_v3_live"] {
+            let smart = GaiseTranscriptionRequest {
+                model: model.into(),
+                mode: Some(GaiseTranscriptionMode::Smart),
+                ..request()
+            };
+            assert!(build_transcription_form(&smart).is_err(), "{model}");
+        }
         let too_many = GaiseTranscriptionRequest {
             max_speakers: Some(33),
             ..request()
@@ -1375,6 +1395,36 @@ mod tests {
             ..Default::default()
         };
         assert!(build_realtime_transcription_setup("https://x", &diarize).is_err());
+        // Realtime diarization exists on scribe_v3_live (2026-11-09) but its
+        // diarized_transcript events are not mapped, so it stays rejected.
+        let diarize_v3 = GaiseTranscriptionSessionConfig {
+            model: "scribe_v3_live".into(),
+            diarize: true,
+            ..Default::default()
+        };
+        assert!(
+            build_realtime_transcription_setup("https://x", &diarize_v3)
+                .unwrap_err()
+                .contains("not mapped")
+        );
+        // Turn prediction is forwarded for scribe_v3_live, the only model
+        // that documents it.
+        let turns = GaiseTranscriptionSessionConfig {
+            model: "scribe_v3_live".into(),
+            commit_strategy: Some(GaiseCommitStrategy::TurnPrediction),
+            ..Default::default()
+        };
+        let setup = build_realtime_transcription_setup("https://x", &turns).unwrap();
+        assert!(
+            setup.url.contains("model_id=scribe_v3_live"),
+            "{}",
+            setup.url
+        );
+        assert!(
+            setup.url.contains("commit_strategy=turn_prediction"),
+            "{}",
+            setup.url
+        );
     }
 
     #[test]

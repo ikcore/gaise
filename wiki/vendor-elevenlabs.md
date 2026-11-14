@@ -136,7 +136,7 @@ Mapping functions: [`stream_input_events`](../gaise-provider-elevenlabs/src/elev
 
 | `GaiseTranscriptionRequest` | Form field | Notes |
 |---|---|---|
-| `model` | `model_id` | `scribe_v2`, `scribe_v2_medical`; `scribe_v1` is deprecated |
+| `model` | `model_id` | `scribe_v3` (2026-11-09), `scribe_v2`, `scribe_v2_medical`; `scribe_v1` is deprecated |
 | `audio` = `Bytes` | `file` | Filename and `Content-Type` from `mime_type`, else sniffed (wav, mp3, ogg, flac, webm, m4a) |
 | `audio` = `Url` (`https://`) | `source_url` | `cloud_storage_url` is deprecated and never sent; `data:` URLs are decoded and uploaded as `file`; `gs://` / `s3://` are rejected |
 | `languages[0]` | `language_code` | The API takes one language; the rest are ignored. Empty = auto-detect |
@@ -147,7 +147,7 @@ Mapping functions: [`stream_input_events`](../gaise-provider-elevenlabs/src/elev
 | `temperature` | `temperature` | 0.0–2.0 |
 | `multichannel` | `use_multi_channel=true` | Up to 5 channels, each billed at full duration |
 | `keyterms` | `keyterms` (repeated once per term) | +20% surcharge on ElevenLabs' side |
-| `mode` = `smart` | `no_verbatim=true` | `scribe_v2` only; rejected for `scribe_v2_medical` |
+| `mode` = `smart` | `no_verbatim=true` | `scribe_v2`, `scribe_v2_medical`, and `scribe_v3` (convert reference, 2026-11-14); rejected for other models |
 | `prompt` | — | Rejected: the batch API has no context field (`previous_text` is realtime-only) |
 | `provider_options` | one field per top-level key | Strings as-is, arrays repeat the field, other values JSON-stringified; a key replaces the mapped field of the same name (e.g. `tag_audio_events`, `seed`, `entity_detection`, `diarization_threshold`, `multichannel_output_style`) |
 
@@ -176,12 +176,12 @@ Per-character timings (`characters`) are not surfaced. Errors use the same `deta
 | `model` | `model_id` | Defaults to `scribe_v2_realtime` |
 | `audio_format` | `audio_format` | `pcm` at 8000 / 16000 / 22050 / 24000 / 44100 / 48000 Hz → `pcm_{rate}`; `mulaw` 8000 → `ulaw_8000`; anything else (and stereo) is rejected. Default `pcm_16000` |
 | `languages[0]` | `language_code` | |
-| `commit_strategy` | `commit_strategy` | `manual`, `vad`, `turn_prediction` |
+| `commit_strategy` | `commit_strategy` | `manual`, `vad`, `turn_prediction`; forwarded unchanged. Since 2026-11-09 ElevenLabs documents `turn_prediction` for `scribe_v3_live` only (other models answer `invalid_request` and close the connection) |
 | `silence_duration_ms` | `vad_silence_threshold_secs` | Converted to seconds |
 | `timestamps` = word / character / segment | `include_timestamps=true` | Final transcripts then carry words |
 | `keyterms` | `keyterms` (repeated) | |
 | `prompt` | `previous_text` on the **first** audio chunk only | The API errors if it appears later |
-| `diarize` | — | Rejected: the realtime API has no diarization |
+| `diarize` | — | Rejected: realtime diarization exists on `scribe_v3_live` only (2026-11-09) and its `diarized_transcript` / `speakers_merged` events are not mapped |
 | `interim_results` | — | Client-side: partial transcripts are forwarded only when set |
 | `provider_options` | one query parameter per top-level key | e.g. `no_verbatim`, `vad_threshold`, `include_language_detection`; `token` is refused (the client authenticates with the header) |
 
@@ -224,9 +224,11 @@ There are no speech-started / speech-stopped or usage frames on this API.
 | `eleven_turbo_v2_5` | — | `deprecated` | — | text | audio | speech, live | — | native while available | Functionally equivalent to eleven_flash_v2_5; no shutdown date published. Character limit as for the functionally equivalent eleven_flash_v2… |
 | `eleven_turbo_v2` | — | `deprecated` | — | text | audio | speech, live | — | native while available | Character limit as for the functionally equivalent eleven_flash_v2. Replacement `eleven_flash_v2`. |
 | `eleven_multilingual_sts_v2` | `eleven_english_sts_v2` | `active` | — | audio | audio | — | — | not supported: speech-to-speech has no GAISe surface | — |
+| `scribe_v3` | — | `active` | — | text, audio | text | transcription | — | transcribe: POST /v1/speech-to-text, same request shape as scribe_v2 (diarization up to 32 speakers, word or character timestamps, audio events, keyterms, multichannel, no_verbatim for smart mode); secondary_language_codes and numbers_format go through provider_options | Released 2026-11-09; the successor to Scribe v2 on the same Speech to Text API (existing request parameters work unchanged, and Scribe v2 re… |
 | `scribe_v2` | — | `active` | — | text, audio | text | transcription | — | transcribe: POST /v1/speech-to-text (diarization up to 32 speakers, word or character timestamps, audio events, keyterms, multichannel, no_verbatim for smart mode) | scribe_v2_realtime is listed as its own model (~150 ms, 90+ languages); scribe_v1 is deprecated with no shutdown date. scribe_v2_realtime mo… |
-| `scribe_v2_medical` | — | `active` | — | text, audio | text | transcription | — | transcribe: POST /v1/speech-to-text, same request shape as scribe_v2 (smart mode is rejected) | Speech recognition fine-tuned for clinical audio, 90+ languages; same Speech to Text API and price as Scribe v2. Listed on the models page b… |
-| `scribe_v2_realtime` | — | `active` | — | text, audio | text | live_transcription | — | transcribe_connect: wss://api.elevenlabs.io/v1/speech-to-text/realtime (feature live); partial and committed transcripts, manual, VAD, or turn-prediction commits, word timestamps; no diarization | Realtime Scribe (~150 ms partials), WebSocket only; PCM 8-48 kHz or u-law 8 kHz input. Was an alias of scribe_v2 until 2026-10-17. |
+| `scribe_v2_medical` | — | `active` | — | text, audio | text | transcription | — | transcribe: POST /v1/speech-to-text, same request shape as scribe_v2, including no_verbatim for smart mode | Speech recognition fine-tuned for clinical audio, 90+ languages; same Speech to Text API and price as Scribe v2. Listed on the models page b… |
+| `scribe_v3_live` | — | `active` | — | text, audio | text | live_transcription | — | transcribe_connect: wss://api.elevenlabs.io/v1/speech-to-text/realtime with model scribe_v3_live (feature live); partial and committed transcripts, manual, VAD, or turn-prediction commits, word timestamps; realtime diarization is not mapped (diarize is rejected); multilang_mode goes through provider_options | Released 2026-11-09; the successor to Scribe v2 Realtime on the same WebSocket (the default model_id is still scribe_v2_realtime and the def… |
+| `scribe_v2_realtime` | — | `active` | — | text, audio | text | live_transcription | — | transcribe_connect: wss://api.elevenlabs.io/v1/speech-to-text/realtime (feature live); partial and committed transcripts, manual or VAD commits (turn prediction needs scribe_v3_live), word timestamps; no diarization | Realtime Scribe (~150 ms partials), WebSocket only; PCM 8-48 kHz or u-law 8 kHz input. Was an alias of scribe_v2 until 2026-10-17. Since the… |
 | `eleven_ttv_v3` | `eleven_multilingual_ttv_v2` | `active` | — | text | text, audio | — | — | not supported: voice design (/v1/text-to-voice/design) has no GAISe surface | Text-to-voice design models; the endpoint defaults to eleven_multilingual_ttv_v2 and takes 100-1,000 characters of description. |
 | `music_v2` | — | `active` | — | text | text, audio | — | — | not supported: music generation (/v1/music) has no GAISe surface | Studio-grade music with composition plans, audio reference, and inpainting; superseded as the flagship by music_v2_5 (2026-09). Section dura… |
 | `music_v2_5` | — | `active` | — | text | text, audio | — | — | not supported: music generation (/v1/music) has no GAISe surface | Most advanced music model (listed by 2026-09-12; /v1/music/compose model_id enum music_v1, music_v2, music_v2_5). Section durations are alwa… |
@@ -290,7 +292,7 @@ sequenceDiagram
 
 - [`contracts/models.rs`](../gaise-provider-elevenlabs/src/contracts/models.rs) unit tests: output-format resolution, request body rules, timestamp-frame parsing, error envelopes, model mapping, WebSocket alignment conversion.
 - [`elevenlabs_client.rs`](../gaise-provider-elevenlabs/src/elevenlabs_client.rs) unit tests: NDJSON line buffering across chunk boundaries, frame → chunk mapping, voice requirement, base-URL normalization.
-- [`contracts/transcription.rs`](../gaise-provider-elevenlabs/src/contracts/transcription.rs) unit tests: multipart form fields and encoding, rejections (webhook, PCM rates, smart mode on medical), single- and multichannel response mapping with audio events, realtime URL/query building, audio chunk frames, and server-event mapping (duplicate commits, fatal errors).
+- [`contracts/transcription.rs`](../gaise-provider-elevenlabs/src/contracts/transcription.rs) unit tests: multipart form fields and encoding, rejections (webhook, PCM rates, smart mode on models without it), single- and multichannel response mapping with audio events, realtime URL/query building, audio chunk frames, and server-event mapping (duplicate commits, fatal errors).
 - [`tests/transcription_tests.rs`](../gaise-provider-elevenlabs/tests/transcription_tests.rs): `transcribe` against a local mock HTTP server (multipart body, `source_url`, multichannel, error envelopes).
 - [`tests/realtime_transcription_tests.rs`](../gaise-provider-elevenlabs/tests/realtime_transcription_tests.rs) (feature `live`): `transcribe_connect` against a local WebSocket server (URL, header, `previous_text` on the first chunk only, commit on close, one final transcript per segment).
 - Router and HTTP: [`gaise-client/tests/speech_tests.rs`](../gaise-client/tests/speech_tests.rs), [`gaise-api/tests/speech_route_tests.rs`](../gaise-api/tests/speech_route_tests.rs).

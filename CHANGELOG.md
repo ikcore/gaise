@@ -8,6 +8,81 @@ change, or an additive adapter feature is a minor release; a change to a public
 contract (removed or renamed items, new required fields, changed serialization)
 is a major release.
 
+## [5.8.0] - 2026-11-14
+
+Model audit of every provider. All changes are additive. No model id or alias
+was removed. Request shapes change only for ids released since the last
+audit, plus one local check that is now relaxed (ElevenLabs smart mode).
+
+### Added
+- Anthropic `claude-fable-5-2` and `claude-mythos-5-2` (2026-11-09; Mythos
+  5.2 needs verification). Both get the always-on Fable profile through the
+  existing substring rules: adaptive thinking only, effort `low` to `max`,
+  no sampling, 128k output.
+- Bedrock `anthropic.claude-fable-5-2` and `anthropic.claude-mythos-5-2`
+  (launched 2026-11-09; `us.` and `global.` profiles).
+- Gemini API and Vertex AI `gemini-4-carbon` (GA 2026-11-10) and
+  `gemini-4-hydrogen` (GA 2026-11-12), and Vertex AI
+  `gemini-4-carbon-cyber-permissive` (Fairwind Program allowlist).
+- `thinkingLevel` `XHIGH` for `gemini-4-hydrogen` ids in the Gemini and
+  Vertex adapters. Efforts `xhigh`, `max`, and `ultra` map to `XHIGH`;
+  `minimal` and `none` still clamp to `LOW`. Other Gemini 4 ids stop at
+  `HIGH`, as before. Without this rule the generic Gemini 4 rule would have
+  clamped Hydrogen to `HIGH`.
+- Gemini API `gemini-decision-1` (2026-11-11). It is catalogued only: it
+  runs on the new Gemini Decisions API (`POST /v1beta/decisions`), which
+  GAISe does not map.
+- ElevenLabs `scribe_v3` (batch, driven by `transcribe`) and
+  `scribe_v3_live` (realtime, driven by `transcribe_connect`), both released
+  2026-11-09.
+- Ollama families: `ripple-preview`, and the cloud-only `inkling-2-small`,
+  `mimo-v2.6-pro`, and `mimo-v2.6-flash`. `inkling-2-small` takes `think`
+  as a level string (`low`, `medium`, `high`, `max`); the others take a
+  boolean.
+
+### Changed
+- ElevenLabs smart mode (`no_verbatim`) is accepted for `scribe_v2_medical`
+  and `scribe_v3` as well as `scribe_v2`; the convert reference lists all
+  three. It used to be rejected locally for `scribe_v2_medical`.
+- Bedrock `openai.gpt-5.6-cyber` and `openai.gpt-daybreak-blue-5.6-sol` are
+  now described as reachable through Converse on bedrock-runtime (AWS,
+  2026-11-10; `us.` and `global.` profiles; Daybreak access required), with
+  the 1,050,000-token context window from their cards. Both were
+  `operations = []`.
+- Anthropic `claude-fable-5-1` is `legacy` (was `active`); its model page
+  carries the label since the Fable 5.2 release.
+- OpenAI replacements for `gpt-5`, `gpt-5-mini`, `gpt-5-nano`, `gpt-5-pro`,
+  `o3`, and `o3-pro` now name `gpt-6.1-sol`, `gpt-6.1-terra`, and
+  `gpt-6-luna` (removal is still 2026-12-11).
+- Gemini API shutdown dates: `gemini-3.1-flash-live-preview` has none (the
+  2026-11-17 date was withdrawn),
+  `gemini-2.5-flash-native-audio-preview-12-2025` moves to 2027-03-31, and
+  `gemini-3.1-flash-tts-preview` to 2026-12-18.
+- Vertex AI replacements for `gemini-2.5-flash` and `gemini-2.5-flash-lite`
+  now name `gemini-3.5-flash-lite` instead of `gemini-3.1-flash-lite`.
+- The ElevenLabs realtime `diarize` rejection now says that realtime
+  diarization exists on `scribe_v3_live` and is not mapped.
+- Notes refreshed:
+  - ElevenLabs: `turn_prediction` is documented for `scribe_v3_live` only;
+    the adapter still forwards the commit strategy unchanged;
+  - Ollama: think levels that ollama.com `/api/show` reports for
+    `kimi-k3.1-pro`, `kimi-k3`, `deepseek-v4.1-flash`, `muse-spark-open`, and
+    `beam` (the adapter still sends booleans for them), and the new cloud
+    model lifecycle page;
+  - Bedrock: the Claude Sonnet 4.5 GovCloud lifecycle row, the Mythos 5.1
+    retention modes, and Haiku 4.5 compaction;
+  - OpenAI: `gpt-6-rosalind` is listed as Responses-only in the API
+    reference;
+  - every provider's audit notes, including xAI and TypeSafe (no change).
+
+### Deprecated
+- OpenAI `gpt-image-2` (deprecated 2026-11-10, removal 2027-02-10;
+  replacement `gpt-image-2.6-sunburst` or `gpt-image-2.6-flare`).
+- OpenAI `gpt-4o-mini-tts`: the bare id is now in the deprecations table
+  (removal 2027-01-06), like its dated snapshots.
+- OpenAI `gpt-daybreak-*` aliases are `deprecated` (were
+  `limited_availability`); their pages say so and give no shutdown date.
+
 ## [5.7.0] - 2026-11-08
 
 Model audit of every provider, xAI included. All changes are additive. No

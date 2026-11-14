@@ -1243,6 +1243,130 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
             assert_eq!(find("ollama", id), family, "{id}");
         }
         assert_eq!(status("xai", "grok-imagine-image-quality"), "retired");
+        // Audit 2026-11-14.
+        for id in [
+            "claude-fable-5-2",
+            "claude-mythos-5-2",
+            "claude-fable-5-1",
+            "claude-fable-5",
+        ] {
+            assert_eq!(find("anthropic", id), id, "5-N ids are separate models");
+        }
+        assert_eq!(status("anthropic", "claude-fable-5-2"), "active");
+        assert_eq!(status("anthropic", "claude-fable-5-1"), "legacy");
+        assert_eq!(
+            status("anthropic", "claude-mythos-5-2"),
+            "limited_availability"
+        );
+        for (id, row) in [
+            (
+                "global.anthropic.claude-fable-5-2",
+                "anthropic.claude-fable-5-2",
+            ),
+            (
+                "us.anthropic.claude-mythos-5-2",
+                "anthropic.claude-mythos-5-2",
+            ),
+            (
+                "us.anthropic.claude-fable-5-1",
+                "anthropic.claude-fable-5-1",
+            ),
+            ("global.openai.gpt-5.6-cyber", "openai.gpt-5.6-cyber"),
+            (
+                "us.openai.gpt-daybreak-blue-5.6-sol",
+                "openai.gpt-daybreak-blue-5.6-sol",
+            ),
+        ] {
+            assert_eq!(find("bedrock", id), row, "{id}");
+        }
+        for id in [
+            "global.openai.gpt-5.6-cyber",
+            "us.openai.gpt-daybreak-blue-5.6-sol",
+        ] {
+            let row = registry.find("bedrock", id).unwrap();
+            assert!(
+                row.classified()
+                    .unwrap()
+                    .operations
+                    .contains(&GaiseOperation::Instruct),
+                "{id}: Converse on bedrock-runtime since 2026-11-10"
+            );
+            assert_eq!(row.context_window, Some(1_050_000), "{id}");
+        }
+        for provider in ["gemini", "vertexai"] {
+            for id in ["gemini-4-carbon", "gemini-4-hydrogen", "gemini-4-argon"] {
+                assert_eq!(find(provider, id), id, "{provider}");
+            }
+            assert_eq!(
+                registry
+                    .find(provider, "gemini-4-hydrogen")
+                    .unwrap()
+                    .reasoning_values
+                    .as_deref(),
+                Some(&["low", "medium", "high", "xhigh"].map(String::from)[..]),
+                "{provider}"
+            );
+        }
+        assert_eq!(
+            find("vertexai", "gemini-4-carbon-cyber-permissive"),
+            "gemini-4-carbon-cyber-permissive"
+        );
+        let decision = registry.find("gemini", "gemini-decision-1").unwrap();
+        assert!(
+            decision.classified().unwrap().operations.is_empty(),
+            "the Gemini Decisions API is not mapped"
+        );
+        assert!(registry.find("vertexai", "gemini-decision-1").is_none());
+        assert!(
+            registry
+                .find("gemini", "gemini-3.1-flash-live-preview")
+                .unwrap()
+                .shutdown_date
+                .is_none(),
+            "the 2026-11-17 shutdown was withdrawn"
+        );
+        for (id, date) in [
+            (
+                "gemini-2.5-flash-native-audio-preview-12-2025",
+                "2027-03-31",
+            ),
+            ("gemini-3.1-flash-tts-preview", "2026-12-18"),
+        ] {
+            assert_eq!(
+                registry
+                    .find("gemini", id)
+                    .unwrap()
+                    .shutdown_date
+                    .as_deref(),
+                Some(date),
+                "{id}"
+            );
+        }
+        assert_eq!(status("openai", "gpt-image-2"), "deprecated");
+        assert_eq!(find("openai", "gpt-image-2-2026-04-21"), "gpt-image-2");
+        assert_eq!(status("openai", "gpt-image-2.5-sunburst"), "active");
+        assert_eq!(status("openai", "gpt-4o-mini-tts"), "deprecated");
+        assert_eq!(status("openai", "gpt-daybreak-blue-latest"), "deprecated");
+        assert_eq!(
+            registry
+                .find("openai", "gpt-5")
+                .unwrap()
+                .replacement
+                .as_deref(),
+            Some("gpt-6.1-sol")
+        );
+        assert_eq!(find("elevenlabs", "scribe_v3"), "scribe_v3");
+        assert_eq!(find("elevenlabs", "scribe_v3_live"), "scribe_v3_live");
+        assert_eq!(find("elevenlabs", "scribe_v2"), "scribe_v2");
+        for (id, family) in [
+            ("ripple-preview:65b", "ripple-preview:*"),
+            ("inkling-2-small:cloud", "inkling-2-small:*"),
+            ("mimo-v2.6-pro:cloud", "mimo-v2.6-pro:*"),
+            ("mimo-v2.6-flash:cloud", "mimo-v2.6-flash:*"),
+            ("mimo-v2.6:9b", "mimo-v2.6:*"),
+        ] {
+            assert_eq!(find("ollama", id), family, "{id}");
+        }
         assert_eq!(
             find("xai", "grok-4.20-multi-agent-experimental-beta-latest"),
             "grok-4.20-multi-agent-0309"

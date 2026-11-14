@@ -226,3 +226,57 @@ fn glm_5_3_and_granite_4_2_take_levels() {
         Some(true.into())
     );
 }
+
+#[test]
+fn inkling_2_small_takes_levels_and_its_neighbours_keep_booleans() {
+    // Inkling 2 Small (cloud tag, 2026-11-12): /api/show on ollama.com
+    // reports think values false, low, medium, high, max (default high).
+    for (effort, expected) in [
+        ("low", "low"),
+        ("medium", "medium"),
+        ("high", "high"),
+        ("xhigh", "max"),
+        ("max", "max"),
+    ] {
+        assert_eq!(
+            think("inkling-2-small:cloud", Some(effort), None),
+            Some(expected.into()),
+            "{effort}"
+        );
+    }
+    assert_eq!(
+        think("inkling-2-small:cloud", Some("none"), None),
+        Some(false.into())
+    );
+    assert_eq!(
+        think("inkling-2-small:cloud", Some("auto"), None),
+        Some(true.into())
+    );
+    assert_eq!(
+        think("inkling-2-small:cloud", None, Some(4096)),
+        Some("high".into())
+    );
+    assert_eq!(
+        think("inkling-2-small:cloud", None, Some(0)),
+        Some(false.into())
+    );
+    // Families registered in the same audit keep the boolean form, as do
+    // existing ids whose requests must not change.
+    for model in [
+        "ripple-preview:65b",
+        "mimo-v2.6-pro:cloud",
+        "mimo-v2.6-flash:cloud",
+        "kimi-k3.1-pro:cloud",
+    ] {
+        assert_eq!(
+            think(model, Some("high"), None),
+            Some(true.into()),
+            "{model}"
+        );
+        assert_eq!(
+            think(model, Some("none"), None),
+            Some(false.into()),
+            "{model}"
+        );
+    }
+}
