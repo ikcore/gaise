@@ -103,7 +103,7 @@ Mapped by [`map_content_parts`](../gaise-provider-openai/src/openai_client.rs#L1
 | Reasoning families | none | No allowlist: `reasoning_effort` is sent whenever configured. The catalog heuristics in [`classify_openai_model_id`](../gaise-provider-openai/src/contracts/catalog.rs#L53) recognize `gpt-`, `chatgpt-`, `o1`/`o3`/`o4`, `codex` as Chat but do not gate request fields |
 | Fixed-sampling models | none | `temperature`/`top_p` are never suppressed per model |
 
-### Parameter compatibility (audited 2026-11-08)
+### Parameter compatibility (audited 2026-11-14)
 
 [`openai_chat_rules`](../gaise-provider-openai/src/openai_client.rs) drives per-family filtering before a Chat Completions request is serialized; [`tests/parameter_matrix_tests.rs`](../gaise-provider-openai/tests/parameter_matrix_tests.rs) pins every row.
 
@@ -286,7 +286,7 @@ Tests: [`catalog.rs#L167-L283`](../gaise-provider-openai/src/contracts/catalog.r
 
 ## Models
 
-From `model-registry.toml` (audited 2026-11-08). Status is the registry string; dates are `shutdown_date` / `retirement_not_before`.
+From `model-registry.toml` (audited 2026-11-14). Status is the registry string; dates are `shutdown_date` / `retirement_not_before`.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
@@ -318,7 +318,7 @@ From `model-registry.toml` (audited 2026-11-08). Status is the registry string; 
 | `gpt-realtime-1.5` | — | `active` | — | text, image, audio | text, audio | live | — | realtime transport | No reasoning controls. |
 | `gpt-realtime-translate` | — | `active` | — | audio | audio | — | — | not supported: the /v1/realtime/translations endpoint uses its own session and event vocabulary | Streaming speech-to-speech translation (audio in; audio and transcript out), billed per minute. The target language is set through session.a… |
 | `gpt-audio-1.5` | — | `active` | — | text, audio | text, audio | instruct, instruct_stream | — | Chat audio input is native; audio output is not mapped by the current instruct client | Chat Completions supported; Responses not supported. |
-| `gpt-image-2` | — | `active` | — | image | image | image_generation | — | generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given (up to 16, optional mask) | Requires OpenAI Images or Responses image-generation tooling; the GAISe OpenAI instruct client currently uses Chat Completions. Default snap… |
+| `gpt-image-2` | — | `deprecated` | shutdown 2027-02-10 | image | image | image_generation | — | generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given (up to 16, optional mask) | Requires OpenAI Images or Responses image-generation tooling; the GAISe OpenAI instruct client currently uses Chat Completions. Default snap… |
 | `gpt-image-2.5-sunburst` | — | `active` | — | image | image | image_generation | — | generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given (up to 16, optional mask) | Released 2026-09-08 (default snapshot gpt-image-2.5-sunburst-2026-09-08); the editing-precision GPT Image 2.5 model. Images API generations… |
 | `gpt-image-2.5-flare` | — | `active` | — | image | image | image_generation | — | generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given (up to 16, optional mask) | Released 2026-09-08 (default snapshot gpt-image-2.5-flare-2026-09-08); the fast everyday GPT Image 2.5 model. Images API generations and edi… |
 | `gpt-image-2.6-sunburst` | — | `active` | — | image | image | image_generation | — | generate_images: POST /v1/images/generations, or the JSON /v1/images/edits body when input images are given; complexity, SVG and GIF output, and markup edits are not mapped | Released 2026-11-04 (default snapshot gpt-image-2.6-sunburst; no dated snapshot). Images API generations and edits only; Chat Completions, R… |
@@ -327,23 +327,23 @@ From `model-registry.toml` (audited 2026-11-08). Status is the registry string; 
 | `gpt-5.6-cyber` | — | `limited_availability` | — | text, image | text | — | supported | not reachable: Responses API only, Daybreak program approval required | Daybreak Red model (2026-08-12). 400K context (not the 1.05M of the GPT-5.6 family); 272K max input. The instruct client fails fast. |
 | `gpt-6-cyber` | — | `limited_availability` | — | text, image | text | — | supported | not reachable: Daybreak Red access plus model approval required, and requests carry access_programs.cyber, which GAISe does not send; the instruct client fails fast | Released 2026-11-05 for vulnerability investigation, reproduction in authorized test environments, and fix verification. Chat Completions an… |
 | `gpt-5.5-cyber-preview` | — | `deprecated` | shutdown 2027-02-01 | text | text | — | supported | not reachable: Daybreak cyber model; the instruct client fails fast | Deprecated 2026-11-05 (deprecations page), removal 2027-02-01; migrate to gpt-5.6-cyber, or gpt-6-cyber with approval. Replacement `gpt-5.6-cyber or gpt-6-cyber`. |
-| `gpt-daybreak-*` | — | `limited_availability` | — | text | text | — | supported | not reachable: Responses API only, Daybreak program approval required | gpt-daybreak-red-latest and gpt-daybreak-blue-latest (Daybreak Security Tiers, 2026-08-07). Detail pages were not fetched; limits unknown. |
+| `gpt-daybreak-*` | — | `deprecated` | — | text | text | — | supported | not reachable: Responses API only, Daybreak program approval required | gpt-daybreak-red-latest and gpt-daybreak-blue-latest (Daybreak Security Tiers, 2026-08-07; Daybreak program approval required). Both alias p… |
 | `gpt-rosalind-research` | — | `limited_availability` | — | text | text | — | supported | not verified: no model page is published and trusted-access approval is required; the instruct client forwards requests unchanged | GPT-Rosalind life-sciences reasoning model. Changelog 2026-09-08: generally available through the trusted-access program for approved intern… |
 | `gpt-6-rosalind` | — | `limited_availability` | — | text | text | — | supported | not verified: no model page is published and trusted-access approval is required; the instruct client would apply the GPT-6 Astra rules (no sampling, effort none and minimal clamped to low, tool calls through Responses), none of which is documented for this model | Released 2026-10-30 (changelog): specialized biological reasoning with scientific tool use, for organizations approved for Rosalind Research… |
 | `gpt-transcribe` | — | `active` | — | text, audio | text | transcription | — | transcribe: POST /v1/audio/transcriptions (languages[], keywords[], prompt; json); realtime transcription sessions are not mapped | Released 2026-07-28; /v1/audio/transcriptions and realtime transcription sessions; streaming; billed per minute. |
 | `gpt-live-transcribe` | — | `active` | — | text, audio | text | — | — | not supported: realtime transcription sessions have no GAISe surface | Released 2026-07-28; /v1/realtime/transcription_sessions only; 'delay' accepts minimal, low, medium, high, xhigh. |
 | `gpt-realtime-whisper` | — | `active` | — | text, audio | text | — | — | not supported: realtime transcription sessions have no GAISe surface | turn_detection must be null for this model. |
-| `gpt-4o-mini-tts` | `gpt-4o-mini-tts-2025-12-15`, `gpt-4o-mini-tts-2025-03-20` | `active` | — | text | text, audio | — | — | not supported: OpenAI text-to-speech has no GAISe surface (use elevenlabs::) | /v1/audio/speech only; 2,000 input tokens; the 2025-12-15 snapshot is the default. Both dated snapshots (2025-03-20 and 2025-12-15), tts-1,… |
+| `gpt-4o-mini-tts` | `gpt-4o-mini-tts-2025-12-15`, `gpt-4o-mini-tts-2025-03-20` | `deprecated` | shutdown 2027-01-06 | text | text, audio | — | — | not supported: OpenAI text-to-speech has no GAISe surface (use elevenlabs::) | /v1/audio/speech only; 2,000 input tokens; the 2025-12-15 snapshot is the default. Both dated snapshots (2025-03-20 and 2025-12-15), tts-1,… |
 | `gpt-5-chat-latest` | — | `retired` | shutdown 2026-07-23 | unknown | unknown | — | — | — | Replacement `gpt-5.6-sol`. |
 | `gpt-5.1-chat-latest` | — | `retired` | shutdown 2026-07-23 | unknown | unknown | — | — | — | Replacement `gpt-5.6-sol`. |
 | `gpt-5.2-chat-latest` | — | `retired` | shutdown 2026-08-10 | unknown | unknown | — | — | — | Replacement `gpt-5.6-sol`. |
 | `gpt-5.3-chat-latest` | — | `retired` | shutdown 2026-08-10 | unknown | unknown | — | — | — | Replacement `gpt-5.6-sol`. |
-| `gpt-5-2025-08-07` | `gpt-5` | `deprecated` | shutdown 2026-12-11 | unknown | unknown | — | — | — | The deprecations page lists the dated snapshot; the gpt-5 alias resolves to it and has no other snapshot. Replacement `gpt-5.6-sol`. |
-| `gpt-5-mini-2025-08-07` | `gpt-5-mini` | `deprecated` | shutdown 2026-12-11 | unknown | unknown | — | — | — | Replacement `gpt-5.6-terra`. |
-| `gpt-5-nano-2025-08-07` | `gpt-5-nano` | `deprecated` | shutdown 2026-12-11 | unknown | unknown | — | — | — | Replacement `gpt-5.6-luna`. |
-| `gpt-5-pro-2025-10-06` | `gpt-5-pro` | `deprecated` | shutdown 2026-12-11 | unknown | unknown | — | — | — | Responses and Batch only; reasoning.effort high only. Replacement `gpt-5.6-sol (reasoning.mode: pro)`. |
-| `o3-2025-04-16` | `o3` | `deprecated` | shutdown 2026-12-11 | unknown | unknown | — | — | — | Replacement `gpt-5.6-sol`. |
-| `o3-pro-2025-06-10` | `o3-pro` | `deprecated` | shutdown 2026-12-11 | unknown | unknown | — | — | — | Responses and Batch only. Replacement `gpt-5.6-sol (reasoning.mode: pro)`. |
+| `gpt-5-2025-08-07` | `gpt-5` | `deprecated` | shutdown 2026-12-11 | unknown | unknown | — | — | — | The deprecations page lists the dated snapshot; the gpt-5 alias resolves to it and has no other snapshot. Replacement `gpt-6.1-sol`. |
+| `gpt-5-mini-2025-08-07` | `gpt-5-mini` | `deprecated` | shutdown 2026-12-11 | unknown | unknown | — | — | — | Replacement `gpt-6.1-terra`. |
+| `gpt-5-nano-2025-08-07` | `gpt-5-nano` | `deprecated` | shutdown 2026-12-11 | unknown | unknown | — | — | — | Replacement `gpt-6-luna`. |
+| `gpt-5-pro-2025-10-06` | `gpt-5-pro` | `deprecated` | shutdown 2026-12-11 | unknown | unknown | — | — | — | Responses and Batch only; reasoning.effort high only. Replacement `gpt-6.1-sol (reasoning.mode: pro)`. |
+| `o3-2025-04-16` | `o3` | `deprecated` | shutdown 2026-12-11 | unknown | unknown | — | — | — | Replacement `gpt-6.1-sol`. |
+| `o3-pro-2025-06-10` | `o3-pro` | `deprecated` | shutdown 2026-12-11 | unknown | unknown | — | — | — | Responses and Batch only. Replacement `gpt-6.1-sol (reasoning.mode: pro)`. |
 | `o4-mini` | `o4-mini-2025-04-16` | `retired` | shutdown 2026-10-23 | unknown | unknown | — | — | — | Replacement `gpt-5.6-terra`. |
 | `o1` | `o1-2024-12-17`, `o1-pro`, `o1-pro-2025-03-19` | `retired` | shutdown 2026-10-23 | unknown | unknown | — | — | — | Announced 2026-04-22. o1-pro is Responses-only and replaced by gpt-5.6-sol with reasoning.mode pro. Replacement `gpt-5.6-sol`. |
 | `o3-mini` | `o3-mini-2025-01-31` | `retired` | shutdown 2026-10-23 | unknown | unknown | — | — | — | Replacement `gpt-5.6-sol`. |

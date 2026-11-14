@@ -54,7 +54,7 @@ Adapters return an error that names any field the provider cannot honour. They n
 |---|---|---|
 | OpenAI | `POST /v1/audio/transcriptions` | **gpt-transcribe** takes `languages[]` and `keywords[]`. **gpt-4o-transcribe-diarize** is needed for diarization. **whisper-1** is needed for word and segment timestamps. Audio must be inline bytes, 25 MB at most. |
 | Gemini API / Vertex | `generateContent` with `audioTranscriptionConfig` (`gemini-3.5-transcribe`) | Custom vocabulary cannot be combined with timestamps. On the Gemini API it also cannot be combined with diarization. Smart mode cannot be combined with diarization or timestamps. |
-| ElevenLabs | `POST /v1/speech-to-text` (`scribe_v2`, `scribe_v2_medical`) | Up to 32 speakers, word or character timestamps, audio events, multichannel. |
+| ElevenLabs | `POST /v1/speech-to-text` (`scribe_v3`, `scribe_v2`, `scribe_v2_medical`) | Up to 32 speakers, word or character timestamps, audio events, multichannel. |
 | xAI | `POST /v1/stt` (`grok-voice-transcribe-2.0`) | Diarization, word timestamps, keyterms, multichannel, raw pcm/mulaw/alaw. |
 
 ## Streaming transcription
@@ -82,7 +82,7 @@ Adapters return an error that names any field the provider cannot honour. They n
 - `Ended{reason}`.
 
 **Providers:**
-- **ElevenLabs:** `wss://…/v1/speech-to-text/realtime` with `scribe_v2_realtime`. There is no diarization.
+- **ElevenLabs:** `wss://…/v1/speech-to-text/realtime` with `scribe_v2_realtime` or `scribe_v3_live` (the only one ElevenLabs documents `turn_prediction` for). Realtime diarization (`scribe_v3_live`) is not mapped.
 - **xAI:** `wss://api.x.ai/v1/stt`. The `manual` commit strategy is rejected, because xAI always ends utterances on silence.
 
 OpenAI transcription sessions and Gemini `gemini-3.5-transcribe-live` are not mapped yet. Their WebSocket details could not be confirmed.

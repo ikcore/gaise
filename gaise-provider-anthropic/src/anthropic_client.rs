@@ -176,7 +176,8 @@ fn collect_text(content: &GaiseContent, output: &mut Vec<String>) {
 /// Claude models fall back to the most permissive manual-thinking profile so
 /// new releases keep working; known families get exact constraints. Matching
 /// is by substring, so `claude-fable-5-1` / `claude-mythos-5-1` (2026-09-01)
-/// inherit the always-on Fable 5 profile, which is what their docs specify.
+/// and `claude-fable-5-2` / `claude-mythos-5-2` (2026-11-09) inherit the
+/// always-on Fable 5 profile, which is what their docs specify.
 /// Opus 5.5 (2026-09-22) and Sonnet 5.5 (2026-09-28) reject
 /// `thinking.type: "disabled"`, unlike Opus 5 / Sonnet 5 whose ids they
 /// contain, so they are matched first and share that always-on profile.

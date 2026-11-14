@@ -232,6 +232,9 @@ fn effort_none_disables_thinking_where_allowed_and_is_dropped_on_always_on_famil
     for model in [
         "claude-fable-5",
         "claude-mythos-5",
+        // Fable 5.2 / Mythos 5.2 (2026-11-09) return 400 for enabled and disabled.
+        "claude-fable-5-2",
+        "claude-mythos-5-2",
         "claude-mythos-preview",
         "claude-opus-5-5",
         "claude-sonnet-5-5",
@@ -420,4 +423,34 @@ fn api_version_2026_10_21_drops_sampling_and_the_default_version_keeps_it() {
     assert!(json.get("top_p").is_none());
     assert!(json.get("top_k").is_none());
     assert_eq!(json["max_tokens"], 1024);
+}
+
+#[test]
+fn fable_5_2_and_mythos_5_2_inherit_the_always_on_fable_profile() {
+    use gaise_provider_anthropic::anthropic_client::claude_family_rules;
+    // Released 2026-11-09: adaptive thinking always on (enabled, between_tools,
+    // and disabled return 400), effort low..max, fixed sampling, 128k output.
+    for model in ["claude-fable-5-2", "claude-mythos-5-2"] {
+        let rules = claude_family_rules(model);
+        assert!(
+            rules.adaptive_only && rules.adaptive && rules.always_on,
+            "{model}"
+        );
+        assert!(rules.fixed_sampling && !rules.exclusive_sampling, "{model}");
+        assert_eq!(
+            rules.effort_levels,
+            ["low", "medium", "high", "xhigh", "max"],
+            "{model}"
+        );
+        assert_eq!(rules.max_output_tokens, 128_000, "{model}");
+        assert_eq!(rules, claude_family_rules("claude-fable-5-1"), "{model}");
+
+        let json = request(model, sink());
+        for key in ["temperature", "top_p", "top_k"] {
+            assert!(json.get(key).is_none(), "{model}: {key}");
+        }
+        assert!(json["thinking"].get("budget_tokens").is_none(), "{model}");
+        assert_ne!(json["thinking"]["type"], "enabled", "{model}");
+        assert_ne!(json["thinking"]["type"], "disabled", "{model}");
+    }
 }

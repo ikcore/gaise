@@ -454,3 +454,55 @@ fn gemini_robotics_er_2_uses_thinking_level_with_minimal_and_no_sampling() {
     }
     assert_eq!(gemini_major_version("gemini-robotics-er-2-preview"), None);
 }
+
+#[test]
+fn gemini_4_hydrogen_accepts_xhigh_and_other_gemini_4_ids_stop_at_high() {
+    // Gemini 4 Hydrogen (GA 2026-11-12; thinking pages audited 2026-11-14)
+    // accepts thinkingLevel LOW, MEDIUM, HIGH, XHIGH (default HIGH) and
+    // rejects MINIMAL. Argon and Carbon (GA 2026-11-10) stop at HIGH.
+    use gaise_provider_gemini::gemini_client::thinking_levels_for;
+    assert_eq!(
+        thinking_levels_for("gemini-4-hydrogen"),
+        ["LOW", "MEDIUM", "HIGH", "XHIGH"]
+    );
+    for (effort, level) in [
+        ("none", "LOW"),
+        ("minimal", "LOW"),
+        ("medium", "MEDIUM"),
+        ("high", "HIGH"),
+        ("xhigh", "XHIGH"),
+        ("max", "XHIGH"),
+    ] {
+        let cfg = build("gemini-4-hydrogen", sink(Some(effort), None));
+        assert!(
+            cfg.temperature.is_none() && cfg.top_p.is_none() && cfg.top_k.is_none(),
+            "{effort}"
+        );
+        let thinking = cfg.thinking_config.expect("thinking config");
+        assert_eq!(thinking.thinking_level.as_deref(), Some(level), "{effort}");
+        assert!(thinking.thinking_budget.is_none(), "{effort}");
+    }
+    // A token budget still maps to LOW / MEDIUM / HIGH, never XHIGH.
+    let cfg = build("gemini-4-hydrogen", sink(None, Some(30_000)));
+    let thinking = cfg.thinking_config.expect("thinking config");
+    assert!(thinking.thinking_budget.is_none());
+    assert_eq!(thinking.thinking_level.as_deref(), Some("HIGH"));
+
+    for model in ["gemini-4-carbon", "gemini-4-argon"] {
+        assert_eq!(thinking_levels_for(model), ["LOW", "MEDIUM", "HIGH"]);
+        for (effort, level) in [("minimal", "LOW"), ("xhigh", "HIGH"), ("max", "HIGH")] {
+            let cfg = build(model, sink(Some(effort), None));
+            assert!(
+                cfg.temperature.is_none() && cfg.top_p.is_none() && cfg.top_k.is_none(),
+                "{model}"
+            );
+            let thinking = cfg.thinking_config.expect("thinking config");
+            assert_eq!(
+                thinking.thinking_level.as_deref(),
+                Some(level),
+                "{model} {effort}"
+            );
+            assert!(thinking.thinking_budget.is_none(), "{model}");
+        }
+    }
+}
