@@ -264,6 +264,8 @@ fn inkling_2_small_takes_levels_and_its_neighbours_keep_booleans() {
     // existing ids whose requests must not change.
     for model in [
         "ripple-preview:65b",
+        // Inkling 2 Mini (local, 2026-11-20) publishes no /api/show values.
+        "inkling-2-mini:26b-a5b",
         "mimo-v2.6-pro:cloud",
         "mimo-v2.6-flash:cloud",
         "kimi-k3.1-pro:cloud",

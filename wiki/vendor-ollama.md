@@ -216,7 +216,7 @@ Catalog tests: [`maps_tags_and_show_details`](../gaise-provider-ollama/src/contr
 
 ## Models
 
-Registry entries for `ollama` (audited 2026-11-14). Every entry is a family glob with `status = dynamic_local` (mapped to `Active`); no lifecycle dates exist because Ollama has no retirement calendar for local models (cloud tags have a [model lifecycle page](https://docs.ollama.com/cloud/model-lifecycle) since 2026-11-12, with no retirement scheduled). Which tags actually exist, and their vision/tool/thinking support, comes from the local daemon.
+Registry entries for `ollama` (audited 2026-11-21). Every entry is a family glob with `status = dynamic_local` (mapped to `Active`); no lifecycle dates exist because Ollama has no retirement calendar for local models (cloud tags have a [model lifecycle page](https://docs.ollama.com/cloud/model-lifecycle) since 2026-11-12, with no retirement scheduled). Which tags actually exist, and their vision/tool/thinking support, comes from the local daemon.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
@@ -265,6 +265,7 @@ Registry entries for `ollama` (audited 2026-11-14). Every entry is a family glob
 | `mimo-v2.6-flash:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | `true`, `false` | native (cloud tag only; served through ollama.com with an API key) | Xiaomi's efficiency-balanced MiMo-V2.6 checkpoint, 309B parameters (15B active), cloud-only mimo-v2.6-flash:cloud (library date 2026-09-22;… |
 | `ripple-preview:*` | — | `dynamic_local` | — | text | text | instruct, instruct_stream | supported | native (boolean thinking toggle) | Ricursive Intelligence Ripple Preview, a 65B dense model for agentic coding (Apache 2.0), Ollama v0.40.16 (2026-11-09); text input, tools an… |
 | `inkling-2-small:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | `low`, `medium`, `high`, `max` | native (cloud tag only; served through ollama.com with an API key) | Thinking Machines Lab Inkling 2 Small, 594B MoE (17B active), cloud-only inkling-2-small:cloud (library date 2026-11-12); 1M context, text a… |
+| `inkling-2-mini:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | supported | native (boolean thinking toggle) | Thinking Machines Inkling 2 Mini, 26B looped MoE (5.4B active), open weights (Apache 2.0); library date 2026-11-20, requires Ollama v0.40.17… |
 | `lfm3-vl:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | supported | native (boolean thinking toggle) | Liquid AI LFM3 vision-language model (library, about 2026-10-27); 128K context per the readme (the tag list shows 125K), text and image inpu… |
 | `bonsai-2:*` | — | `dynamic_local` | — | text, image | text | instruct, instruct_stream | supported | native (boolean thinking toggle) | Prism ML ternary-weight models (2b, 4b, 9b, 27b; Apache 2.0), in the library since about 2026-10-22. All sizes support thinking, tool callin… |
 | `beam:*` | — | `dynamic_local` | — | text | text | instruct, instruct_stream | supported | native through a signed-in local server (boolean thinking toggle) | 501B text model, cloud tag only (beam:cloud, about 2026-10-22); 1M context, tools and thinking, knowledge cutoff 2026-06-30. It uses a modif… |

@@ -116,7 +116,7 @@ MIME inference for files uses the shared [`file_media_type`](../gaise-core/src/c
 
 No rule gates image input, audio input, tools, or `responseModalities` by model; the API returns its own error for unsupported combinations.
 
-### Parameter compatibility (audited 2026-11-14)
+### Parameter compatibility (audited 2026-11-21)
 
 [`model_uses_fixed_sampling`](../gaise-provider-gemini/src/gemini_client.rs), [`thinking_levels_for`](../gaise-provider-gemini/src/gemini_client.rs), [`normalize_thinking_level`](../gaise-provider-gemini/src/gemini_client.rs), and [`thinking_budget_for`](../gaise-provider-gemini/src/gemini_client.rs) enforce the table; [`tests/parameter_matrix_tests.rs`](../gaise-provider-gemini/tests/parameter_matrix_tests.rs) pins it.
 
@@ -124,7 +124,7 @@ No rule gates image input, audio input, tools, or `responseModalities` by model;
 |---|---|---|---|---|
 | Gemini 3.8 Flash (2026-09-02), 3.7 Flash, any later `gemini-3.<n>` Flash, 3.1 Pro | never sent (deprecated on all 3.x; 3.6+ ignore or 400; `candidateCount` is rejected on 3.x) | `thinkingLevel` | LOW, MEDIUM, HIGH (`minimal` → LOW) | → LOW (cannot disable) |
 | Gemini 4 and later (`gemini-<major>` with major ≥ 4; Gemini 4 Argon GA 2026-10-13, Gemini 4 Carbon GA 2026-11-10) | never sent | `thinkingLevel` | LOW, MEDIUM, HIGH (`minimal` → LOW; `xhigh` / `max` → HIGH) | → LOW |
-| Gemini 4 Hydrogen (`gemini-4-hydrogen*`, GA 2026-11-12) | never sent | `thinkingLevel` | LOW, MEDIUM, HIGH, XHIGH (default HIGH; `minimal` → LOW; `max` → XHIGH; a token budget maps to LOW, MEDIUM, or HIGH) | → LOW |
+| Gemini 4 Hydrogen (`gemini-4-hydrogen*`, GA 2026-11-12) and Gemini 4 Neon (`gemini-4-neon*`, GA 2026-11-18) | never sent | `thinkingLevel` | LOW, MEDIUM, HIGH, XHIGH (default HIGH; `minimal` → LOW; `max` → XHIGH; a token budget maps to LOW, MEDIUM, or HIGH) | → LOW |
 | Gemini 3.6, 3.5, 3.5-Lite, 3.1-Lite, 3 Flash preview | never sent | `thinkingLevel` | MINIMAL, LOW, MEDIUM, HIGH | → MINIMAL |
 | Nano Banana 2.1 (`gemini-nano-banana-*`, 2026-10-06) | never sent (Vertex: seed, temperature, topP, topK, and logprobs return an error) | `thinkingLevel` | MINIMAL, MEDIUM, HIGH (LOW → MEDIUM) | → MINIMAL |
 | Gemini Robotics ER 2 (`gemini-robotics-er-2-*`, preview; levels documented 2026-11-08) | never sent (sampling rules unpublished; built on 3.5 Flash) | `thinkingLevel` | MINIMAL, LOW, MEDIUM, HIGH (default HIGH) | → MINIMAL |
@@ -321,12 +321,13 @@ The router clears the operation filter before calling the provider and re-applie
 
 ## Models
 
-From the bundled registry (audited 2026-11-14), entries with `provider = "gemini"`. Dates are Gemini API dates only; Vertex AI has a separate lifecycle. "—" means none recorded.
+From the bundled registry (audited 2026-11-21), entries with `provider = "gemini"`. Dates are Gemini API dates only; Vertex AI has a separate lifecycle. "—" means none recorded.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
 | `gemini-4-carbon` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native (long decode not implemented) | GA 2026-11-10; Google's most capable reasoning model. Unified 1,048,576-token input and output window; one streaming request returns up to 6… |
 | `gemini-4-hydrogen` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh` | native (thinkingLevel LOW..XHIGH; long decode not implemented) | GA 2026-11-12. Same window and modalities as Gemini 4 Carbon; up to 65,536 output tokens per request, streaming or not, and up to 1,048,576… |
+| `gemini-4-neon` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh` | native (thinkingLevel LOW..XHIGH; long decode not implemented) | GA 2026-11-18. Text, image, video, audio, and PDF in; text out. Unified 1,048,576-token window; up to 65,536 output tokens per request, stre… |
 | `gemini-decision-1` | — | `stable` | — | text, image, audio, video, file | unknown | — | — | not supported: served only by the Gemini Decisions API (POST /v1beta/decisions), which GAISe does not map; use openai:: or typesafe:: for decisions | Released 2026-11-11 with the Decisions API (Gemini Developer API v1beta only; not on Vertex AI): binary (noul), categorical (choice), and ru… |
 | `gemini-4-argon` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native (long decode not implemented) | GA 2026-10-13. Unified 1,048,576-token input and output window; 65,536 output tokens per synchronous request, up to 1,048,576 with long deco… |
 | `gemini-3.8-flash` | — | `stable` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native | GA 2026-09-02; Google's most capable Flash model, aimed at long-horizon software engineering and agents. thinkingLevel minimal returns an er… |

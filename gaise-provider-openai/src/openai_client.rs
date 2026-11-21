@@ -267,10 +267,13 @@ pub fn openai_chat_rules(model: &str) -> OpenAIChatRules {
     // the Responses API only. `gpt-6-cyber` (2026-11-05) lists Chat
     // Completions, but it requires Daybreak Red approval and the
     // `access_programs` request field, which GAISe does not send, so every
-    // cyber id keeps failing fast.
+    // cyber id keeps failing fast. `gpt-6.2-astra-law` (pricing page,
+    // 2026-11-17) is listed under `ResponsesOnlyModel` in the Responses
+    // reference, so a tool-less request must not go to Chat Completions.
     if has("-pro") && (starts("gpt-5") || starts("gpt-6") || starts("o1") || starts("o3"))
         || has("cyber")
         || has("daybreak")
+        || starts("gpt-6.2-astra-law")
     {
         return OpenAIChatRules {
             chat_supported: false,
