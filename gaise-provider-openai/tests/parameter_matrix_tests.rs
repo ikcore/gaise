@@ -315,8 +315,13 @@ fn responses_only_models_are_identified() {
         "daybreak-red-latest",
         "gpt-daybreak-red-latest",
         "gpt-daybreak-blue-latest",
-        // GPT-Live 1 (2026-09-10) is served by the Live API only.
+        // GPT-Live 1 (2026-09-10) and GPT-Live 1.1 (2026-11-19) are served
+        // by the Live API only.
         "gpt-live-1",
+        "gpt-live-1.1",
+        // GPT-6.2 Astra for Law is `ResponsesOnlyModel` in the Responses
+        // reference (2026-11-21).
+        "gpt-6.2-astra-law",
     ] {
         assert!(!openai_chat_rules(model).chat_supported, "{model}");
     }
@@ -326,6 +331,8 @@ fn responses_only_models_are_identified() {
         "gpt-4.1",
         "o4-mini",
         "gpt-6-astra",
+        "gpt-6.2-astra",
+        "gpt-6.2-sol",
         "gpt-7-hypothetical",
     ] {
         assert!(openai_chat_rules(model).chat_supported, "{model}");
@@ -379,6 +386,27 @@ fn gpt6_1_sol_shares_the_astra_profile() {
     assert_eq!(json["reasoning_effort"], "low");
     assert!(json.get("temperature").is_none());
     assert!(chat_tools_require_responses("gpt-6.1-sol"));
+}
+
+#[test]
+fn gpt6_2_astra_and_sol_share_the_astra_profile() {
+    // Model pages and reasoning guide (2026-11-17, audited 2026-11-21): both
+    // support Chat Completions and Responses, "Tool calling requires the
+    // Responses API", `reasoning_effort` `none` is rejected, and
+    // `temperature` / `top_p` must be omitted on Chat Completions.
+    for model in ["gpt-6.2-astra", "gpt-6.2-sol"] {
+        assert_eq!(
+            openai_chat_rules(model),
+            openai_chat_rules("gpt-6-astra"),
+            "{model}"
+        );
+        assert!(!gpt6_follows_gpt56_rules(model), "{model}");
+        assert!(chat_tools_require_responses(model), "{model}");
+        let json = build(model, sink(Some("none")), false);
+        assert_eq!(json["reasoning_effort"], "low", "{model}");
+        assert!(json.get("temperature").is_none(), "{model}");
+        assert!(json.get("top_p").is_none(), "{model}");
+    }
 }
 
 #[test]

@@ -8,6 +8,46 @@ change, or an additive adapter feature is a minor release; a change to a public
 contract (removed or renamed items, new required fields, changed serialization)
 is a major release.
 
+## [5.9.0] - 2026-11-21
+
+Model audit of every provider. All changes are additive. No model id or alias
+was removed. Request shapes change only for ids released since the last
+audit.
+
+### Added
+- OpenAI `gpt-6.2-astra` and `gpt-6.2-sol` (2026-11-17). Both use the
+  existing GPT-6 Astra profile: Chat Completions for text and images, tool
+  calls routed to the Responses API, effort `none` clamped to `low`, and no
+  sampling. OpenAI lists no full effort set, so the registry leaves
+  `reasoning_values` unset.
+- OpenAI `gpt-live-1.1` (2026-11-19). It is catalogued only: it runs on the
+  Live API, and the instruct and live clients fail fast for it.
+- Bedrock `openai.gpt-6.2-astra` and `openai.gpt-6.2-sol` (launched
+  2026-11-17; `us.` and `global.` profiles; Converse on bedrock-runtime).
+- Gemini API and Vertex AI `gemini-4-neon` (GA 2026-11-18).
+- `thinkingLevel` `XHIGH` for `gemini-4-neon` ids in the Gemini and Vertex
+  adapters, as for Gemini 4 Hydrogen. Without this rule the generic Gemini 4
+  rule would have clamped Neon to `HIGH`.
+- Ollama family `inkling-2-mini` (local, 2026-11-20). It keeps the boolean
+  `think` toggle, because Ollama publishes no `/api/show` values for it.
+
+### Changed
+- The OpenAI instruct client now fails fast for `gpt-6.2-astra-law`, which
+  the Responses reference lists as Responses-only. Without this rule it would
+  have matched the GPT-6 rule and sent tool-less requests to Chat
+  Completions. The id is not registered, because it has no model page.
+- Vertex AI `gemini-3.6-flash`: shutdown moved from 2026-11-19 to
+  2027-01-28 (new and inactive projects are blocked since 2026-11-19), and the
+  replacement is now `gemini-4-hydrogen`. The `gemini-3.7-flash` replacement
+  is also now `gemini-4-hydrogen`.
+- ElevenLabs `eleven_v4`: `max_input_characters` is now 100,000, following
+  the models page.
+- Notes for OpenAI `gpt-5.2`, `gpt-5.4`, and `gpt-5.4-mini`: EU data
+  residency with the fast or priority tier ends on 2027-01-11. GAISe does not
+  send `service_tier`.
+- xAI `grok-build-0.1` is retired: it reached end of life on 2026-11-19. Its
+  `grok-code-fast-1` aliases still resolve to the row.
+
 ## [5.8.0] - 2026-11-14
 
 Model audit of every provider. All changes are additive. No model id or alias

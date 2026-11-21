@@ -1643,6 +1643,87 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
             .unwrap();
         assert!(vertex_live.classified().unwrap().operations.is_empty());
 
+        // Audit 2026-11-21.
+        let status = |provider: &str, id: &str| registry.find(provider, id).unwrap().status.clone();
+        for id in ["gpt-6.2-astra", "gpt-6.2-sol"] {
+            assert_eq!(find("openai", id), id);
+            let row = registry.find("openai", id).unwrap();
+            assert!(
+                row.reasoning_values.is_none(),
+                "{id}: OpenAI lists no effort set"
+            );
+            assert!(
+                row.classified()
+                    .unwrap()
+                    .operations
+                    .contains(&GaiseOperation::Instruct)
+            );
+            assert_eq!(
+                find("bedrock", &format!("global.openai.{id}")),
+                format!("openai.{id}")
+            );
+            assert_eq!(
+                find("bedrock", &format!("us.openai.{id}")),
+                format!("openai.{id}")
+            );
+        }
+        let live = registry.find("openai", "gpt-live-1.1").unwrap();
+        assert_eq!(live.model, "gpt-live-1.1");
+        assert!(live.classified().unwrap().operations.is_empty());
+        assert!(registry.find("openai", "gpt-6.2-astra-law").is_none());
+        for provider in ["gemini", "vertexai"] {
+            let neon = registry.find(provider, "gemini-4-neon").unwrap();
+            assert_eq!(neon.model, "gemini-4-neon", "{provider}");
+            assert_eq!(
+                neon.reasoning_values.as_deref(),
+                Some(&["low", "medium", "high", "xhigh"].map(String::from)[..]),
+                "{provider}"
+            );
+        }
+        assert_eq!(status("gemini", "gemini-4-neon"), "stable");
+        assert_eq!(status("vertexai", "gemini-4-neon"), "active");
+        let vertex_36 = registry.find("vertexai", "gemini-3.6-flash").unwrap();
+        assert_eq!(vertex_36.shutdown_date.as_deref(), Some("2027-01-28"));
+        assert_eq!(vertex_36.replacement.as_deref(), Some("gemini-4-hydrogen"));
+        assert_eq!(
+            registry
+                .find("vertexai", "gemini-3.7-flash")
+                .unwrap()
+                .replacement
+                .as_deref(),
+            Some("gemini-4-hydrogen")
+        );
+        assert_eq!(
+            registry
+                .find("gemini", "gemini-3.6-flash")
+                .unwrap()
+                .shutdown_date,
+            None,
+            "the Vertex extension is not a Gemini API date"
+        );
+        assert_eq!(status("xai", "grok-build-0.1"), "retired");
+        assert_eq!(
+            find("xai", "grok-code-fast-1"),
+            "grok-build-0.1",
+            "aliases are never removed"
+        );
+        assert_eq!(
+            registry
+                .find("elevenlabs", "eleven_v4")
+                .unwrap()
+                .max_input_characters,
+            Some(100_000)
+        );
+        assert!(
+            registry
+                .find("elevenlabs", "scribe_v3_live_medical")
+                .is_none()
+        );
+        for id in ["inkling-2-mini:latest", "inkling-2-mini:26b-a5b"] {
+            assert_eq!(find("ollama", id), "inkling-2-mini:*", "{id}");
+        }
+        assert_eq!(find("ollama", "inkling-2-small:cloud"), "inkling-2-small:*");
+
         // A heuristic claim is replaced by an explicit override.
         let mut model = GaiseModel::new("openai", "gpt-5.5-pro");
         model.capabilities.add_operation(GaiseOperation::Instruct);

@@ -417,3 +417,38 @@ fn gemini_4_hydrogen_accepts_xhigh_and_other_gemini_4_ids_stop_at_high() {
         }
     }
 }
+
+#[test]
+fn gemini_4_neon_accepts_xhigh_like_hydrogen() {
+    // Gemini 4 Neon (GA 2026-11-18 on the Gemini API and Vertex AI; audited
+    // 2026-11-21) accepts thinkingLevel LOW, MEDIUM, HIGH, XHIGH (default
+    // HIGH), rejects MINIMAL and thinking_budget, and ignores sampling.
+    use gaise_provider_vertexai::contracts::models::thinking_levels_for;
+    assert_eq!(
+        thinking_levels_for("gemini-4-neon"),
+        ["LOW", "MEDIUM", "HIGH", "XHIGH"]
+    );
+    for (effort, level) in [
+        ("none", "LOW"),
+        ("minimal", "LOW"),
+        ("low", "LOW"),
+        ("medium", "MEDIUM"),
+        ("high", "HIGH"),
+        ("xhigh", "XHIGH"),
+        ("max", "XHIGH"),
+    ] {
+        let cfg = build("gemini-4-neon", sink(Some(effort), None));
+        assert!(
+            cfg.temperature.is_none() && cfg.top_p.is_none() && cfg.top_k.is_none(),
+            "{effort}"
+        );
+        let thinking = cfg.thinking_config.expect("thinking config");
+        assert_eq!(thinking.thinking_level.as_deref(), Some(level), "{effort}");
+        assert!(thinking.thinking_budget.is_none(), "{effort}");
+    }
+    // A token budget maps to a level, never to thinking_budget.
+    let cfg = build("gemini-4-neon", sink(None, Some(30_000)));
+    let thinking = cfg.thinking_config.expect("thinking config");
+    assert!(thinking.thinking_budget.is_none());
+    assert_eq!(thinking.thinking_level.as_deref(), Some("HIGH"));
+}
