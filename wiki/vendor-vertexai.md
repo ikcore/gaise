@@ -125,7 +125,7 @@ Not mapped: `safetySettings`, `responseMimeType`/`responseSchema` (structured ou
 
 No other model-name rules exist; arbitrary IDs (including `publishers/anthropic` Claude models via the template) are passed through.
 
-### Parameter compatibility (audited 2026-11-21)
+### Parameter compatibility (audited 2026-11-24)
 
 [`model_uses_fixed_sampling`](../gaise-provider-vertexai/src/contracts/models.rs), [`thinking_levels_for`](../gaise-provider-vertexai/src/contracts/models.rs), [`normalize_thinking_level`](../gaise-provider-vertexai/src/contracts/models.rs), and [`thinking_budget_for`](../gaise-provider-vertexai/src/contracts/models.rs) enforce the table; [`tests/parameter_matrix_tests.rs`](../gaise-provider-vertexai/tests/parameter_matrix_tests.rs) pins it.
 
@@ -133,7 +133,7 @@ No other model-name rules exist; arbitrary IDs (including `publishers/anthropic`
 |---|---|---|---|---|
 | Gemini 3.8 Flash (2026-09-02), 3.7 Flash, any later `gemini-3.<n>` Flash, 3.1 Pro | never sent (ignored on 3.6+/3.5-Lite/3.7/3.8; `frequency_penalty`, `presence_penalty`, and `candidate_count` raise errors there) | `thinkingLevel` | LOW, MEDIUM, HIGH (`minimal` → LOW) | → LOW (cannot disable) |
 | Gemini 4 and later (`gemini-<major>` with major ≥ 4; Gemini 4 Argon GA 2026-10-13, Gemini 4 Carbon GA 2026-11-10) | never sent | `thinkingLevel` | LOW, MEDIUM, HIGH (`minimal` → LOW; `xhigh` / `max` → HIGH) | → LOW |
-| Gemini 4 Hydrogen (`gemini-4-hydrogen*`, GA 2026-11-12) and Gemini 4 Neon (`gemini-4-neon*`, GA 2026-11-18) | never sent | `thinkingLevel` | LOW, MEDIUM, HIGH, XHIGH (default HIGH; `minimal` → LOW; `max` → XHIGH; a token budget maps to LOW, MEDIUM, or HIGH) | → LOW |
+| Gemini 4 Hydrogen (`gemini-4-hydrogen*`, GA 2026-11-12) and Gemini 4 Neon (`gemini-4-neon*`, GA 2026-11-18; includes `gemini-4-neon-cyber-permissive`, GA 2026-11-23) | never sent | `thinkingLevel` | LOW, MEDIUM, HIGH, XHIGH (default HIGH; `minimal` → LOW; `max` → XHIGH; a token budget maps to LOW, MEDIUM, or HIGH) | → LOW |
 | Gemini 3.6, 3.5, 3.5-Lite, 3.1-Lite, 3 Flash preview (deprecated on Vertex, no date) | never sent | `thinkingLevel` | MINIMAL, LOW, MEDIUM, HIGH | → MINIMAL |
 | Nano Banana 2.1 (`gemini-nano-banana-*`, 2026-10-06) | never sent (Vertex: seed, temperature, topP, topK, and logprobs return an error) | `thinkingLevel` | MINIMAL, MEDIUM, HIGH (LOW → MEDIUM) | → MINIMAL |
 | Gemini Robotics ER 2 (`gemini-robotics-er-2-*`, preview; levels documented 2026-11-08) | never sent (sampling rules unpublished; built on 3.5 Flash) | `thinkingLevel` | MINIMAL, LOW, MEDIUM, HIGH (default HIGH) | → MINIMAL |
@@ -279,7 +279,7 @@ Tests: [`catalog.rs#L150`](../gaise-provider-vertexai/src/contracts/catalog.rs#L
 
 ## Models
 
-From `model-registry.toml` (audited 2026-11-21), `provider = "vertexai"` entries. Dates are Google Cloud dates only; Gemini API (`gemini`) lifecycle dates must never be copied here or vice versa. "Short-term" models retire 45 days after a designated replacement ships.
+From `model-registry.toml` (audited 2026-11-24), `provider = "vertexai"` entries. Dates are Google Cloud dates only; Gemini API (`gemini`) lifecycle dates must never be copied here or vice versa. "Short-term" models retire 45 days after a designated replacement ships.
 
 | Model | Aliases | Status | Dates | Input | Output | Operations | Reasoning values | GAISe support | Notes |
 |---|---|---|---|---|---|---|---|---|---|
@@ -287,6 +287,7 @@ From `model-registry.toml` (audited 2026-11-21), `provider = "vertexai"` entries
 | `gemini-4-carbon-cyber-permissive` | — | `limited_availability` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native for projects on the Fairwind Program allowlist | GA behind the Fairwind Program allowlist since 2026-11-10; short-term availability table, no retirement date announced. Same contract as gem… |
 | `gemini-4-hydrogen` | — | `active` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh` | native on the global, us, or eu endpoints (thinking_level LOW..XHIGH; long decode not implemented) | GA 2026-11-12 as a short-term release (minimum 45-day retirement notice); no retirement date announced. Same limits and regions as gemini-4-… |
 | `gemini-4-neon` | — | `active` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh` | native on the global, us, or eu endpoints (thinking_level LOW..XHIGH; long decode not implemented) | GA 2026-11-18 (the model page says it is available to verified enterprise customers in select regions); short-term availability table, no re… |
+| `gemini-4-neon-cyber-permissive` | — | `limited_availability` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high`, `xhigh` | native for projects on the Fairwind Program allowlist (thinking_level LOW..XHIGH through the Gemini 4 Neon rule; long decode not implemented) | GA 2026-11-23 behind the Fairwind Program allowlist for defensive cybersecurity workloads; short-term availability table, no retirement date… |
 | `gemini-4-argon` | — | `active` | not before 2027-10-13 | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native on the global, us, or eu endpoints (long decode not implemented) | GA 2026-10-13; 12-month availability table, retirement October 13, 2027 or later (recorded 2026-10-16). Unified 1,048,576-token input and ou… |
 | `gemini-4-argon-cyber-permissive` | — | `limited_availability` | — | text, image, audio, video, file | text | instruct, instruct_stream | `low`, `medium`, `high` | native for projects on the Fairwind Program allowlist | GA behind the Fairwind Program allowlist since 2026-10-13; short-term availability table, no retirement date announced. Same contract as gem… |
 | `gemini-3.8-flash-cyber` | — | `limited_availability` | — | text, image, file | text | instruct, instruct_stream | supported | native generateContent for allowlisted projects; function calling not supported | GA behind an allowlist since 2026-09-16; no retirement date announced. Thinking and structured output supported; function calling not suppor… |

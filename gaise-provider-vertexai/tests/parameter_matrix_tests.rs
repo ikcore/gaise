@@ -428,6 +428,21 @@ fn gemini_4_neon_accepts_xhigh_like_hydrogen() {
         thinking_levels_for("gemini-4-neon"),
         ["LOW", "MEDIUM", "HIGH", "XHIGH"]
     );
+    // Gemini 4 Neon for cyber (GA 2026-11-23, Fairwind allowlist; audited
+    // 2026-11-24) has the same thinking levels through the Neon prefix rule.
+    assert_eq!(
+        thinking_levels_for("gemini-4-neon-cyber-permissive"),
+        ["LOW", "MEDIUM", "HIGH", "XHIGH"]
+    );
+    let cfg = build("gemini-4-neon-cyber-permissive", sink(Some("max"), None));
+    assert!(cfg.temperature.is_none() && cfg.top_p.is_none() && cfg.top_k.is_none());
+    assert_eq!(
+        cfg.thinking_config
+            .expect("thinking config")
+            .thinking_level
+            .as_deref(),
+        Some("XHIGH")
+    );
     for (effort, level) in [
         ("none", "LOW"),
         ("minimal", "LOW"),

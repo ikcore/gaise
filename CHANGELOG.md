@@ -8,6 +8,37 @@ change, or an additive adapter feature is a minor release; a change to a public
 contract (removed or renamed items, new required fields, changed serialization)
 is a major release.
 
+## [5.10.0] - 2026-11-24
+
+Model audit of every provider. All changes are additive. No model id or alias
+was removed, and no request shape changes: the new ids are covered by the
+existing family rules.
+
+### Added
+- Vertex AI `gemini-4-neon-cyber-permissive` (GA 2026-11-23, Fairwind Program
+  allowlist). It gets `thinkingLevel` LOW to XHIGH and no sampling through the
+  existing Gemini 4 Neon prefix rule.
+- Ollama family `hy4` (cloud-only `hy4:cloud`, library date 2026-11-19). It
+  keeps the boolean `think` toggle, which matches the values `/api/show`
+  reports.
+
+### Changed
+- OpenAI `gpt-6-rosalind`: the pricing in the notes now follows the pricing
+  page ($10 input, $1 cached, $50 output per 1M, short context).
+- xAI `grok-build-0.1`: the notes record that the model page, pricing rows,
+  and catalog entry are gone. It stays `retired`.
+- Provider notes now record the 2026-11-24 audit for every provider,
+  including xAI speech-to-text redaction (reachable through
+  `provider_options`) and the silent xAI caps on `temperature` and `top_p`.
+
+### Deprecated
+- Anthropic `claude-opus-4-5-20251101` (`claude-opus-4-5`) is deprecated
+  (2026-11-23). Retirement on the Claude API is scheduled for 2027-01-22;
+  replacement `claude-opus-5-5`.
+- Bedrock `anthropic.claude-opus-4-5-20251101-v1:0` is Legacy in all
+  commercial Regions since 2026-11-23: public extended access from
+  2027-02-23, end of life 2027-05-23, and no replacement published.
+
 ## [5.9.0] - 2026-11-21
 
 Model audit of every provider. All changes are additive. No model id or alias
