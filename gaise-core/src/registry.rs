@@ -1724,6 +1724,49 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
         }
         assert_eq!(find("ollama", "inkling-2-small:cloud"), "inkling-2-small:*");
 
+        // Audit 2026-11-24.
+        let opus_45 = registry.find("anthropic", "claude-opus-4-5").unwrap();
+        assert_eq!(opus_45.model, "claude-opus-4-5-20251101");
+        assert_eq!(status("anthropic", "claude-opus-4-5"), "deprecated");
+        assert_eq!(opus_45.shutdown_date.as_deref(), Some("2027-01-22"));
+        assert_eq!(opus_45.replacement.as_deref(), Some("claude-opus-5-5"));
+        let bedrock_opus_45 = registry
+            .find("bedrock", "global.anthropic.claude-opus-4-5-20251101-v1:0")
+            .unwrap();
+        assert_eq!(
+            bedrock_opus_45.model,
+            "anthropic.claude-opus-4-5-20251101-v1:0"
+        );
+        assert_eq!(
+            status("bedrock", "anthropic.claude-opus-4-5-20251101-v1:0"),
+            "legacy"
+        );
+        assert_eq!(
+            bedrock_opus_45.shutdown_date.as_deref(),
+            Some("2027-05-23"),
+            "Bedrock keeps AWS dates, not the Claude API retirement"
+        );
+        assert_eq!(bedrock_opus_45.replacement, None);
+        let neon_cyber = registry
+            .find("vertexai", "gemini-4-neon-cyber-permissive")
+            .unwrap();
+        assert_eq!(neon_cyber.model, "gemini-4-neon-cyber-permissive");
+        assert_eq!(
+            neon_cyber.reasoning_values.as_deref(),
+            Some(&["low", "medium", "high", "xhigh"].map(String::from)[..])
+        );
+        assert_eq!(
+            status("vertexai", "gemini-4-neon-cyber-permissive"),
+            "limited_availability"
+        );
+        assert!(
+            registry
+                .find("gemini", "gemini-4-neon-cyber-permissive")
+                .is_none_or(|m| m.model != "gemini-4-neon-cyber-permissive"),
+            "Vertex AI only"
+        );
+        assert_eq!(find("ollama", "hy4:cloud"), "hy4:*");
+
         // A heuristic claim is replaced by an explicit override.
         let mut model = GaiseModel::new("openai", "gpt-5.5-pro");
         model.capabilities.add_operation(GaiseOperation::Instruct);
