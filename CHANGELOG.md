@@ -8,6 +8,27 @@ change, or an additive adapter feature is a minor release; a change to a public
 contract (removed or renamed items, new required fields, changed serialization)
 is a major release.
 
+## [5.11.0] - 2026-11-25
+
+Gemini Decisions API support. All changes are additive: `decision` on a
+`gemini::` model returned "not supported" before, and no other request shape
+changes.
+
+### Added
+- Gemini `decision` and `decision_with_images` on `gemini::gemini-decision-1`
+  through the Gemini Decisions API (`POST /v1beta/decisions`, launched
+  2026-11-11, Gemini Developer API only). `noul`, `choice`, and `score`
+  questions map onto Gemini's question types of the same names. Media
+  passed to `decision_with_images` is sent as inline content blocks: images,
+  audio, and PDF or video files.
+- New public module `gaise_provider_gemini::gemini_decisions` with
+  `decision_request`, `decision_request_with_media`, `map_decision_answers`,
+  and `map_decision_usage`.
+
+### Changed
+- Registry: `gemini-decision-1` now carries the `decision` operation
+  (previously `operations = []`).
+
 ## [5.10.0] - 2026-11-24
 
 Model audit of every provider. All changes are additive. No model id or alias
@@ -629,6 +650,7 @@ request rules in advance.
   ElevenLabs speech, standardized embeddings, the model limits matrix
   (`/v1/models/limits`), and the wiki.
 
+[5.11.0]: https://github.com/ikcore/gaise/pull/31
 [5.10.0]: https://github.com/ikcore/gaise/pull/29
 [5.9.0]: https://github.com/ikcore/gaise/pull/27
 [5.8.0]: https://github.com/ikcore/gaise/pull/26

@@ -1214,9 +1214,8 @@ provider = "gemini"
 model = "gemini-decision-1"
 status = "stable"
 capabilities = ["decision", "image_input", "audio_input", "video_input", "files"]
-operations = []
 context_window = 262144
-gaise_support = "not supported: served only by the Gemini Decisions API (POST /v1beta/decisions), which GAISe does not map; use openai:: or typesafe:: for decisions"
+gaise_support = "typed decisions through the Gemini Decisions API (POST /v1beta/decisions); decision only, no instruct"
 notes = "Released 2026-11-11 with the Decisions API (Gemini Developer API v1beta only; not on Vertex AI): binary (noul), categorical (choice), and rubric (score) decisions over text, images, audio, video, and PDFs with zero output tokens. 262,144 input tokens; 1 to 1,000 questions per request. No text generation, thinking, function calling, structured outputs, Batch, caching, or Live API. The model page does not say whether the model is stable or preview."
 
 [[models]]

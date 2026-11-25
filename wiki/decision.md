@@ -1,4 +1,4 @@
-# Decision: TypeSafe Jev, OpenAI, and Ollama
+# Decision: TypeSafe Jev, OpenAI, Gemini, and Ollama
 
 ## Decision and TypeSafe Jev
 
@@ -246,6 +246,41 @@ decision vocabulary and adds OpenAI's details:
 `safety_identifier` is not sent. Correlation and connection metadata never
 leave GAISe.
 
+### Gemini Decisions (gemini-decision-1)
+
+Google's Gemini Decisions API (`POST /v1beta/decisions`) launched on 2026-11-11
+with one model, `gemini-decision-1`. It is on the Gemini Developer API only;
+Vertex AI support is announced as coming soon, so `vertexai::` has no decision
+route. GAISe routes `gemini::gemini-decision-1` decisions there with the
+`GEMINI_API_KEY` configured for chat, sent in the `x-goog-api-key` header. It
+bills input tokens only ($0.10 per 1M at launch) and never produces output
+tokens. Gemini uses the same `noul` / `choice` / `score` vocabulary and
+question-keyed maps as System One, so the adapter
+([`gemini_decisions.rs`](../gaise-provider-gemini/src/gemini_decisions.rs))
+changes little:
+
+| GAISe | Gemini | Notes |
+| --- | --- | --- |
+| `state` | `input` text | Strings pass through; objects and arrays are sent as compact JSON text; `null` is rejected |
+| question id | question key | 1 to 64 characters of `[A-Za-z0-9_-]`; 1 to 1,000 questions per request |
+| `noul` criteria `true` / `false` | `criteria.true_description` / `false_description` | Omitted when absent |
+| `choice` criteria | `criteria` option map | 2 to 255 options; keys of 1 to 128 characters with no surrounding spaces or control characters; a `null` description becomes `""` |
+| `score` criteria | ordered `criteria` strings | 2 to 255 levels; a string passes through; a `{label, description}` object becomes `"label: description"`; `null` becomes the index; anything else becomes JSON text |
+| `instructions` | `instructions` | Required on every question; non-string values are sent as JSON text |
+
+Answers come back keyed by question id. The score `legend` is rebuilt from the
+request criteria rather than taken from Gemini's level strings, so it matches
+TypeSafe's. Gemini returns no model version, so `model` is the requested id.
+Usage: `usage.input.input_tokens` plus a per-modality split
+(`text_tokens`, `image_tokens`, …), `usage.output.output_tokens` (always 0), and
+`usage.total.total_tokens`. Safety blocks and limit violations return `400`
+with an `error.code` such as `safety` or `prohibited_content`; GAISe returns the
+status and body in the error message.
+
+Gemini sorts choice options alphabetically before evaluation and breaks exact
+ties toward the alphabetically first key. Context caching, Batch, and
+Flex/Priority inference are not available for this API.
+
 ### Images
 
 `GaiseClient::decision_with_images(&request, &images)` adds images
@@ -265,13 +300,15 @@ array to the `POST /v1/decision` body:
 
 | Provider | How images are sent | Limit |
 | --- | --- | --- |
+| Gemini (`gemini-decision-1`) | `input` becomes an array of content blocks: the state as `text`, then inline base64 `image`, `audio`, `document` (PDF files), or `video` (files by extension) blocks; extra `GaiseContent::Text` becomes a `text` block on a new line | 100 MB inline per request |
 | OpenAI (`gpt-6-luna`) | One user message: the state as `input_text`, then each image as an `input_image` base64 data URL | 128 images |
 | Ollama (`clef`, `clef-flash`, `d1`, `pplx-decider`) | `images`: raw base64 strings | 32 MiB request body |
 | TypeSafe (`jev`, `jev-1.14.0`) | Top-level `assets` map of base64 PNG/JPEG keyed by fresh references, listed under `images` in the state; header `TypeSafe-Danger-Zone-Images: true` | 16 MiB per image, 280 to 1568 px per side, 32 MiB per request |
 | Every other client | Rejected: "Image input for decisions is not supported by this client" | — |
 
 An empty `images` array behaves exactly like `decision`. Only image content is
-accepted.
+accepted, except by Gemini, which also takes audio and PDF or video files
+(`GaiseContent::File` named `*.pdf`, `*.mp4`, `*.mov`, `*.webm`, …).
 
 TypeSafe (since 2026-10-14, labelled Dreamer-ready, so the format can change)
 replaces a reference string with its image wherever the reference appears. For
@@ -312,8 +349,8 @@ are returned without retrying. There is no Decision streaming endpoint.
 
 ```toml
 [dependencies]
-gaise-core = { package = "gaise", version = "5.10.0" }
-gaise-client = { version = "5.10.0", default-features = false, features = ["typesafe"] }
+gaise-core = { package = "gaise", version = "5.11.0" }
+gaise-client = { version = "5.11.0", default-features = false, features = ["typesafe"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 ```

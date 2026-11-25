@@ -4,13 +4,13 @@ use base64::Engine;
 use futures_util::{Stream, StreamExt};
 use gaise_core::GaiseClient;
 use gaise_core::contracts::{
-    GaiseContent, GaiseContentEmbeddingsRequest, GaiseEmbeddingsRequest, GaiseEmbeddingsResponse,
-    GaiseFunctionCall, GaiseImageRequest, GaiseImageResponse, GaiseInstructRequest,
-    GaiseInstructResponse, GaiseInstructStreamResponse, GaiseListModelsRequest,
-    GaiseListModelsResponse, GaiseMessage, GaiseReasoningEffort, GaiseStreamChunk, GaiseTool,
-    GaiseToolCall, GaiseToolParameter, GaiseTranscriptionRequest, GaiseTranscriptionResponse,
-    GaiseUsage, OneOrMany, ResolvedEmbedding, audio_media_type, file_media_type, image_media_type,
-    normalize_l2,
+    GaiseContent, GaiseContentEmbeddingsRequest, GaiseDecisionRequest, GaiseDecisionResponse,
+    GaiseEmbeddingsRequest, GaiseEmbeddingsResponse, GaiseFunctionCall, GaiseImageRequest,
+    GaiseImageResponse, GaiseInstructRequest, GaiseInstructResponse, GaiseInstructStreamResponse,
+    GaiseListModelsRequest, GaiseListModelsResponse, GaiseMessage, GaiseReasoningEffort,
+    GaiseStreamChunk, GaiseTool, GaiseToolCall, GaiseToolParameter, GaiseTranscriptionRequest,
+    GaiseTranscriptionResponse, GaiseUsage, OneOrMany, ResolvedEmbedding, audio_media_type,
+    file_media_type, image_media_type, normalize_l2,
 };
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -1082,6 +1082,59 @@ impl GaiseClient for GaiseClientGemini {
         Ok(crate::gemini_media::map_gemini_transcription_response(
             response,
         )?)
+    }
+
+    /// Typed decisions through the Gemini Decisions API
+    /// (`POST /v1beta/decisions`, `gemini-decision-1`). See
+    /// [`crate::gemini_decisions`] for the mapping.
+    async fn decision(
+        &self,
+        request: &GaiseDecisionRequest,
+    ) -> Result<GaiseDecisionResponse, Box<dyn std::error::Error + Send + Sync>> {
+        self.decision_with_images(request, &[]).await
+    }
+
+    /// [`decision`](GaiseClient::decision) with shared media: images, audio,
+    /// and PDF or video files, sent as inline content blocks after the state.
+    async fn decision_with_images(
+        &self,
+        request: &GaiseDecisionRequest,
+        images: &[GaiseContent],
+    ) -> Result<GaiseDecisionResponse, Box<dyn std::error::Error + Send + Sync>> {
+        use crate::gemini_decisions::{
+            decision_request_with_media, map_decision_answers, map_decision_usage,
+        };
+        request.validate()?;
+        let body = decision_request_with_media(request, images)?;
+        let response = self
+            .client
+            .post(format!("{}/decisions", self.api_url))
+            .header("x-goog-api-key", &self.api_key)
+            .json(&body)
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            let status = response.status();
+            let err_text = response.text().await?;
+            return Err(format!("Gemini API error ({status}): {err_text}").into());
+        }
+        let body = response.text().await?;
+        let decision: serde_json::Value = serde_json::from_str(&body).map_err(|e| {
+            let snippet: String = body.chars().take(400).collect();
+            format!("failed to parse Gemini decision response: {e}; body starts: {snippet}")
+        })?;
+        let answers = map_decision_answers(request, &decision["answers"])?;
+        request
+            .check_answers(&answers)
+            .map_err(|e| format!("Gemini response {e}"))?;
+        Ok(GaiseDecisionResponse {
+            model: decision["model"]
+                .as_str()
+                .unwrap_or(&request.model)
+                .to_string(),
+            answers,
+            usage: map_decision_usage(&decision["usage"]),
+        })
     }
 
     /// Nano Banana image generation and editing through `generateContent`;

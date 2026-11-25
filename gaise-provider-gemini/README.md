@@ -11,6 +11,7 @@ Google Gemini provider for [GAISe](https://crates.io/crates/gaise) — implement
 - Text and multimodal (image, audio) instruct via `generateContent`
 - Streaming via `streamGenerateContent` (SSE)
 - Batch embeddings via `batchEmbedContents`
+- Typed decisions (`decision`, `decision_with_images`) on `gemini-decision-1` via the Gemini Decisions API (`POST /v1beta/decisions`)
 - System instruction extraction (top-level `systemInstruction`)
 - Function calling with provider call IDs, names, and thought signatures preserved
 - Thinking config (`thinkingLevel` for 3.x, `thinkingBudget` for 2.5)

@@ -1312,9 +1312,10 @@ capabilities = ["text", "reasoning", "streaming", "tools"]
             "gemini-4-carbon-cyber-permissive"
         );
         let decision = registry.find("gemini", "gemini-decision-1").unwrap();
-        assert!(
-            decision.classified().unwrap().operations.is_empty(),
-            "the Gemini Decisions API is not mapped"
+        assert_eq!(
+            decision.classified().unwrap().operations,
+            vec![GaiseOperation::Decision],
+            "the Gemini Decisions API backs decision only"
         );
         assert!(registry.find("vertexai", "gemini-decision-1").is_none());
         assert!(
