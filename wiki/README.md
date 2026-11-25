@@ -17,7 +17,7 @@ GAISe (Generative AI Service) is a Rust workspace that maps one provider-neutral
 | [**examples.md**](examples.md) | Rust request examples for text, media, files, reasoning, generated images, tools, streaming, embeddings, discovery, and live. |
 | [**roadmap.md**](roadmap.md) | What comes next: live verification of the 5.0/5.5 paths, additive 5.x work, the breaking changes planned for 6.0, and housekeeping. |
 | [**media.md**](media.md) | Transcription (batch and streaming), image generation and editing, and asynchronous video generation across OpenAI, Gemini, Vertex AI, Bedrock, ElevenLabs, and xAI. |
-| [**decision.md**](decision.md) | TypeSafe Jev, OpenAI Decisions (`gpt-6-luna`), and Ollama decision models: typed questions, images, HTTP and Rust examples, configuration, responses, usage, discovery, and errors. |
+| [**decision.md**](decision.md) | TypeSafe Jev, OpenAI Decisions (`gpt-6-luna`), Gemini Decisions (`gemini-decision-1`), and Ollama decision models: typed questions, images, HTTP and Rust examples, configuration, responses, usage, discovery, and errors. |
 | [**releasing.md**](releasing.md) | Version synchronization, package verification, and crates.io publish order. |
 
 ### Vendors

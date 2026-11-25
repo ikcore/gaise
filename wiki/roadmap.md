@@ -24,6 +24,7 @@ Every path added in 5.0 and 5.5 has only been tested against local mocks. The fi
   - Veo `resolution: "4k"`.
   - Inline Veo bytes when `storageUri` is omitted.
   - Whether the Vertex client's 120 s timeout is long enough for 4K images and long audio.
+  - The Gemini Decisions API mapping (`gemini-decision-1`) against the live API, and a `vertexai::` decision route once Vertex AI supports it.
 - **Bedrock:**
   - The Luma Ray 2 output object path (`{s3Uri}/output.mp4` is inferred from the Nova Reel docs).
   - The Stable Image Ultra and Core request shapes and `output_format` casing.

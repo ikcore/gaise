@@ -71,7 +71,7 @@ Model registry audited **2026-11-24**. Newest additions: Gemini 4 Neon for cyber
 |---|---|---|---|
 | OpenAI | [`gaise-provider-openai`](https://crates.io/crates/gaise-provider-openai) | Chat Completions, Decisions, Embeddings, Realtime | GPT-6.2 Astra and Sol, GPT-6 Astra, GPT-6.1 Sol, and GPT-6.1 Terra (text and images; tool calls are routed to the Responses API), GPT-6 Sol/Luna, GPT-5.6 Sol/Terra/Luna, GPT-5.5, GPT-5.4, Realtime 2.1, text-embedding-3; typed decisions on `gpt-6-luna` through the Decisions API (beta); older GPT-5.x and 4.x ids still resolve. GPT-Live 1 and 1.1, GPT Image 2.5, and GPT-Rosalind are catalogued but served by APIs outside the chat client |
 | Anthropic | [`gaise-provider-anthropic`](https://crates.io/crates/gaise-provider-anthropic) | Messages | Claude Fable 5.2 and Mythos 5.2 (2026-11-09), Opus 5.5, Sonnet 5.5, Haiku 5.5 (2026-10-07), Mythos 5.1, Opus 5, Sonnet 5; Fable 5.1, Fable 5, Haiku 4.5, and the Opus/Sonnet 4.x line stay available as legacy |
-| Gemini | [`gaise-provider-gemini`](https://crates.io/crates/gaise-provider-gemini) | generateContent, Embeddings, Live | Gemini 4 Neon (GA 2026-11-18), Gemini 4 Hydrogen (GA 2026-11-12), Gemini 4 Carbon (GA 2026-11-10), Gemini 4 Argon (GA 2026-10-13), Gemini 3.8 Flash (GA 2026-09-02), 3.6 Flash, 3.5 Flash-Lite, 3.1 Pro preview, Nano Banana 2.1 (2026-10-06), 3.1 Flash Live, gemini-embedding-2 (text, images, audio, video, and PDF through `embed_contents`) |
+| Gemini | [`gaise-provider-gemini`](https://crates.io/crates/gaise-provider-gemini) | generateContent, Embeddings, Live, Decisions | Gemini 4 Neon (GA 2026-11-18), Gemini 4 Hydrogen (GA 2026-11-12), Gemini 4 Carbon (GA 2026-11-10), Gemini 4 Argon (GA 2026-10-13), Gemini 3.8 Flash (GA 2026-09-02), 3.6 Flash, 3.5 Flash-Lite, 3.1 Pro preview, Nano Banana 2.1 (2026-10-06), 3.1 Flash Live, gemini-embedding-2 (text, images, audio, video, and PDF through `embed_contents`); typed decisions on `gemini-decision-1` through the Gemini Decisions API |
 | Vertex AI | [`gaise-provider-vertexai`](https://crates.io/crates/gaise-provider-vertexai) | generateContent, Embeddings | Gemini 4 Neon, Hydrogen, Carbon, and Argon, Gemini 3.8 Flash through 3.1 Flash-Lite, 3.1 Pro preview, image-output models, gemini-embedding-001 and text-embedding-005 |
 | Bedrock | [`gaise-provider-bedrock`](https://crates.io/crates/gaise-provider-bedrock) | Converse, ConverseStream, InvokeModel | Claude Fable 5.2 / Fable 5.1 / Opus 5 / Sonnet 5 / Haiku 5.5, Amazon Nova 2 Lite and Nova Pro/Lite/Micro, OpenAI GPT-6.2 Astra and Sol, GPT-6 Astra, GPT-5.6, and gpt-oss, xAI Grok 4.6, DeepSeek V3.2, Mistral Large 3, Llama 4, Qwen3 Coder; Titan, Cohere, and Nova embeddings |
 | ElevenLabs | [`gaise-provider-elevenlabs`](https://crates.io/crates/gaise-provider-elevenlabs) | Text-to-speech and realtime voice | ElevenLabs speech and voice models |
@@ -135,16 +135,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 The router strips the provider prefix before calling the adapter. Direct provider clients therefore receive `gemini-3.8-flash`, while `GaiseClientService` receives `gemini::gemini-3.8-flash`.
 
-## Typed decisions (TypeSafe Jev, OpenAI, Ollama)
+## Typed decisions (TypeSafe Jev, OpenAI, Gemini, Ollama)
 
 Set `TYPESAFE_API_KEY` for the HTTP server, then send a request to
 `POST /v1/decision` (or its alias `POST /v1/systemone`) with model `typesafe::jev`.
 Local Ollama decision models use the same request with `ollama::nimble` or
 `ollama::tev1` and need Ollama 0.35 or later. OpenAI's Decisions API
-uses `openai::gpt-6-luna`. GAISe maps `jev` to TypeSafe's `jev-latest` and
+uses `openai::gpt-6-luna`, and Google's Gemini Decisions API uses
+`gemini::gemini-decision-1`. GAISe maps `jev` to TypeSafe's `jev-latest` and
 preserves typed `choice`, `score`, and `noul` answers. Add an `images` array, or
 call `GaiseClient::decision_with_images`, to share images with every question on
-`typesafe::jev`, `openai::gpt-6-luna`, or an Ollama vision decision model
+`typesafe::jev`, `openai::gpt-6-luna`, `gemini::gemini-decision-1` (which also
+takes audio, PDF, and video), or an Ollama vision decision model
 (`clef`, `clef-flash`, `d1`, `pplx-decider`).
 
 Library callers use `GaiseClient::decision` with `GaiseDecisionRequest` and
